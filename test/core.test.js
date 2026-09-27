@@ -15,7 +15,21 @@ const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');
 const {InMemoryTransport}=await import('@modelcontextprotocol/sdk/inMemory.js');
 const {buildApp}=await import('../src/server.js');
 const {sendConversationReply}=await import('../src/inbox.js');
+const {LoginSecurity}=await import('../src/login-security.js');
+const {loginHtml}=await import('../src/ui.js');
 
+
+test('login page is product-facing and uses Bootstrap Icons password toggle',()=>{
+ const html=loginHtml();assert.ok(html.includes('bootstrap-icons@1.13.1'));assert.ok(html.includes('bi-eye'));assert.ok(!html.includes('CRM Node מלא'));
+});
+test('login security locks globally and persists the triggering IP after three failures',async()=>{
+ const {mkdtemp,rm,unlink,readFile}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const dir=await mkdtemp(join(tmpdir(),'aharon-crm-login-')),guard=new LoginSecurity({dataDir:dir,maxAttempts:3});
+ try{
+  await guard.initialize();assert.equal((await guard.failed('::ffff:203.0.113.7')).locked,false);assert.equal((await guard.failed('203.0.113.7')).locked,false);const third=await guard.failed('203.0.113.7');assert.equal(third.locked,true);assert.equal(await guard.isLocked(),true);assert.equal(await guard.isBlacklisted('203.0.113.7'),true);
+  const lock=JSON.parse(await readFile(guard.paths().lockFile,'utf8'));assert.equal(lock.trigger_ip,'203.0.113.7');await unlink(guard.paths().lockFile);assert.equal(await guard.isLocked(),false);assert.equal(await guard.isBlacklisted('203.0.113.7'),true);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
 test('email text never turns into a wildcard phone lookup',()=>{
  assert.equal(phoneOf('alice@example.test'),'');assert.equal(phoneOf('123456@g.us'),'');
  assert.equal(phoneOf('972501234567@s.whatsapp.net'),'972501234567');
