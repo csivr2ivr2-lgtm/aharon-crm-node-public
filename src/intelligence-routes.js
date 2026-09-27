@@ -14,7 +14,7 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  const scope={internal:true,actor:'dashboard',source:'manual'};
  const route=(method,url,handler)=>app.route({method,url,handler:async(req,reply)=>{if(!uiAuth(req,reply))return;return handler(req,reply);}});
  route('GET','/api/background/status',async()=>{const [rows]=await db.execute("SELECT status,COUNT(*) AS n FROM jobs GROUP BY status");const counts=Object.fromEntries(rows.map(r=>[r.status,Number(r.n)]));return {ok:true,...backgroundState,queued:counts.queued||0,failed:counts.failed||0};});
- route('GET','/api/security/status',async()=>({ok:true,failed_attempts:[...loginSecurity.attempts].map(([ip,count])=>({ip,count})),blocked_ips:(await loginSecurity.blacklist()).blocked,locked:await loginSecurity.isLocked()}));
+ route('GET','/api/security/status',async()=>({ok:true,failed_attempts:[...loginSecurity.attempts].map(([ip,count])=>({ip,count})),blocked_ips:(await loginSecurity.blacklist()).blocked.map(entry=>entry.ip),locked:await loginSecurity.isLocked()}));
  route('GET','/api/settings',async()=>({ok:true,settings:await getSettings()}));
  route('PATCH','/api/settings',async req=>({ok:true,settings:await updateSettings(req.body,{actor:'dashboard'})}));
  route('GET','/api/jobs',async()=>({ok:true,items:await listJobs()}));

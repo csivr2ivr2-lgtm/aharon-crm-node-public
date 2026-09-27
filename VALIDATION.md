@@ -1,3 +1,35 @@
+# AI CRM integration validation — 2026-09-27
+
+Baseline GitHub main: `239306ba7d63fb9edc71fe6590bbd4e6f75823c8`.
+Saved implementation checkpoints: `cef49b86fd4e9769847d7f1cb139ea2d63c72418`, `1dab8c2047ffd816189795f6430539ab2f24165d`, `af1d2747675954e59b2db529131d2c27f4b7cf64`.
+
+- Clean installation succeeded with the existing CPU-only ONNX setup; added pinned `unpdf@1.4.0` (MIT) and `mammoth@1.13.0` (BSD-2-Clause).
+- Syntax/legacy checks, automated tests, the repository secret scan and npm dependency audit were executed after integration. 110 tests passed with 0 failures; the secret scan checked 54 files with 0 findings; npm audit reported 0 vulnerabilities.
+- Tests exercise real Fastify request injection and browser scripts in a controlled DOM VM; SQL/provider operations use controlled doubles. Real PDF and DOCX fixtures are extracted by their parsers in bounded worker threads.
+- Covered: tool schemas/permissions, confirmation tokens/expiry, sender changes, parallel sends and draft reservation, uncertain send replay, client identity locking, incoming-message/job atomicity, stale draft suppression, prompt-injection examples, client isolation, spam feedback, typed source-evidenced suggestions, lifecycle relations, reminders, parser limits/path isolation, settings, job retries and connector onboarding.
+- No real email or WhatsApp message was sent. No deployment or production database update was performed.
+
+## External validation still required
+
+- Run additive migrations against a backed-up copy of the deployment MySQL/MariaDB database. A live database server was unavailable in this environment; no live SQL migration test is claimed.
+- Connect Google OAuth, Hostinger mailbox and WhatsApp and verify real send/receive/reconnect. Account credentials and OAuth consent are external prerequisites.
+- Verify local model memory/latency and Hebrew output on the hosting plan, or configure an external provider. No new live-model quality benchmark was performed in this integration round.
+- Verify rendered desktop/mobile layouts in a real browser. The automated UI checks validate rendering logic, escaping and routes, not screenshot appearance.
+
+## Functional boundaries not claimed complete
+
+- Hostinger has one active mailbox per deployment. Google supports multiple accounts. Message synchronization is bounded, not a full historical mailbox import; attachment ingestion is separate from manual CRM uploads.
+- Calendar/Drive expose read-only connected methods through MCP; the central assistant does not yet retrieve live Drive document contents or calendars as part of automatic draft context.
+- Cross-client conversations are excluded from customer draft retrieval. A separately reviewed, de-identified shared business knowledge corpus and automatic style learning are not implemented.
+- Providers and retrieval are shared, while inbox SQL automation and the legacy task worker still have typed execution paths separate from the chat ActionEngine. A single unified action implementation for every background mutation is not complete.
+- Deadline detection and source-grounded AI proposals exist, but full autonomous follow-up planning, unattended outbound follow-ups, comprehensive alias editing and multi-session persistent chat history are not implemented.
+- File deletion is soft deletion; permanent physical purge is not exposed. Reversible file updates recover from handled database errors; a filesystem and database transaction cannot guarantee atomic recovery after process/host power loss.
+- Prompt-injection defenses use bounded untrusted context, strict schemas, isolated retrieval and explicit policy/confirmation. Tests are regression evidence, not a proof that an LLM can never produce an unsafe suggestion.
+
+Earlier notes below are historical and do not establish validation of the new features.
+
+---
+
 # Public mirror note — 2026-09-27
 
 This repository, `csivr2ivr2-lgtm/aharon-crm-node-public`, is the public mirror created from the validated private source repository. Its visibility is **public**. The historical validation notes below describe the source repository at the time those checks were run. The public mirror's `package-lock.json` was regenerated from the same `package.json` using Node.js 20.20.2 / npm during mirror creation.
