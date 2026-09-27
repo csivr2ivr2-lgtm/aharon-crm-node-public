@@ -1,3 +1,7 @@
+# Public mirror note — 2026-09-27
+
+This repository, `csivr2ivr2-lgtm/aharon-crm-node-public`, is the public mirror created from the validated private source repository. Its visibility is **public**. The historical validation notes below describe the source repository at the time those checks were run. The public mirror's `package-lock.json` was regenerated from the same `package.json` using Node.js 20.20.2 / npm during mirror creation.
+
 # Current audit — 2026-09-27
 
 Reviewed the current GitHub `main` snapshot at `a73cb098c6284b111a5142fc39ff0b78a7365147` before making changes.
@@ -9,7 +13,7 @@ Reviewed the current GitHub `main` snapshot at `a73cb098c6284b111a5142fc39ff0b78
 - `npm run scan:secrets`: 31 files scanned, 0 findings. GitHub's repository secret-scanning endpoint remains unavailable because Advanced Security is not enabled. The prior history scan recorded below covers the earlier commit range; the current HEAD only removes an obsolete connector file.
 - `npm audit` was not rerun: the dependency lockfile is unchanged, and the previous audit recorded below reported 0 vulnerabilities after the `sharp` fix.
 
-The stated Node migration and CRM functions are present in this `main` snapshot; this audit found no remaining code change required for the listed goals. Production database migrations and live Gmail, Hostinger Mail, WhatsApp, and browser UI checks remain unverified as described below. The repository is still private.
+The stated Node migration and CRM functions are present in this `main` snapshot; this audit found no remaining code change required for the listed goals. Production database migrations and live Gmail, Hostinger Mail, WhatsApp, and browser UI checks remain unverified as described below. The source repository was private at the time of this audit.
 
 # Validation — 2026-09-26
 
@@ -27,4 +31,4 @@ Base reviewed: `b05c9282515f9524fac24c55dd738670f8186846` on `main`.
 
 Live Gmail, Hostinger IMAP/SMTP, WhatsApp QR/session behavior and sending have not been exercised against real accounts. Their implementations are included, but production credentials, OAuth consent and actual provider connections are required before claiming end-to-end operational readiness. No test sent a real email or WhatsApp message.
 
-The repository's visibility was private when checked. The connected GitHub MCP tools do not expose a repository visibility update; no visibility change is claimed. After the owner reviews these checks, GitHub Settings → General → Danger Zone → Change repository visibility can be used to make the repository public.
+The source repository's visibility was private when checked. This public mirror was created afterward because the connected GitHub MCP tools do not expose a visibility-update operation for an existing repository.
