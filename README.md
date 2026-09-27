@@ -1,2 +1,83 @@
-# aharon-crm-node-public
-Public mirror of Aharon CRM - pure Node.js CRM with unified inbox, local AI, MCP, Gmail, Hostinger Mail and WhatsApp
+# Aharon CRM — Pure Node.js CRM
+
+מערכת CRM עצמאית ב־Node.js וב־Fastify, עם MySQL/MariaDB ישיר, ממשק בעברית ותיבת הודעות מאוחדת. הקוד ממשיך את המימוש הקיים במאגר.
+
+## יכולות
+
+- ניהול לקוחות, פרויקטים, משימות, מערכות וחשבונות, שיוכים והערות CRM, והעלאת קבצים פרטיים עד 25MB.
+- Unified Inbox: הודעות Gmail, Hostinger Mail ו־WhatsApp באותה שכבת שיחות והודעות.
+- Gmail: Google OAuth, ריבוי חשבונות, גוף הודעה מלא, היסטוריית השרשור, העתקים ותשובה בשרשור.
+- Hostinger: IMAP לקבלה, SMTP לשליחה, TLS כברירת מחדל; שרשור לפי Message-ID ו־References.
+- WhatsApp: Baileys, סריקת QR מתוך הממשק, קבלה ושליחה, חיבור מחדש וניתוק. קובצי החיבור נשמרים בתיקיית runtime בלבד.
+- Google Calendar ו־Drive: קריאת אירועים וחיפוש מטא־נתונים דרך MCP.
+- AI Draft Assistant: טיוטות שמבוססות על לקוח, שיחה, הודעות קודמות, פרויקטים, משימות, מערכות, הערות ופעילות. ההקשר מוגבל באורך ושומר עדיפות להודעה האחרונה. חיפוש מידע נוסף מוגבל לרשומות המשויכות כדי למנוע עירוב מידע של לקוחות אחרים.
+- Smart Background Worker: תפיסה אטומית של משימות AI, תוצאה שמורה, פעילות ועדכון בזמן אמת. עד שלושה ניסיונות עם השהיה; משימה שנתקעה ניתנת לאיסוף מחדש לאחר 30 דקות.
+- MCP מאומת, WebSocket עם כרטיס חיבור חד־פעמי, כניסה עם עוגייה חתומה ומוגבלת בזמן.
+
+## Installation
+
+Node.js **20.9 ומעלה**. הבדיקות עברו ב־Node.js 20.20.2 וב־24.19. לפריסה חדשה מומלץ להשתמש בגרסת Node הנתמכת אצל ספק האירוח.
+
+```bash
+npm install
+npm run check
+npm test
+npm run scan:secrets
+npm start
+```
+
+`package-lock.json` נכלל במאגר. `.npmrc` מונע הורדה מיותרת של רכיבי CUDA; המודל רץ על המעבד. הגדר גם `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` במשתני הסביבה של תהליך הבנייה ב־Hostinger. בפריסה חוזרת ניתן להשתמש ב־`npm ci`.
+
+## Environment
+
+כל השמות והערכים שאינם סודיים מופיעים ב־`.env.example`. הגדר את הערכים במשתני הסביבה ב־Hostinger; היישום אינו טוען קובץ `.env` אוטומטית.
+
+חובה:
+
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — מסד MySQL 8+ או MariaDB 10.6+ התומך ב־`SKIP LOCKED`. משתמש המסד צריך הרשאות יצירת טבלאות ושינוי עמודות לצורך העדכונים האוטומטיים.
+- `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `CORE_API_TOKEN`, `MCP_API_TOKEN`, `CONNECTOR_VAULT_KEY`, `OAUTH_STATE_SECRET` — ערכים נפרדים ואקראיים, לפחות 32 תווים לכל ערך בסביבת production. החלפת מפתח הכספת מחייבת חיבור חשבונות Google מחדש.
+- `PUBLIC_BASE_URL` — כתובת HTTPS של היישום.
+
+חיבורים:
+
+- Google: הגדר `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`; הפעל Gmail API, Calendar API ו־Drive API בפרויקט Google. כתובת ההחזרה היא `/oauth/google/callback`. חיבור החשבון נעשה ממסך החיבורים. חשבון שכבר מחובר עשוי להצריך חיבור חוזר לאחר שינוי הרשאות.
+- Hostinger: `HOSTINGER_MAIL_ENABLED=true`, `HOSTINGER_MAIL_USER`, `HOSTINGER_MAIL_PASSWORD`. ברירות המחדל הן `imap.hostinger.com:993` ו־`smtp.hostinger.com:465`, עם TLS. נתמך חשבון Hostinger אחד לכל פריסה.
+- WhatsApp: `WHATSAPP_ENABLED=true`, ואז סריקת QR ממסך החיבורים. Baileys הוא חיבור לא רשמי; תקינותו תלויה בשירות WhatsApp.
+- AI מקומי: `LOCAL_AI_ENABLED=true`, מודל `onnx-community/Qwen2.5-0.5B-Instruct`, כימות `q4`. המשקולות מורדות בפעם הראשונה ל־`runtime/huggingface`. אין משקולות במאגר.
+- גיבוי AI חיצוני, אופציונלי: `AI_BASE_URL`, `AI_API_TOKEN`, `AI_MODEL`. מופעל רק אם ההרצה המקומית נכשלת. אם הוגדר, ההקשר שנאסף מועבר לספק החיצוני.
+
+המודל הקטן אינו מבטיח דיוק בעברית או היעדר המצאות; יש לקרוא ולערוך כל טיוטה. הוא לא שולח הודעות. ההורדה והטעינה הראשונות דורשות רשת, נפח דיסק וזיכרון פנוי; יש לבדוק את מכסת תהליך ה־Node בחבילת Hostinger בפועל.
+
+## Deployment
+
+- Startup: `npm start`.
+- Entry: `app.cjs`.
+- Fastify מאזין ל־`HOST` ול־`PORT`. החיבור למסד ועדכוני המבנה מתבצעים לפני פתיחת השרת.
+- ודא שתיקיית `runtime` ניתנת לכתיבה ונשמרת בין פריסות; היא מכילה כספת Google מוצפנת, חיבור WhatsApp ומטמון מודל.
+- יש להריץ מופע אחד לכל תיקיית runtime. הכספת וקובצי WhatsApp אינם מיועדים לכתיבה משותפת ממספר תהליכים.
+- `/health` מחזיר מצב חיות בסיסי ללא נתוני לקוחות או QR. `/api/*` דורש התחברות; `/v1/*` מקבל גם `CORE_API_TOKEN` בכותרת Bearer.
+
+## תפעול והודעות
+
+במסך החיבורים מחברים חשבונות. במסך תיבת ההודעות פותחים שיחה, משייכים לקוח ופרויקט, יוצרים טיוטה, עורכים ושולחים באמצעות כפתור מפורש.
+
+סנכרון הדואר הוא מחזורי: Gmail בוחר הודעות לפי `GOOGLE_SYNC_QUERY` והגבלת `GOOGLE_SYNC_MAX_RESULTS` וטוען את כל ההודעות בשרשורים שנבחרו; Hostinger קורא עד 200 הודעות אחרונות בתקופת `HOSTINGER_MAIL_SYNC_DAYS`. זה אינו ייבוא מלא של תיבה גדולה. סימון נקרא בממשק הוא מקומי; הוא אינו משנה דגלי קריאה אצל ספק הדואר. קובצי מדיה מצורפים אינם מיובאים כחלק מגוף ההודעה.
+
+שליחה מקבלת `request_id` ייחודי. במקרה של תוצאת שליחה לא ודאית, אין ניסיון אוטומטי חוזר: יש לבדוק בתיבת הספק לפני שליחה חדשה כדי להימנע מכפל הודעות. Worker יוצר תוצאה בלבד גם במצב `ai`.
+
+## MCP
+
+כתובת: `/mcp`, שיטת POST ו־Streamable HTTP. יש לשלוח `Authorization: Bearer <MCP_API_TOKEN>` ולקבל `application/json, text/event-stream`.
+
+ברירת מחדל: מצב מערכת, חיפוש CRM, רשימות וקבלת פרויקטים/לקוחות/מערכות/משימות/שיחות, פעילות, חיבורים, Calendar ו־Drive, ויצירת טיוטה שאינה נשלחת.
+
+- `MCP_ALLOW_WRITES=true`: יצירה ועדכון של משימות ולקוחות.
+- `MCP_ALLOW_SENSITIVE_WRITES=true`: `send_email` ו־`send_whatsapp` לשיחה קיימת בלבד, עם `confirm=true` ומזהה בקשה. ברירת המחדל כבויה.
+
+## בדיקות ואבטחה
+
+`npm run check` בודק תחביר בכל קובצי JavaScript והיעדר שרידי הארכיטקטורה הקודמת. `npm test` בודק הרשאות HTTP ו־MCP, כתיבה חלקית, זיהוי לקוחות, הודעות MIME בעברית, שיוך טיוטות והגנות נגד שליחה כפולה. בדיקות מסד משתמשות בכפילים מבוקרים; בדיקות ספקים חיות דורשות חיבור חשבונות אמיתיים.
+
+`npm run scan:secrets` מבצע סריקה מקומית היוריסטית בלי להדפיס ערכי סודות. `npm audit` בודק תלויות. מוצמדת `sharp@0.35.4` באמצעות overrides כדי להסיר חולשות ספריית תמונה שנמשכת בעקיפין על ידי Transformers. נתיב ה־AI ביישום משתמש בטקסט בלבד.
+
+יש לסרוק גם היסטוריית Git לפני פרסום המאגר. אין להעלות `.env`, מפתחות, sessions, אסימוני OAuth, קובצי מודל או נתוני לקוחות. מעבר מטבלאות של מערכת קיימת מחייב גיבוי ובדיקת התאמת המבנה; יצירת טבלאות חסרות אינה ממירה אוטומטית סכימה זרה או נתונים היסטוריים.

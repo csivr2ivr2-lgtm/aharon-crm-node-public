@@ -1,0 +1,39 @@
+{
+  "name": "aharon-crm-node",
+  "version": "2.1.0",
+  "type": "module",
+  "private": false,
+  "main": "app.cjs",
+  "description": "Pure Node.js CRM with unified inbox, local AI worker, Gmail, Hostinger Mail and WhatsApp",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "start": "node app.cjs",
+    "check": "node scripts/check.mjs",
+    "test": "node --test",
+    "scan:secrets": "node scripts/scan-secrets.mjs"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/formbody": "^8.0.2",
+    "@fastify/multipart": "^9.0.3",
+    "@hapi/boom": "^10.0.1",
+    "@huggingface/transformers": "^3.8.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@whiskeysockets/baileys": "6.7.24",
+    "fastify": "^5.4.0",
+    "googleapis": "^181.0.0",
+    "imapflow": "^2.0.7",
+    "mailparser": "^3.9.28",
+    "mysql2": "^3.14.4",
+    "nodemailer": "^10.0.10",
+    "pino": "^9.7.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.3",
+    "zod": "^4.1.5"
+  },
+  "overrides": {
+    "sharp": "0.35.4"
+  }
+}
