@@ -1,0 +1,4 @@
+import {createHmac,randomUUID,timingSafeEqual} from "node:crypto";
+import {config} from "../config.js";
+export function createOauthState(value){const payload=Buffer.from(JSON.stringify({...value,nonce:randomUUID(),exp:Date.now()+600000})).toString("base64url");return payload+"."+createHmac("sha256",config.oauthStateSecret).update(payload).digest("base64url");}
+export function verifyOauthState(raw){const [payload,sig]=String(raw||"").split(".");if(!payload||!sig)throw Error("Invalid OAuth state");const expected=createHmac("sha256",config.oauthStateSecret).update(payload).digest(),given=Buffer.from(sig,"base64url");if(given.length!==expected.length||!timingSafeEqual(expected,given))throw Error("Invalid OAuth state signature");const state=JSON.parse(Buffer.from(payload,"base64url").toString("utf8"));if(!state.exp||Date.now()>state.exp)throw Error("OAuth state expired");return state;}
