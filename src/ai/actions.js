@@ -11,8 +11,8 @@ const id=text(128),optionalText=(max=20000)=>z.string().max(max).optional();
 const object=shape=>z.object(shape).strict();
 const refs={project_ids:z.array(id).max(20).optional()};
 const client={name:text(255),email:z.string().email().max(255).optional(),phone:optionalText(80),company:optionalText(255),notes:optionalText(),...refs};
-const project={name:text(255),description:optionalText(),next_step:optionalText(),status:z.enum(['active','paused','completed']).optional()};
-const task={title:text(500),notes:optionalText(),status:z.enum(['open','in_progress','done','cancelled']).optional(),priority:z.enum(['low','normal','high','urgent']).optional(),due_date:z.string().refine(v=>!v||/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(v)&&Number.isFinite(Date.parse(v)),'invalid_due_date').optional(),...refs};
+const project={client_id:id.optional(),name:text(255),description:optionalText(),next_step:optionalText(),status:z.enum(['active','paused','completed']).optional()};
+const task={client_id:id.optional(),system_id:text(40).optional(),source_message_id:id.optional(),title:text(500),notes:optionalText(),status:z.enum(['open','in_progress','done','cancelled']).optional(),priority:z.enum(['low','normal','high','urgent']).optional(),due_date:z.string().refine(v=>!v||/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(v)&&Number.isFinite(Date.parse(v)),'invalid_due_date').optional(),...refs};
 const partial=shape=>Object.fromEntries(Object.entries(shape).map(([k,v])=>[k,v.optional()]));
 const registry={};
 function register(name,description,schema,op,permission='read'){registry[name]={name,description,schema,op,permission};}
@@ -53,7 +53,7 @@ export function authorizeTool(tool,context={}){
  if(context.source==='chat'&&context.trustedInput!==true)throw Error('untrusted_tool_execution');
 }
 export function needsConfirmation(tool,context={},settings={},args={}){
- if(tool.permission==='send'&&context.source==='chat'&&context.trustedInput===true&&settings.messaging?.policy==='auto_send_trusted'&&settings.messaging.trustedClientIds?.includes(args.client_id))return false;
+ if(tool.permission==='send'&&context.source==='chat'&&context.trustedInput===true&&context.sendIntentVerified===true&&settings.messaging?.policy==='auto_send_trusted'&&settings.messaging.trustedClientIds?.includes(args.client_id))return false;
  if(context.source==='chat'&&context.trustedInput===true&&settings.messaging?.policy==='confirm_sensitive'&&['create_draft','create_task','create_reminder'].includes(tool.name))return false;
  return tool.permission!=='read'&&!(context.source==='background'&&context.automationApproved===true&&context.allowedTools?.includes(tool.name)&&tool.permission!=='send');}
 const normalizedPhone=value=>{let p=phoneOf(value);if(p.startsWith('00'))p=p.slice(2);if(/^0[2-9]\d{7,8}$/.test(p))p='972'+p.slice(1);return p;};
@@ -84,7 +84,9 @@ export class ActionEngine{
   const resolved=tool.permission==='send'?await this.resolveSend(tool.name,args):null;
   const preview=resolved?{recipient:resolved.to,client:resolved.client.name,account:resolved.account.label,account_key:resolved.account.integration_key,body:args.body,subject:args.subject||''}:null;
   const actionId=options.requestId||'act_'+randomUUID();if(!/^[\w-]{16,64}$/.test(actionId))throw Error('invalid_action_id');
-  const pending=needsConfirmation(tool,context,settings,args),token=randomBytes(32).toString('hex');
+  const intent=context.sendIntent;
+  const sendIntentVerified=Boolean(resolved&&intent&&intent.tool===name&&intent.body===args.body&&String(intent.recipient).trim().toLocaleLowerCase()===String(resolved.client.name).trim().toLocaleLowerCase());
+  const pending=needsConfirmation(tool,{...context,sendIntentVerified},settings,args),token=randomBytes(32).toString('hex');
   const [insert]=await this.database.execute('INSERT IGNORE INTO ai_actions(id,actor,source,tool,args_json,state,token_hash,expires_at,created_at,updated_at,preview_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[actionId,context.actor,context.source,name,JSON.stringify(args),pending?'pending':'ready',pending?hash(token):'',new Date(this.clock()+15*60*1000).toISOString(),now(),now(),JSON.stringify(preview)]);
   if(!insert.affectedRows){const [old]=await this.database.execute('SELECT * FROM ai_actions WHERE id=?',[actionId]);const row=old[0];if(!row||row.actor!==context.actor||row.tool!==name||row.args_json!==JSON.stringify(args))throw Error('action_id_conflict');if(row.state==='completed')return {ok:true,id:actionId,tool:name,status:'completed',result:JSON.parse(row.result_json)};throw Error('action_already_pending_or_uncertain');}
   const action={id:actionId,actor:context.actor,source:context.source,tool:name,args_json:JSON.stringify(args),preview_json:JSON.stringify(preview)};

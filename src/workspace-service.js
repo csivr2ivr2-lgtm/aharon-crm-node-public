@@ -1,6 +1,7 @@
 import {randomBytes,createHash} from "node:crypto";
 import {db,now} from "./db.js";
 import {enqueueJob} from "./platform/jobs.js";
+import {phoneOf,emailOf} from "./message-format.js";
 const id=p=>p+"_"+randomBytes(8).toString("hex");
 const lim=(v,d=50,m=200)=>Math.max(1,Math.min(m,Number.parseInt(String(v??d),10)||d));
 const j=v=>JSON.stringify(v??{});
@@ -11,8 +12,27 @@ async function relIds(type,key,to){const [r]=await db.execute("SELECT to_id FROM
 async function replaceRelations(type,key,to,ids=[]){const c=await db.getConnection();try{await c.beginTransaction();await c.execute("DELETE FROM entity_relations WHERE from_type=? AND from_id=? AND to_type=?",[type,key,to]);for(const x of [...new Set(ids.map(String).filter(Boolean))])await c.execute("INSERT IGNORE INTO entity_relations(from_type,from_id,to_type,to_id,relation_type,created_at) VALUES(?,?,?,?,?,?)",[type,key,to,x,"belongs_to",now()]);await c.commit();}catch(e){await c.rollback();throw e;}finally{c.release();}}
 const hashId=(p,s)=>p+"_"+createHash("sha256").update(s).digest("hex").slice(0,32);
 
-async function saveProject(d){const key=String(d.id||id("proj")),ts=now();const [old]=await db.execute("SELECT created_at FROM projects WHERE id=?",[key]);await db.execute(`INSERT INTO projects(id,name,slug,status,category,description,next_step,source,repo_full_name,url,language,is_private,modules_json,custom_fields_json,deleted_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),slug=VALUES(slug),status=VALUES(status),category=VALUES(category),description=VALUES(description),next_step=VALUES(next_step),source=VALUES(source),repo_full_name=VALUES(repo_full_name),url=VALUES(url),language=VALUES(language),is_private=VALUES(is_private),modules_json=VALUES(modules_json),custom_fields_json=VALUES(custom_fields_json),deleted_at=VALUES(deleted_at),updated_at=VALUES(updated_at)`,[key,String(d.name||"").trim(),String(d.slug||d.name||""),String(d.status||"active"),String(d.category||""),String(d.description||""),String(d.next_step||""),String(d.source||"manual"),String(d.repo_full_name||""),String(d.url||""),String(d.language||""),d.is_private?1:0,j(d.modules||[]),j(d.custom_fields||{}),d.deleted_at||null,old[0]?.created_at||ts,ts]);await activity(old.length?"project.updated":"project.created","project",key,String(d.name||""));return key;}
-async function saveClient(d){const key=String(d.id||id("client")),ts=now();const [old]=await db.execute("SELECT created_at FROM clients WHERE id=?",[key]);await db.execute(`INSERT INTO clients(id,name,phone,email,company,status,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),phone=VALUES(phone),email=VALUES(email),company=VALUES(company),status=VALUES(status),notes=VALUES(notes),updated_at=VALUES(updated_at)`,[key,String(d.name||"").trim(),String(d.phone||""),String(d.email||""),String(d.company||""),String(d.status||"active"),String(d.notes||""),old[0]?.created_at||ts,ts]);await replaceRelations("client",key,"project",Array.isArray(d.project_ids)?d.project_ids:[]);await activity(old.length?"client.updated":"client.created","client",key,String(d.name||""));return key;}
+async function saveProject(d){const key=String(d.id||id("proj")),ts=now();const [old]=await db.execute("SELECT created_at FROM projects WHERE id=?",[key]);await db.execute(`INSERT INTO projects(id,name,slug,status,category,description,next_step,source,repo_full_name,url,language,is_private,modules_json,custom_fields_json,deleted_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),slug=VALUES(slug),status=VALUES(status),category=VALUES(category),description=VALUES(description),next_step=VALUES(next_step),source=VALUES(source),repo_full_name=VALUES(repo_full_name),url=VALUES(url),language=VALUES(language),is_private=VALUES(is_private),modules_json=VALUES(modules_json),custom_fields_json=VALUES(custom_fields_json),deleted_at=VALUES(deleted_at),updated_at=VALUES(updated_at)`,[key,String(d.name||"").trim(),String(d.slug||d.name||""),String(d.status||"active"),String(d.category||""),String(d.description||""),String(d.next_step||""),String(d.source||"manual"),String(d.repo_full_name||""),String(d.url||""),String(d.language||""),d.is_private===false||d.is_private===0?0:1,j(d.modules||[]),j(d.custom_fields||{}),d.deleted_at||null,old[0]?.created_at||ts,ts]);await activity(old.length?"project.updated":"project.created","project",key,String(d.name||""));return key;}
+async function saveClient(d){
+ const key=String(d.id||id("client")),ts=now(),email=String(d.email||"").trim().toLowerCase();
+ let phone=phoneOf(d.phone||"");if(/^0[2-9]\d{7,8}$/.test(phone))phone="972"+phone.slice(1);
+ if(email&&!emailOf(email))throw Error("invalid_client_email");
+ const c=await db.getConnection();let locked=false;
+ try{
+  const [locks]=await c.execute("SELECT GET_LOCK('crm_entity_resolution',5) AS acquired");if(Number(locks[0]?.acquired)!==1)throw Error("entity_resolution_busy");locked=true;
+  await c.beginTransaction();
+  const [old]=await c.execute("SELECT * FROM clients WHERE id=? FOR UPDATE",[key]);
+  if(email){const [existing]=await c.execute("SELECT id FROM clients WHERE LOWER(email)=? AND id<>? LIMIT 1",[email,key]);if(existing.length)throw Error("client_already_exists");}
+  if(phone){const local=phone.startsWith("972")?"0"+phone.slice(3):phone;const [existing]=await c.execute("SELECT id FROM clients WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'-',''),' ',''),'+',''),'(',''),')','') IN (?,?) AND id<>? LIMIT 1",[phone,local,key]);if(existing.length)throw Error("client_already_exists");}
+  for(const identity of [email?"email:"+email:"",phone?"phone:"+phone:""].filter(Boolean)){const [existing]=await c.execute("SELECT client_id FROM client_identities WHERE identity_key=? AND client_id<>? LIMIT 1",[identity,key]);if(existing.length)throw Error("client_identity_conflict");}
+  await c.execute(`INSERT INTO clients(id,name,phone,email,company,status,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),phone=VALUES(phone),email=VALUES(email),company=VALUES(company),status=VALUES(status),notes=VALUES(notes),updated_at=VALUES(updated_at)`,[key,String(d.name||"").trim(),String(d.phone||""),email,String(d.company||""),String(d.status||"active"),String(d.notes||""),old[0]?.created_at||ts,ts]);
+  await c.execute("DELETE FROM entity_relations WHERE from_type='client' AND from_id=? AND to_type='project'",[key]);
+  for(const projectId of [...new Set(d.project_ids||[])])await c.execute("INSERT IGNORE INTO entity_relations(from_type,from_id,to_type,to_id,relation_type,created_at) VALUES('client',?,'project',?,'belongs_to',?)",[key,String(projectId),ts]);
+  for(const [kind,value] of [["email",email],["phone",phone]])if(value)await c.execute("INSERT INTO client_identities(identity_key,client_id,kind,value) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE identity_key=VALUES(identity_key)",[kind+":"+value,key,kind,value]);
+  await c.execute("INSERT INTO activities(event,entity_type,entity_id,title,metadata_json,created_at) VALUES(?,?,?,?,?,?)",[old.length?"client.updated":"client.created","client",key,String(d.name||""),j({}),ts]);
+  await c.commit();return key;
+ }catch(error){await c.rollback();throw error;}finally{try{if(locked)await c.execute("SELECT RELEASE_LOCK('crm_entity_resolution')");}finally{c.release();}}
+}
 async function saveTask(d){const key=String(d.id||id("task")),ts=now();const [old]=await db.execute("SELECT created_at FROM tasks WHERE id=?",[key]);await db.execute(`INSERT INTO tasks(id,title,status,priority,due_date,notes,automation_mode,worker_state,worker_result,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),status=VALUES(status),priority=VALUES(priority),due_date=VALUES(due_date),notes=VALUES(notes),automation_mode=VALUES(automation_mode),worker_state=VALUES(worker_state),worker_result=VALUES(worker_result),updated_at=VALUES(updated_at)`,[key,String(d.title||"").trim(),String(d.status||"open"),String(d.priority||"normal"),String(d.due_date||""),String(d.notes||""),String(d.automation_mode||"manual"),String(d.worker_state||"idle"),String(d.worker_result||""),old[0]?.created_at||ts,ts]);await replaceRelations("task",key,"project",Array.isArray(d.project_ids)?d.project_ids:[]);await activity(old.length?"task.updated":"task.created","task",key,String(d.title||""));return key;}
 async function saveAccount(d){const key=String(d.id||id("acct")),ts=now();const [old]=await db.execute("SELECT created_at FROM accounts WHERE id=?",[key]);await db.execute(`INSERT INTO accounts(id,type,label,identifier,status,integration_key,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE type=VALUES(type),label=VALUES(label),identifier=VALUES(identifier),status=VALUES(status),integration_key=VALUES(integration_key),notes=VALUES(notes),updated_at=VALUES(updated_at)`,[key,String(d.type||"other"),String(d.label||"Account"),String(d.identifier||""),String(d.status||"active"),d.integration_key?String(d.integration_key):null,String(d.notes||""),old[0]?.created_at||ts,ts]);await replaceRelations("account",key,"project",Array.isArray(d.project_ids)?d.project_ids:[]);return key;}
 
@@ -53,6 +73,10 @@ async function search(q,max=30){q=String(q||"").trim();if(!q)return[];const like
 export class WorkspaceService{
  async call(op,p={}){
   const entity=op.split(".")[0];
+  if(/\.(create|update)$/.test(op)){
+   if(Object.hasOwn(p,"deleted_at")||Object.hasOwn(p,"archived_at"))throw Error("use_lifecycle_action");
+   if(p.project_ids!==undefined&&(!Array.isArray(p.project_ids)||p.project_ids.length>100||p.project_ids.some(x=>typeof x!=="string"||!x)))throw Error("invalid_project_relations");
+  }
   if(["project","client","task","account"].includes(entity)&&/\.(create|update)$/.test(op)){
    let resetWorker=false;
    if(op.endsWith(".update")){
@@ -72,6 +96,10 @@ export class WorkspaceService{
     if(!["manual","ai","ai_draft"].includes(p.automation_mode||"manual"))throw Error("invalid_automation_mode");
     if(!["open","in_progress","done","cancelled"].includes(p.status||"open"))throw Error("invalid_task_status");
    }
+  }
+  if(["project","client","task","system"].includes(entity)&&/\.(create|update)$/.test(op)){
+   const references=[...(Array.isArray(p.project_ids)?p.project_ids:[]).map(value=>["projects","id",value]),...[["client_id","clients","id"],["system_id","systems","did"],["source_message_id","messages","id"],["project_id","projects","id"]].filter(([field])=>p[field]).map(([field,table,key])=>[table,key,p[field]])];
+   for(const [table,key,value] of references){const [found]=await db.execute(`SELECT ${key} FROM ${table} WHERE ${key}=?${["projects","systems"].includes(table)?" AND deleted_at IS NULL AND archived_at IS NULL":""}`,[String(value)]);if(!found.length)throw Error("association_not_found");}
   }
   if(op==="task.get"){const [r]=await db.execute("SELECT * FROM tasks WHERE id=?",[String(p.id||"")]);if(!r[0])return {ok:false,error:"task_not_found"};r[0].project_ids=await relIds("task",p.id,"project");return {ok:true,item:r[0]};}
   if(op==="conversation.update"){
@@ -93,7 +121,7 @@ export class WorkspaceService{
   if(op==="search")return {ok:true,results:await search(p.q,lim(p.limit,25,50))};
   if(["project.list","client.list","system.list","task.list","conversation.list","account.list"].includes(op)){
    const table=entity==="system"?"systems":entity+"s",where=[],values=[];
-   if(["project","system"].includes(entity)&&!p.include_archived)where.push("e.deleted_at IS NULL AND e.archived_at IS NULL AND e.status<>'archived'");
+   if(["project","system"].includes(entity)&&!p.include_archived)where.push("e.deleted_at IS NULL AND e.archived_at IS NULL AND COALESCE(e.status,'active')<>'archived'");
    const columns={project:["status"],client:["status"],system:["status","project_id","client_id"],task:["status"],conversation:["channel","client_id","project_id","account_id"],account:["type","status"]}[entity];
    for(const key of columns)if(p[key]){where.push(`e.${key}=?`);values.push(String(p[key]));}
    if(p.project_id&&["task","client","account"].includes(entity)){where.push("EXISTS(SELECT 1 FROM entity_relations r WHERE r.from_type=? AND r.from_id=e.id AND r.to_type='project' AND r.to_id=?)");values.push(entity,String(p.project_id));}
@@ -104,7 +132,7 @@ export class WorkspaceService{
    }
    if(p.q){const fields={project:["name","description","next_step"],client:["name","phone","email","notes"],system:["did","notes"],task:["title","notes"],conversation:["title"],account:["label","identifier"]}[entity];where.push("("+fields.map(f=>`e.${f} LIKE ?`).join(" OR ")+")");values.push(...fields.map(()=>"%"+String(p.q)+"%"));}
    const order=entity==="conversation"?"last_message_at":"updated_at";
-   const [items]=await db.execute(`SELECT e.* ${entity==="conversation"?",a.type AS account_type,a.integration_key,a.label AS account_label":""} FROM ${table} e ${entity==="conversation"?"LEFT JOIN accounts a ON a.id=e.account_id":""} ${where.length?"WHERE "+where.join(" AND "):""} ORDER BY e.${order} DESC LIMIT ${lim(p.limit,100,200)}`,values);
+   const [items]=await db.execute(`SELECT e.* ${entity==="conversation"?",a.type AS account_type,a.integration_key,a.label AS account_label,(SELECT direction FROM messages WHERE conversation_id=e.id ORDER BY sent_at DESC,id DESC LIMIT 1) AS last_message_direction":""} FROM ${table} e ${entity==="conversation"?"LEFT JOIN accounts a ON a.id=e.account_id":""} ${where.length?"WHERE "+where.join(" AND "):""} ORDER BY e.${order} DESC LIMIT ${lim(p.limit,100,200)}`,values);
    for(const item of items){if(["client","task","account"].includes(entity))item.project_ids=await relIds(entity,item.id,"project");if(entity==="project"){item.modules=parse(item.modules_json||"[]");item.custom_fields=parse(item.custom_fields_json||"{}");}}
    return {ok:true,items};
   }
@@ -113,9 +141,9 @@ export class WorkspaceService{
   if(op==="system.get"){const [r]=await db.execute("SELECT * FROM systems WHERE did=?",[String(p.did||"")]);return r[0]?{ok:true,item:r[0]}:{ok:false,error:"system_not_found"};}
   if(op==="activity.list"){const [items]=await db.query(`SELECT * FROM activities ORDER BY id DESC LIMIT ${lim(p.limit,50,100)}`);return {ok:true,items};}
   if(op==="conversation.get"){const [c]=await db.execute("SELECT * FROM conversations WHERE id=?",[String(p.id||"")]);if(!c[0])return {ok:false,error:"conversation_not_found"};const [messages]=await db.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY sent_at ASC",[String(p.id||"")]);return {ok:true,item:c[0],messages};}
-  if(op==="project.create"||op==="project.update")return {ok:true,id:await saveProject(p)};
+  if(op==="project.create"||op==="project.update"){const key=await saveProject(p);if(p.client_id)await replaceRelations("client",String(p.client_id),"project",[...await relIds("client",String(p.client_id),"project"),key]);return {ok:true,id:key};}
   if(op==="client.create"||op==="client.update")return {ok:true,id:await saveClient(p)};
-  if(op==="task.create"||op==="task.update"){const key=await saveTask(p);if(p.reset_worker)await db.execute("UPDATE tasks SET worker_attempts=0,worker_claim=NULL,worker_retry_at=NULL WHERE id=?",[key]);return {ok:true,id:key};}
+  if(op==="task.create"||op==="task.update"){const key=await saveTask(p);for(const [field,type] of [["client_id","client"],["system_id","system"],["source_message_id","message"]])if(p[field]!==undefined)await replaceRelations("task",key,type,p[field]?[String(p[field])]:[]);if(p.reset_worker)await db.execute("UPDATE tasks SET worker_attempts=0,worker_claim=NULL,worker_retry_at=NULL WHERE id=?",[key]);return {ok:true,id:key};}
   if(op==="account.create"||op==="account.update")return {ok:true,id:await saveAccount(p)};
   if(op==="message.ingest")return {ok:true,...await ingestMessage(p)};
   if(op==="activity.add"){await activity(String(p.event||"external.event"),String(p.entity_type||"integration"),String(p.entity_id||""),String(p.title||"External event"),p.metadata||{});return {ok:true};}

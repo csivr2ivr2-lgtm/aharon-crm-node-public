@@ -89,7 +89,7 @@ app.get("/oauth/google/callback",async(req,reply)=>{
  if(!saved.valid||!equalToken(saved.value,state))return reply.code(400).send({ok:false,error:"invalid_oauth_state"});
  reply.clearCookie("oauth_state",{path:"/"});await googleConnector.callback(String(req.query?.code||""),state);return reply.redirect("/#connectors");
 });
-app.get("/api/files",async(req,reply)=>{if(!uiAuth(req,reply))return;if(req.query.q)return fileIntelligence.searchFiles(req.query.q,{internal:true});const [items]=await db.query("SELECT f.id,f.name,f.mime,f.size_bytes,f.project_id,f.client_id,f.task_id,f.folder,f.notes,f.created_at,c.status AS index_status FROM files f LEFT JOIN file_content c ON c.file_id=f.id WHERE f.deleted_at IS NULL AND f.archived_at IS NULL ORDER BY f.created_at DESC LIMIT 200");return {ok:true,items};});
+app.get("/api/files",async(req,reply)=>{if(!uiAuth(req,reply))return;if(req.query.q)return fileIntelligence.searchFiles(req.query.q,{internal:true,includeArchived:Boolean(req.query.include_archived)});const [items]=await db.query("SELECT f.id,f.name,f.mime,f.size_bytes,f.project_id,f.client_id,f.task_id,f.folder,f.notes,f.archived_at,f.deleted_at,f.created_at,c.status AS index_status FROM files f LEFT JOIN file_content c ON c.file_id=f.id "+(req.query.include_archived?"":"WHERE f.deleted_at IS NULL AND f.archived_at IS NULL ")+"ORDER BY f.created_at DESC LIMIT 200");return {ok:true,items};});
 app.post("/api/files",async(req,reply)=>{
  if(!uiAuth(req,reply))return;const part=await req.file();if(!part)throw Error("file_required");
  const id="file_"+randomBytes(16).toString("hex"),name=basename(part.filename).replace(/[\r\n\0]/g,"").slice(0,500)||"attachment";
@@ -135,17 +135,18 @@ app.post("/v1/sync",async(req,reply)=>{if(!apiAuth(req,reply))return;return sche
 app.all("/mcp",handleMcp);
 
 async function onWhatsAppEvent(event){const r=await workspace.call("message.ingest",event);if(r.inserted)hub.publish("message.new",{conversation_id:r.conversation_id,channel:"whatsapp"});}
-registerIntelligenceRoutes(app,{uiAuth,hub});
+const backgroundState={enabled:startBackground,running:false,last_error:null};
+registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState});
 let stopJobs=async()=>{},reminders;
-app.addHook("onClose",async()=>{clearInterval(reminders);scheduler.stop();worker.stop();await stopJobs();whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
+app.addHook("onClose",async()=>{clearInterval(reminders);scheduler.stop();worker.stop();await stopJobs();backgroundState.running=false;whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
 if(startBackground)app.addHook("onListen",async()=>{
- scheduler.start();worker.start();
+ scheduler.start();worker.start();backgroundState.running=true;
  stopJobs=startJobWorker({
   "inbox.process":async payload=>{const result=await processIncomingMessage(payload);hub.publish("ai.inbox",{message_id:payload.messageId});return result;},
   "file.index":payload=>fileIntelligence.indexFile(payload.fileId),
   "reminders.tick":()=>crmIntelligence.processDueReminders(),
   "reminder.follow_up":payload=>createDraft({conversationId:payload.conversationId,instruction:"הכן טיוטת מעקב מנומסת. אל תשלח דבר.",idempotencyKey:"reminder:"+payload.reminderId})
- },{onError:()=>app.log.warn("Background processing failed; inspect the queue")});
+ },{onError:()=>{backgroundState.last_error="background_processing_failed";app.log.warn("Background processing failed; inspect the queue");}});
  reminders=setInterval(()=>{void enqueueJob("reminders.tick",{},{idempotencyKey:"reminders:"+Math.floor(Date.now()/60000)}).catch(()=>app.log.warn("Reminder scheduling failed"));},60000);reminders.unref();
  void whatsapp.start(onWhatsAppEvent).catch(()=>app.log.warn("WhatsApp connection failed"));
 });

@@ -20,6 +20,15 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
  const database=dependencies.db||db,send=dependencies.send||((...args)=>connectors.send(...args)),ingest=dependencies.ingest||((event)=>workspace.call("message.ingest",event));
  if(!String(body||"").trim())throw Error("body_required");
  if(!/^[a-zA-Z0-9_-]{16,64}$/.test(requestId||""))throw Error("request_id_required");
+ const requestHash=createHash("sha256").update(JSON.stringify({conversationId,body,draftId})).digest("hex");
+ const replay=row=>{
+  if(row.conversation_id!==conversationId||row.request_hash&&row.request_hash!==requestHash)throw Error("request_id_conflict");
+  if(row.status==="sent")return JSON.parse(row.result_json);
+  throw Error("send_pending_or_uncertain_check_provider_before_retry");
+ };
+ // Replay before draft validation: successful drafts are already marked sent.
+ const [previous]=await database.execute("SELECT * FROM outgoing_sends WHERE id=?",[requestId]);
+ if(previous[0])return replay(previous[0]);
  const [rows]=await database.execute("SELECT * FROM conversations WHERE id=?",[conversationId]);const conv=rows[0];if(!conv)throw Error("conversation_not_found");
  const [accounts]=await database.execute("SELECT * FROM accounts WHERE id=?",[conv.account_id]);const account=accounts[0];if(!account)throw Error("account_not_found");
  const [messages]=await database.execute("SELECT * FROM messages WHERE conversation_id=? AND direction='in' ORDER BY sent_at DESC LIMIT 1",[conversationId]);const inbound=messages[0];if(!inbound)throw Error("conversation_has_no_incoming_message");
@@ -32,14 +41,19 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
   if(inbound.rfc_message_id)references.push(inbound.rfc_message_id);
   payload={...payload,to,account_id:externalAccountId,subject:/^re:/i.test(inbound.subject||"")?inbound.subject:"Re: "+String(inbound.subject||""),thread_id:inbound.thread_id?.replace(/^gmail:[^:]+:/,""),in_reply_to:inbound.rfc_message_id||"",references:[...new Set(references)]};channel=provider==="google"?"gmail":"hostinger";
  }else if(provider==="whatsapp"){channel="whatsapp";payload.to=conv.external_id;}else throw Error("unsupported_conversation_channel");
- const requestHash=createHash("sha256").update(JSON.stringify({conversationId,body,draftId})).digest("hex");
  const [claim]=await database.execute("INSERT IGNORE INTO outgoing_sends(id,conversation_id,status,request_hash,created_at,updated_at) VALUES(?,?,'sending',?,?,?)",[requestId,conversationId,requestHash,now(),now()]);
  if(!claim.affectedRows){
   const [old]=await database.execute("SELECT * FROM outgoing_sends WHERE id=?",[requestId]);
-  if(old[0]?.conversation_id!==conversationId)throw Error("request_id_conflict");
-  if(old[0]?.request_hash&&old[0].request_hash!==requestHash)throw Error("request_id_conflict");
-  if(old[0]?.status==="sent")return JSON.parse(old[0].result_json);
-  throw Error("send_pending_or_uncertain_check_provider_before_retry");
+  if(!old[0])throw Error("send_claim_missing");
+  return replay(old[0]);
+ }
+ // A draft itself is a second idempotency boundary, even across different requests.
+ if(draftId){
+  const [reserved]=await database.execute("UPDATE message_drafts SET status='sending',updated_at=? WHERE id=? AND conversation_id=? AND status='draft'",[now(),draftId,conversationId]);
+  if(reserved.affectedRows!==1){
+   await database.execute("UPDATE outgoing_sends SET status='rejected',updated_at=? WHERE id=?",[now(),requestId]);
+   throw Error("draft_already_sending_or_used");
+  }
  }
  let sent;
  try{
@@ -47,5 +61,9 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
   await ingest({type:"message",source:provider+"."+(provider==="google"?"gmail":provider==="hostinger"?"smtp":"baileys"),channel:conv.channel,account_id:externalAccountId,account:{provider,type:conv.channel==="whatsapp"?"whatsapp":"email",identifier:account.identifier,label:account.label},conversation_external_id:conv.external_id,external_id:sent.message_id,thread_id:sent.thread_id||inbound.thread_id,rfc_message_id:provider==="hostinger"?sent.message_id:"",references:payload.references||[],direction:"out",sender:account.identifier,recipient:payload.to,subject:payload.subject||"",body,is_read:true,sent_at:now(),client_id:conv.client_id,project_id:conv.project_id});
   if(draftId)await database.execute("UPDATE message_drafts SET status='sent',updated_at=? WHERE id=? AND conversation_id=?",[now(),draftId,conversationId]);
   const result={ok:true,...sent};await database.execute("UPDATE outgoing_sends SET status='sent',result_json=?,updated_at=? WHERE id=?",[JSON.stringify(result),now(),requestId]);return result;
- }catch(error){await database.execute("UPDATE outgoing_sends SET status='uncertain',updated_at=? WHERE id=?",[now(),requestId]);throw error;}
+ }catch(error){
+  await database.execute("UPDATE outgoing_sends SET status='uncertain',updated_at=? WHERE id=?",[now(),requestId]);
+  if(draftId)await database.execute("UPDATE message_drafts SET status='uncertain',updated_at=? WHERE id=? AND conversation_id=? AND status='sending'",[now(),draftId,conversationId]);
+  throw error;
+ }
 }

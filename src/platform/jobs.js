@@ -49,6 +49,7 @@ export async function failJob(job,error,{db=defaultDb}={}) {
   const code=/^[a-zA-Z0-9_.-]{1,100}$/.test(raw)?raw:'job_execution_failed';
   const retryAt=new Date(Date.now()+Math.min(3600000,1000*2**Math.min(Number(job.attempts)||1,12))).toISOString();
   const [result]=await db.execute("UPDATE jobs SET status=?,last_error=?,run_after=?,completed_at=?,updated_at=?,claim_token=NULL,lease_until=NULL WHERE id=? AND status='running' AND claim_token=? AND lease_until>?",[exhausted?'failed':'queued',code,retryAt,exhausted?timestamp:null,timestamp,job.id,job.claim_token,timestamp]);
+  if(exhausted&&result.affectedRows===1)await db.execute("INSERT IGNORE INTO notifications(id,type,title,body,entity_type,entity_id,is_read,created_at) VALUES(?,?,'פעולה ברקע דורשת בדיקה',?,'job',?,0,?)",['job_'+job.id,'job.failed','אפשר לבדוק את הפעולה ולנסות מחדש במסך ההגדרות.',job.id,timestamp]);
   return result.affectedRows===1;
 }
 export async function retryJob(id,{db=defaultDb}={}) {

@@ -66,8 +66,9 @@ test('model text and prompt injection do not directly execute arbitrary tool ins
 test('trusted-contact auto send policy executes once using configured default account',async()=>{
  const f=fixture();f.engine.settings=async()=>({messaging:{policy:'auto_send_trusted',trustedClientIds:['client_david'],defaultAccountId:'account_whatsapp'}});
  const args={client_id:'client_david',body:'approved by policy'};
- const first=await f.engine.execute('send_whatsapp',args,context,{requestId:'trusted_send_request_0001'});
- const second=await f.engine.execute('send_whatsapp',args,context,{requestId:'trusted_send_request_0001'});
+ const sendContext={...context,sendIntent:{tool:'send_whatsapp',recipient:'דוד',body:args.body}};
+ const first=await f.engine.execute('send_whatsapp',args,sendContext,{requestId:'trusted_send_request_0001'});
+ const second=await f.engine.execute('send_whatsapp',args,sendContext,{requestId:'trusted_send_request_0001'});
  assert.equal(first.status,'completed');assert.equal(second.status,'completed');assert.equal(f.sendCount(),1);
  assert.equal(JSON.parse(f.rows.get(first.id).preview_json).recipient,'972501234567');
 });
@@ -89,4 +90,22 @@ test('tool outputs and accumulated assistant context remain bounded',async()=>{
  assert.ok(JSON.stringify(bounded).length<=2000);assert.equal(bounded.truncated,true);
  const result=budgetMessages([{role:'system',content:'policy'},{role:'user',content:'question'},...Array.from({length:8},()=>({role:'user',content:'x'.repeat(10000)}))],3000);
  assert.ok(result.reduce((n,m)=>n+m.content.length+40,0)<=3000);assert.equal(result[0].content,'policy');assert.equal(result[1].content,'question');
+});
+
+test('trusted contact policy never auto sends inferred, changed-body or wrong-recipient messages',async()=>{
+ for(const sendIntent of [null,{tool:'send_whatsapp',recipient:'דוד',body:'other body'},{tool:'send_whatsapp',recipient:'משה',body:'hi'},{tool:'send_email',recipient:'דוד',body:'hi'}]){
+  const f=fixture();f.engine.settings=async()=>({messaging:{policy:'auto_send_trusted',trustedClientIds:['client_david']}});
+  const result=await f.engine.execute('send_whatsapp',{client_id:'client_david',account_id:'account_whatsapp',body:'hi'},{...context,sendIntent});
+  assert.equal(result.status,'pending');assert.equal(f.sendCount(),0);
+ }
+});
+test('assistant derives trusted-send intent only from original explicit quoted request',async()=>{
+ const {explicitSendIntent}=await import('../src/ai/assistant.js');
+ assert.deepEqual(explicitSendIntent("שלח לדוד בוואטסאפ 'היי מה איתך'"),{recipient:'דוד',tool:'send_whatsapp',body:'היי מה איתך'});
+ assert.equal(explicitSendIntent('מי מחכה לתשובה שלי?'),null);
+ assert.equal(explicitSendIntent('שלח לדוד בוואטסאפ סיכום על כל הלקוחות'),null);
+ const f=fixture();f.engine.settings=async()=>({messaging:{policy:'auto_send_trusted',trustedClientIds:['client_david']}});
+ const assistant=new Assistant({engine:f.engine,settings:async()=>({ai:{}}),generate:async()=>({text:JSON.stringify({reply:'',tool_calls:[{name:'send_whatsapp',arguments:{client_id:'client_david',account_id:'account_whatsapp',body:'private retrieved records'}}]})})});
+ const answer=await assistant.chat({message:'מי מחכה לתשובה שלי?',context:{...context,sendIntent:{tool:'send_whatsapp',recipient:'דוד',body:'private retrieved records'}}});
+ assert.equal(answer.actions[0].status,'pending');assert.equal(f.sendCount(),0);
 });
