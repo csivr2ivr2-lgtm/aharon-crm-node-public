@@ -20,11 +20,12 @@ import {SyncScheduler} from "./scheduler.js";
 import {SmartTaskWorker} from "./worker.js";
 import {createDraft,listDrafts,sendConversationReply} from "./inbox.js";
 import {handleMcp} from "./mcp.js";
-import {appHtml,loginHtml} from "./ui.js";
+import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
+import {loginSecurity,normalizeIp} from "./login-security.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();if(initializeDatabase){await migrate();await migrateExtras();}
-const app=Fastify({logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
+assertConfig();await loginSecurity.initialize();if(initializeDatabase){await migrate();await migrateExtras();}
+const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
 
@@ -33,7 +34,7 @@ function uiAuth(req,reply){if(logged(req))return true;reply.code(401).type("appl
 function apiAuth(req,reply){if(equalToken(bearerToken(req),config.coreApiToken))return true;return uiAuth(req,reply)}
 const cookieOpts={path:"/",httpOnly:true,sameSite:"strict",secure:config.env==="production",maxAge:60*60*24*14};
 
-app.get("/health",async()=>({ok:true,service:"aharon-crm-node"}));
+app.get("/health",async()=>({ok:true,service:"aharon-crm-node",locked:await loginSecurity.isLocked()}));
 app.get("/assets/app.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./browser.js",import.meta.url),"utf8")));
 app.addHook("onRequest",async(req,reply)=>{
  reply.header("X-Content-Type-Options","nosniff").header("X-Frame-Options","DENY").header("Referrer-Policy","same-origin").header("Cache-Control","no-store");
@@ -42,17 +43,21 @@ app.addHook("onRequest",async(req,reply)=>{
   if(req.headers.origin!==expected)return reply.code(403).send({ok:false,error:"origin_rejected"});
  }
 });
-const attempts=new Map();
 app.addHook("onRequest",async(req,reply)=>{
- if(req.url!=="/login"||req.method!=="POST")return;
- const key=req.ip,t=Date.now();for(const [ip,a] of attempts)if(a.until<t)attempts.delete(ip);
- const a=attempts.get(key)||{count:0,until:t+60000};a.count++;attempts.set(key,a);
- if(attempts.size>10000)attempts.delete(attempts.keys().next().value);
- if(a.count>10)return reply.code(429).send({ok:false,error:"too_many_login_attempts"});
+ const path=String(req.raw.url||"").split("?")[0];if(path==="/health")return;
+ const ip=normalizeIp(req.ip);
+ if(await loginSecurity.isBlacklisted(ip)){
+  if(path==="/"&&req.method==="GET")return reply.code(403).type("text/html; charset=utf-8").send(blockedHtml());
+  return reply.code(403).send({ok:false,error:"ip_blocked"});
+ }
+ if(await loginSecurity.isLocked()){
+  if((path==="/"&&req.method==="GET")||path==="/login")return reply.code(423).type("text/html; charset=utf-8").send(lockedHtml());
+  return reply.code(423).send({ok:false,error:"crm_locked"});
+ }
 });
 app.setErrorHandler((error,req,reply)=>{app.log.warn({errorName:error.name,code:error.code},"Request failed");reply.code(error.statusCode>=400&&error.statusCode<500?error.statusCode:400).send({ok:false,error:/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"});});
 app.get("/",async(req,reply)=>reply.type("text/html; charset=utf-8").send(logged(req)?appHtml():loginHtml()));
-app.post("/login",async(req,reply)=>{const p=String(req.body?.password||"");if(!equalToken(p,config.dashboardPassword))return reply.code(401).type("text/html").send(loginHtml());reply.setCookie("crm_session",String(Date.now()+14*86400000),{...cookieOpts,signed:true});return reply.redirect("/")});
+app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=normalizeIp(req.ip);if(!equalToken(p,config.dashboardPassword)){const state=await loginSecurity.failed(ip);app.log.warn({remoteAddress:ip,attempt:state.count,locked:state.locked},"Dashboard login failed");if(state.locked)return reply.code(423).type("text/html; charset=utf-8").send(lockedHtml());return reply.code(401).type("text/html; charset=utf-8").send(loginHtml({error:"סיסמה שגויה"}));}loginSecurity.success(ip);reply.setCookie("crm_session",String(Date.now()+14*86400000),{...cookieOpts,signed:true});return reply.redirect("/")});
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
 
 app.get("/api/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("status")});

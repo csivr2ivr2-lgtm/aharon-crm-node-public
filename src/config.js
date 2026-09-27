@@ -3,9 +3,9 @@ const b=(k,d=false)=>["1","true","yes","on"].includes(String(e(k,d?"true":"false
 const n=(k,d)=>{const v=Number.parseInt(String(e(k,d)),10);return Number.isFinite(v)?v:d;};
 
 export const config=Object.freeze({
- env:e("NODE_ENV","production"),host:e("HOST","0.0.0.0"),port:Math.max(1,n("PORT",3100)),
+ env:e("NODE_ENV","production"),host:e("HOST","0.0.0.0"),port:Math.max(1,n("PORT",3100)),trustProxy:b("TRUST_PROXY",false),
  publicBaseUrl:e("PUBLIC_BASE_URL").replace(/\/$/,""),
- dashboardPassword:e("DASHBOARD_PASSWORD"),sessionSecret:e("SESSION_SECRET"),
+ dashboardPassword:e("DASHBOARD_PASSWORD"),sessionSecret:e("SESSION_SECRET"),loginMaxAttempts:Math.max(1,n("LOGIN_MAX_ATTEMPTS",3)),
  db:{host:e("DB_HOST","127.0.0.1"),port:Math.max(1,n("DB_PORT",3306)),name:e("DB_NAME"),user:e("DB_USER"),password:e("DB_PASSWORD"),poolSize:Math.max(1,n("DB_POOL_SIZE",6))},
  coreApiToken:e("CORE_API_TOKEN"),mcpApiToken:e("MCP_API_TOKEN"),vaultKey:e("CONNECTOR_VAULT_KEY"),oauthStateSecret:e("OAUTH_STATE_SECRET"),
  dataDir:e("DATA_DIR","./runtime"),uploadDir:e("UPLOAD_DIR","./runtime/uploads"),httpTimeoutMs:Math.max(1000,n("HTTP_TIMEOUT_MS",20000)),
