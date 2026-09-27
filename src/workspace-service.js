@@ -1,5 +1,6 @@
 import {randomBytes,createHash} from "node:crypto";
 import {db,now} from "./db.js";
+import {enqueueJob} from "./platform/jobs.js";
 const id=p=>p+"_"+randomBytes(8).toString("hex");
 const lim=(v,d=50,m=200)=>Math.max(1,Math.min(m,Number.parseInt(String(v??d),10)||d));
 const j=v=>JSON.stringify(v??{});
@@ -42,6 +43,7 @@ export async function ingestMessage(p){
   await c.execute(`INSERT INTO messages(id,conversation_id,external_id,direction,sender,recipient,subject,body,is_read,sent_at,created_at,source,channel,account_id,thread_id,cc,rfc_message_id,references_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[msgId,convId,ev,direction,String(p.sender||""),String(p.recipient||""),String(p.subject||""),String(p.body||""),read?1:0,ts,now(),String(p.source||provider),p.channel||"email",localAccountId,String(p.thread_id||ext),String(p.cc||""),String(p.rfc_message_id||""),j(p.references||[])]);
   await c.execute("UPDATE conversations SET last_message_at=GREATEST(COALESCE(last_message_at,''),?),unread_count=unread_count+?,updated_at=? WHERE id=?",[ts,direction==="in"&&!read?1:0,now(),convId]);
   await c.execute("INSERT INTO activities(event,entity_type,entity_id,title,metadata_json,created_at) VALUES(?,?,?,?,?,?)",["message."+direction,"conversation",convId,String(p.subject||p.body||"הודעה חדשה").slice(0,160),j({source:provider}),now()]);
+  if(direction==="in")await enqueueJob("inbox.process",{messageId:msgId},{idempotencyKey:"incoming:"+msgId,db:c});
   await c.commit();return {inserted:true,conversation_id:convId,message_id:msgId,account_id:localAccountId};
  }catch(error){await c.rollback();throw error;}finally{c.release();}
 }
@@ -91,11 +93,15 @@ export class WorkspaceService{
   if(op==="search")return {ok:true,results:await search(p.q,lim(p.limit,25,50))};
   if(["project.list","client.list","system.list","task.list","conversation.list","account.list"].includes(op)){
    const table=entity==="system"?"systems":entity+"s",where=[],values=[];
-   if(entity==="project")where.push("deleted_at IS NULL");
+   if(["project","system"].includes(entity)&&!p.include_archived)where.push("e.deleted_at IS NULL AND e.archived_at IS NULL AND e.status<>'archived'");
    const columns={project:["status"],client:["status"],system:["status","project_id","client_id"],task:["status"],conversation:["channel","client_id","project_id","account_id"],account:["type","status"]}[entity];
    for(const key of columns)if(p[key]){where.push(`e.${key}=?`);values.push(String(p[key]));}
    if(p.project_id&&["task","client","account"].includes(entity)){where.push("EXISTS(SELECT 1 FROM entity_relations r WHERE r.from_type=? AND r.from_id=e.id AND r.to_type='project' AND r.to_id=?)");values.push(entity,String(p.project_id));}
    if(entity==="conversation"&&p.unread_only)where.push("unread_count>0");
+   if(entity==="conversation"){
+    const latest="(SELECT m.spam_disposition FROM messages m WHERE m.conversation_id=e.id AND m.direction='in' ORDER BY m.sent_at DESC,m.id DESC LIMIT 1)";
+    where.push(p.folder==="spam"?latest+"='spam'":"COALESCE("+latest+",'inbox')<>'spam'");
+   }
    if(p.q){const fields={project:["name","description","next_step"],client:["name","phone","email","notes"],system:["did","notes"],task:["title","notes"],conversation:["title"],account:["label","identifier"]}[entity];where.push("("+fields.map(f=>`e.${f} LIKE ?`).join(" OR ")+")");values.push(...fields.map(()=>"%"+String(p.q)+"%"));}
    const order=entity==="conversation"?"last_message_at":"updated_at";
    const [items]=await db.execute(`SELECT e.* ${entity==="conversation"?",a.type AS account_type,a.integration_key,a.label AS account_label":""} FROM ${table} e ${entity==="conversation"?"LEFT JOIN accounts a ON a.id=e.account_id":""} ${where.length?"WHERE "+where.join(" AND "):""} ORDER BY e.${order} DESC LIMIT ${lim(p.limit,100,200)}`,values);

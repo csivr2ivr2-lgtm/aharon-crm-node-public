@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {randomUUID,createHash} from "node:crypto";
 import {db,now} from "./db.js";
 import {draftReply} from "./ai/local-ai.js";
 import {ConnectorsClient} from "./clients/connectors.js";
@@ -6,10 +6,12 @@ import {WorkspaceService} from "./workspace-service.js";
 import {emailOf} from "./message-format.js";
 const connectors=new ConnectorsClient(),workspace=new WorkspaceService();
 
-export async function createDraft({conversationId,instruction="",tone=""}){
+export async function createDraft({conversationId,instruction="",tone="",idempotencyKey=""}){
+ const draftId=idempotencyKey?"draft_"+createHash("sha256").update(idempotencyKey).digest("hex").slice(0,40):"draft_"+randomUUID();
+ if(idempotencyKey){const [existing]=await db.execute("SELECT * FROM message_drafts WHERE id=?",[draftId]);if(existing.length)return {ok:true,id:draftId,draft:existing[0].body,provider:existing[0].provider,model:existing[0].model};}
  const r=await draftReply({conversationId,instruction,tone:tone||"אנושי, מקצועי, ברור וקצר"});
- const draftId="draft_"+randomUUID(),ts=now();
- await db.execute("INSERT INTO message_drafts(id,conversation_id,body,instruction,provider,model,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",[draftId,conversationId,r.draft,instruction,r.provider,r.model,"draft",ts,ts]);
+ const ts=now();
+ await db.execute("INSERT IGNORE INTO message_drafts(id,conversation_id,body,instruction,provider,model,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",[draftId,conversationId,r.draft,instruction,r.provider,r.model,"draft",ts,ts]);
  return {ok:true,id:draftId,...r};
 }
 export async function listDrafts(conversationId){const [items]=await db.execute("SELECT * FROM message_drafts WHERE conversation_id=? ORDER BY created_at DESC LIMIT 20",[conversationId]);return items;}
@@ -30,10 +32,12 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
   if(inbound.rfc_message_id)references.push(inbound.rfc_message_id);
   payload={...payload,to,account_id:externalAccountId,subject:/^re:/i.test(inbound.subject||"")?inbound.subject:"Re: "+String(inbound.subject||""),thread_id:inbound.thread_id?.replace(/^gmail:[^:]+:/,""),in_reply_to:inbound.rfc_message_id||"",references:[...new Set(references)]};channel=provider==="google"?"gmail":"hostinger";
  }else if(provider==="whatsapp"){channel="whatsapp";payload.to=conv.external_id;}else throw Error("unsupported_conversation_channel");
- const [claim]=await database.execute("INSERT IGNORE INTO outgoing_sends(id,conversation_id,status,created_at,updated_at) VALUES(?,?,'sending',?,?)",[requestId,conversationId,now(),now()]);
+ const requestHash=createHash("sha256").update(JSON.stringify({conversationId,body,draftId})).digest("hex");
+ const [claim]=await database.execute("INSERT IGNORE INTO outgoing_sends(id,conversation_id,status,request_hash,created_at,updated_at) VALUES(?,?,'sending',?,?,?)",[requestId,conversationId,requestHash,now(),now()]);
  if(!claim.affectedRows){
   const [old]=await database.execute("SELECT * FROM outgoing_sends WHERE id=?",[requestId]);
   if(old[0]?.conversation_id!==conversationId)throw Error("request_id_conflict");
+  if(old[0]?.request_hash&&old[0].request_hash!==requestHash)throw Error("request_id_conflict");
   if(old[0]?.status==="sent")return JSON.parse(old[0].result_json);
   throw Error("send_pending_or_uncertain_check_provider_before_retry");
  }

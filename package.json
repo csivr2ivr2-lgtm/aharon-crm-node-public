@@ -26,10 +26,12 @@
     "googleapis": "^181.0.0",
     "imapflow": "^2.0.7",
     "mailparser": "^3.9.28",
+    "mammoth": "1.13.0",
     "mysql2": "^3.14.4",
     "nodemailer": "^10.0.10",
     "pino": "^9.7.0",
     "qrcode": "^1.5.4",
+    "unpdf": "1.4.0",
     "ws": "^8.18.3",
     "zod": "^4.1.5"
   },

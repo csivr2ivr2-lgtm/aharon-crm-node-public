@@ -123,6 +123,7 @@ test('duplicate message does not increment unread count or create activity',asyn
 test('file upload records byte count and uses an opaque storage name',async t=>{
  const {unlink}=await import('node:fs/promises');let stored;
  t.mock.method(db,'execute',async(sql,args)=>{if(sql.startsWith('INSERT INTO files'))stored=args;return [{affectedRows:1}];});
+ t.mock.method(db,'getConnection',async()=>({beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release(){},execute:async(sql,args)=>{if(sql.startsWith('INSERT INTO files'))stored=args;return sql.startsWith('SELECT')?[[]]:[{affectedRows:1}];}}));
  const app=await buildApp({initializeDatabase:false,startBackground:false});
  try{
   const login=await app.inject({method:'POST',url:'/login',payload:{password:process.env.DASHBOARD_PASSWORD}});const cookie=login.headers['set-cookie'].split(';')[0];

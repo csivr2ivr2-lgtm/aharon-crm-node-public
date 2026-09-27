@@ -6,7 +6,7 @@ import {config,assertConfig} from "./config.js";
 import {equalToken,bearerToken} from "./http.js";
 import {migrate,db} from "./db.js";
 import {readFile,mkdir,unlink} from "node:fs/promises";
-import {createWriteStream,createReadStream} from "node:fs";
+import {createWriteStream,createReadStream,constants} from "node:fs";
 import {Transform} from "node:stream";
 import {pipeline} from "node:stream/promises";
 import {resolve,basename} from "node:path";
@@ -14,7 +14,7 @@ import {randomBytes} from "node:crypto";
 import {aiStatus} from "./ai/local-ai.js";
 import {migrateExtras} from "./extra-schema.js";
 import {WorkspaceService} from "./workspace-service.js";
-import {ConnectorsClient,googleConnector,whatsapp} from "./clients/connectors.js";
+import {ConnectorsClient,googleConnector,hostingerMail,whatsapp} from "./clients/connectors.js";
 import {RealtimeHub} from "./realtime.js";
 import {SyncScheduler} from "./scheduler.js";
 import {SmartTaskWorker} from "./worker.js";
@@ -22,9 +22,16 @@ import {createDraft,listDrafts,sendConversationReply} from "./inbox.js";
 import {handleMcp} from "./mcp.js";
 import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
+import {migratePlatform} from "./platform/schema.js";
+import {enqueueJob,startJobWorker} from "./platform/jobs.js";
+import {migrateIntelligence,processIncomingMessage} from "./ai/intelligence.js";
+import {migrateActions} from "./ai/actions.js";
+import {migrateCrmIntelligence,crmIntelligence} from "./crm-intelligence.js";
+import {migrateFileIntelligence,fileIntelligence} from "./file-intelligence.js";
+import {registerIntelligenceRoutes} from "./intelligence-routes.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();if(initializeDatabase){await migrate();await migrateExtras();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateActions();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -61,13 +68,13 @@ app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=n
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
 
 app.get("/api/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("status")});
-app.get("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.list",{limit:100})});
+app.get("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.list",{...req.query,limit:100})});
 app.post("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.create",req.body||{})});
 app.get("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.list",{limit:100})});
 app.post("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.create",req.body||{})});
 app.get("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.list",{limit:100})});
 app.post("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.create",{status:"open",priority:"normal",worker_state:"idle",...(req.body||{})})});
-app.get("/api/inbox",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.list",{limit:100})});
+app.get("/api/inbox",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.list",{...req.query,limit:100})});
 app.get("/api/conversations/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;const r=await workspace.call("conversation.get",{id:req.params.id});if(!r.ok)return reply.code(404).send(r);return r});
 app.post("/api/conversations/:id/read",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.read",{id:req.params.id})});
 app.post("/api/conversations/:id/draft",async(req,reply)=>{if(!uiAuth(req,reply))return;return createDraft({conversationId:req.params.id,instruction:String(req.body?.instruction||""),tone:String(req.body?.tone||"")})});
@@ -82,20 +89,24 @@ app.get("/oauth/google/callback",async(req,reply)=>{
  if(!saved.valid||!equalToken(saved.value,state))return reply.code(400).send({ok:false,error:"invalid_oauth_state"});
  reply.clearCookie("oauth_state",{path:"/"});await googleConnector.callback(String(req.query?.code||""),state);return reply.redirect("/#connectors");
 });
-app.get("/api/files",async(req,reply)=>{if(!uiAuth(req,reply))return;const [items]=await db.query("SELECT id,name,mime,size_bytes,project_id,client_id,notes,created_at FROM files ORDER BY created_at DESC LIMIT 200");return {ok:true,items};});
+app.get("/api/files",async(req,reply)=>{if(!uiAuth(req,reply))return;if(req.query.q)return fileIntelligence.searchFiles(req.query.q,{internal:true});const [items]=await db.query("SELECT f.id,f.name,f.mime,f.size_bytes,f.project_id,f.client_id,f.task_id,f.folder,f.notes,f.created_at,c.status AS index_status FROM files f LEFT JOIN file_content c ON c.file_id=f.id WHERE f.deleted_at IS NULL AND f.archived_at IS NULL ORDER BY f.created_at DESC LIMIT 200");return {ok:true,items};});
 app.post("/api/files",async(req,reply)=>{
  if(!uiAuth(req,reply))return;const part=await req.file();if(!part)throw Error("file_required");
  const id="file_"+randomBytes(16).toString("hex"),name=basename(part.filename).replace(/[\r\n\0]/g,"").slice(0,500)||"attachment";
  await mkdir(config.uploadDir,{recursive:true,mode:0o700});const path=resolve(config.uploadDir,id);
  try{
   let size=0;await pipeline(part.file,new Transform({transform(chunk,_encoding,callback){size+=chunk.length;callback(null,chunk);}}),createWriteStream(path,{flags:"wx",mode:0o600}));if(part.file.truncated)throw Error("file_too_large");
-  await db.execute("INSERT INTO files(id,name,mime,size_bytes,storage_name,created_at) VALUES(?,?,?,?,?,?)",[id,name,part.mimetype,size,id,new Date().toISOString()]);return {ok:true,id};
+  const connection=await db.getConnection();try{await connection.beginTransaction();
+   await connection.execute("INSERT INTO files(id,name,mime,size_bytes,storage_name,created_at) VALUES(?,?,?,?,?,?)",[id,name,part.mimetype,size,id,new Date().toISOString()]);
+   await enqueueJob("file.index",{fileId:id},{idempotencyKey:"file:"+id,db:connection});await connection.commit();
+  }catch(error){await connection.rollback();throw error;}finally{connection.release();}return {ok:true,id};
  }catch(error){await unlink(path).catch(()=>{});throw error;}
 });
 app.get("/api/files/:id/download",async(req,reply)=>{
- if(!uiAuth(req,reply))return;const [rows]=await db.execute("SELECT * FROM files WHERE id=?",[req.params.id]);const file=rows[0];
- if(!file||!/^file_[a-f0-9]{32}$/.test(file.storage_name))return reply.code(404).send({ok:false,error:"file_not_found"});
- reply.type("application/octet-stream").header("Content-Disposition","attachment; filename*=UTF-8''"+encodeURIComponent(file.name));return reply.send(createReadStream(resolve(config.uploadDir,file.storage_name)));
+ if(!uiAuth(req,reply))return;const [rows]=await db.execute("SELECT * FROM files WHERE id=? AND deleted_at IS NULL",[req.params.id]);const file=rows[0];
+ if(!file)return reply.code(404).send({ok:false,error:"file_not_found"});
+ const path=await fileIntelligence.safePath(file.storage_name);
+ reply.type("application/octet-stream").header("Content-Disposition","attachment; filename*=UTF-8''"+encodeURIComponent(file.name));return reply.send(createReadStream(path,{flags:constants.O_RDONLY|constants.O_NOFOLLOW}));
 });
 app.get("/api/ai/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,...aiStatus()};});
 app.post("/api/ws-ticket",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,ticket:hub.issueTicket()};});
@@ -111,15 +122,33 @@ app.get("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return work
 app.post("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("note.create",req.body||{});});
 app.post("/api/whatsapp/connect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.start(onWhatsAppEvent);return {ok:true,...whatsapp.status()};});
 app.post("/api/whatsapp/logout",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.logout();return {ok:true};});
+app.post("/api/hostinger/accounts",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.configure(req.body||{});});
+app.post("/api/hostinger/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.disconnect();});
+app.delete("/api/google/accounts/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.disconnect(req.params.id);});
+app.post("/api/whatsapp/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.disconnect();return {ok:true,...whatsapp.status()};});
+app.post("/api/whatsapp/reconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.reconnect(onWhatsAppEvent);return {ok:true,...whatsapp.status()};});
+app.delete("/api/whatsapp/session",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.deleteSession();return {ok:true,...whatsapp.status()};});
 
 app.get("/v1/status",async(req,reply)=>{if(!apiAuth(req,reply))return;return {ok:true,workspace:await workspace.call("status"),connectors:await connectors.status()}});
-app.post("/v1/workspace/:op",async(req,reply)=>{if(!apiAuth(req,reply))return;try{return await workspace.call(req.params.op,req.body||{})}catch(e){return reply.code(400).send({ok:false,error:e.message})}});
+app.post("/v1/workspace/:op",async(req,reply)=>{if(!apiAuth(req,reply))return;return workspace.call(req.params.op,req.body||{});});
 app.post("/v1/sync",async(req,reply)=>{if(!apiAuth(req,reply))return;return scheduler.runOnce()});
 app.all("/mcp",handleMcp);
 
 async function onWhatsAppEvent(event){const r=await workspace.call("message.ingest",event);if(r.inserted)hub.publish("message.new",{conversation_id:r.conversation_id,channel:"whatsapp"});}
-app.addHook("onClose",async()=>{scheduler.stop();worker.stop();whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
-if(startBackground)app.addHook("onListen",async()=>{scheduler.start();worker.start();void whatsapp.start(onWhatsAppEvent).catch(()=>app.log.warn("WhatsApp connection failed"));});
+registerIntelligenceRoutes(app,{uiAuth,hub});
+let stopJobs=async()=>{},reminders;
+app.addHook("onClose",async()=>{clearInterval(reminders);scheduler.stop();worker.stop();await stopJobs();whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
+if(startBackground)app.addHook("onListen",async()=>{
+ scheduler.start();worker.start();
+ stopJobs=startJobWorker({
+  "inbox.process":async payload=>{const result=await processIncomingMessage(payload);hub.publish("ai.inbox",{message_id:payload.messageId});return result;},
+  "file.index":payload=>fileIntelligence.indexFile(payload.fileId),
+  "reminders.tick":()=>crmIntelligence.processDueReminders(),
+  "reminder.follow_up":payload=>createDraft({conversationId:payload.conversationId,instruction:"הכן טיוטת מעקב מנומסת. אל תשלח דבר.",idempotencyKey:"reminder:"+payload.reminderId})
+ },{onError:()=>app.log.warn("Background processing failed; inspect the queue")});
+ reminders=setInterval(()=>{void enqueueJob("reminders.tick",{},{idempotencyKey:"reminders:"+Math.floor(Date.now()/60000)}).catch(()=>app.log.warn("Reminder scheduling failed"));},60000);reminders.unref();
+ void whatsapp.start(onWhatsAppEvent).catch(()=>app.log.warn("WhatsApp connection failed"));
+});
 return app;
 }
 export async function start(){
