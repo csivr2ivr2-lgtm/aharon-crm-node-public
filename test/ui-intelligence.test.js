@@ -7,7 +7,7 @@ const source=(await readFile(new URL('../src/browser.js',import.meta.url),'utf8'
 function harness(responses={}){
  const elements=new Map(),calls=[],listeners={};
  const element=key=>{if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',value:'',dataset:{},classList:{toggle(){}},scrollHeight:10,reset(){},insertAdjacentHTML(_position,html){this.innerHTML+=html;}});return elements.get(key);};
- const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,console,confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??{ok:true,items:[]};return {ok:true,status:200,json:async()=>value};}});
+ const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,console,setTimeout:()=>0,clearTimeout(){},confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??{ok:true,items:[]};return {ok:true,status:200,json:async()=>value};}});
  vm.runInContext(source,context);return {run:code=>vm.runInContext(code,context),element,calls,context,listeners};
 }
 test('Hebrew RTL navigation reaches all intelligence and CRM screens',()=>{const html=appHtml();assert.match(html,/lang="he" dir="rtl"/);for(const page of ['assistant','spam','suggestions','reminders','notifications','settings','files','followups','knowledge'])assert.ok(html.includes('data-view="'+page+'"'));assert.match(html,/bi bi-/);});
@@ -97,4 +97,10 @@ test('followup settings use typed hours and separate automation and followup mod
 });
 test('both incoming and outgoing messages offer generic knowledge proposals',async()=>{
  const h=harness({'/api/conversations/c1':{item:{title:'שיחה'},messages:[{id:'in1',direction:'in',body:'הודעה'},{id:'out1',direction:'out',body:'תשובה'}]}});await h.run(`openConversation('c1')`);const html=h.element('#content').innerHTML;assert.equal((html.match(/data-action="knowledge-propose"/g)||[]).length,2);assert.ok(html.includes('data-id="in1"'));assert.ok(html.includes('data-id="out1"'));
+});
+
+test('local model screen shows safe failure, timing, both memory snapshots and test control',async()=>{
+ const h=harness({'/api/ai/status':{enabled:true,model:'org/model',attempted_model:'org/tried',state:'failed',load_duration_ms:1250,error:{code:'network',message:'<error>'},memory_before:{rss:1048576},memory_after:{rss:2097152}}});
+ await h.run("render('ai')");const html=h.element('#content').innerHTML;assert.ok(html.includes('org/tried'));assert.ok(html.includes('נכשל'));assert.ok(html.includes('1.3 שניות'));assert.ok(html.includes('2.0 MB'));assert.ok(html.includes('&lt;error&gt;'));assert.ok(html.includes('Test Local AI'));
+ await h.run("intelligenceAction('local-ai-test',{dataset:{}})");assert.ok(h.calls.some(c=>c.method==='POST'&&c.url==='/api/ai/test'));
 });

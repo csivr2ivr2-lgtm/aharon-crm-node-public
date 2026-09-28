@@ -13,7 +13,7 @@ test.after(()=>db.end());
 async function login(app){const r=await app.inject({method:'POST',url:'/login',payload:{password:process.env.DASHBOARD_PASSWORD}});return r.headers['set-cookie'].split(';')[0];}
 test('all intelligence mutations and reads require dashboard authentication',async()=>{
  const app=await buildApp({initializeDatabase:false,startBackground:false});try{
-  for(const [method,url] of [['GET','/api/followups'],['POST','/api/followups/f/remind'],['GET','/api/knowledge'],['GET','/api/knowledge/candidates'],['POST','/api/knowledge/candidates'],['POST','/api/knowledge/candidates/k/approve'],['PATCH','/api/knowledge/k'],['GET','/api/settings'],['PATCH','/api/settings'],['GET','/api/jobs'],['POST','/api/jobs/j/retry'],['GET','/api/audit'],['POST','/api/assistant/chat'],['POST','/api/assistant/actions/a/confirm'],['GET','/api/suggestions'],['POST','/api/suggestions/s/resolve'],['POST','/api/messages/m/feedback'],['PATCH','/api/drafts/d'],['GET','/api/reminders'],['POST','/api/reminders'],['POST','/api/projects/p/lifecycle'],['GET','/api/systems/s/relations'],['POST','/api/files/text'],['GET','/api/files/f/content'],['PATCH','/api/files/f'],['POST','/api/hostinger/accounts']])assert.equal((await app.inject({method,url})).statusCode,401,method+' '+url);
+  for(const [method,url] of [['POST','/api/ai/test'],['GET','/api/ai/status'],['GET','/api/followups'],['POST','/api/followups/f/remind'],['GET','/api/knowledge'],['GET','/api/knowledge/candidates'],['POST','/api/knowledge/candidates'],['POST','/api/knowledge/candidates/k/approve'],['PATCH','/api/knowledge/k'],['GET','/api/settings'],['PATCH','/api/settings'],['GET','/api/jobs'],['POST','/api/jobs/j/retry'],['GET','/api/audit'],['POST','/api/assistant/chat'],['POST','/api/assistant/actions/a/confirm'],['GET','/api/suggestions'],['POST','/api/suggestions/s/resolve'],['POST','/api/messages/m/feedback'],['PATCH','/api/drafts/d'],['GET','/api/reminders'],['POST','/api/reminders'],['POST','/api/projects/p/lifecycle'],['GET','/api/systems/s/relations'],['POST','/api/files/text'],['GET','/api/files/f/content'],['PATCH','/api/files/f'],['POST','/api/hostinger/accounts']])assert.equal((await app.inject({method,url})).statusCode,401,method+' '+url);
  }finally{await app.close();}
 });
 test('dashboard intelligence reads expose expected UI shapes',async t=>{
@@ -61,4 +61,16 @@ test('incoming message and processing job commit atomically, queue failure rolls
  }};t.mock.method(db,'getConnection',async()=>c);
  await assert.rejects(ingestMessage({account:{provider:'google'},account_id:'g',external_id:'m',conversation_external_id:'t',body:'שלום'}),/queue_failed/);
  assert.equal(commit,false);assert.equal(rollback,true);assert.ok(calls.some(x=>x.sql.startsWith('INSERT INTO messages')));
+});
+
+test('local AI test is asynchronous, ignores user prompt and keeps CRM routes available',async t=>{
+ const {localDiagnostics}=await import('../src/ai/local-ai.js');let model;
+ t.mock.method(db,'execute',async()=>[[]]);
+ t.mock.method(localDiagnostics,'startTest',value=>{model=value;return {accepted:true,status:{loading:true}};});
+ const app=await buildApp({initializeDatabase:false,startBackground:false});try{
+  const cookie=await login(app),response=await app.inject({method:'POST',url:'/api/ai/test',headers:{cookie},payload:{model:'/private/secret',prompt:'send client data'}});
+  assert.equal(response.statusCode,202);assert.equal(response.json().status.loading,true);assert.notEqual(model,'/private/secret');
+  const status=await app.inject({url:'/api/ai/status',headers:{cookie}});assert.equal(status.statusCode,200);assert.ok(!('cache' in status.json()));assert.ok(!('cacheDir' in status.json()));
+  assert.equal((await app.inject({url:'/health'})).statusCode,200);
+ }finally{await app.close();}
 });

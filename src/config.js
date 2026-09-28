@@ -11,6 +11,7 @@ export const config=Object.freeze({
  dataDir:e("DATA_DIR","./runtime"),uploadDir:e("UPLOAD_DIR","./runtime/uploads"),httpTimeoutMs:Math.max(1000,n("HTTP_TIMEOUT_MS",20000)),
  localAiEnabled:b("LOCAL_AI_ENABLED",true),localAiModel:e("LOCAL_AI_MODEL","onnx-community/Qwen2.5-0.5B-Instruct"),
  localAiDtype:e("LOCAL_AI_DTYPE","q4"),localAiMaxNewTokens:Math.max(64,n("LOCAL_AI_MAX_NEW_TOKENS",320)),
+ localAiTimeoutMs:Math.max(1000,Math.min(600000,n("LOCAL_AI_TIMEOUT_MS",180000))),
  localAiMaxContextChars:Math.max(4000,n("LOCAL_AI_MAX_CONTEXT_CHARS",18000)),
  aiBaseUrl:e("AI_BASE_URL").replace(/\/$/,""),aiApiToken:e("AI_API_TOKEN"),aiModel:e("AI_MODEL"),
  googleClientId:e("GOOGLE_CLIENT_ID"),googleClientSecret:e("GOOGLE_CLIENT_SECRET"),googleRedirectUri:e("GOOGLE_REDIRECT_URI"),

@@ -1,3 +1,10 @@
+# Local AI diagnostics — 2026-09-28
+
+- Added authenticated asynchronous local-only smoke test and Hebrew diagnostics UI, actual attempted model, safe categorized failures, loaded/loading/failed flags, load timing and parent/child process memory snapshots.
+- Moved lazy Transformers import, model loading and inference into a child process. Requests have a bounded deadline; timeout/crash terminates the child and rejects the request safely. Concurrent work is rejected promptly, retry is supported and shutdown closes the child.
+- 156 tests passed, including success/failure/retry, hung load/inference, concurrent requests, invalid model paths, secret redaction, authenticated test endpoint, UI diagnostics and an actual subprocess crash with a responsive parent.
+- Model execution is simulated in diagnostic regression tests; the crash containment test uses a real child process. A successful download/load of the configured model and behavior under the deployment's memory quota have not been verified in this round.
+
 # AI CRM integration validation — 2026-09-28
 
 Baseline GitHub main: `239306ba7d63fb9edc71fe6590bbd4e6f75823c8`.

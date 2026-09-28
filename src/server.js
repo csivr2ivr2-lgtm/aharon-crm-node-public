@@ -11,7 +11,7 @@ import {Transform} from "node:stream";
 import {pipeline} from "node:stream/promises";
 import {resolve,basename} from "node:path";
 import {randomBytes} from "node:crypto";
-import {aiStatus} from "./ai/local-ai.js";
+import {aiStatus,localDiagnostics,closeLocalAi} from "./ai/local-ai.js";
 import {migrateExtras} from "./extra-schema.js";
 import {WorkspaceService} from "./workspace-service.js";
 import {ConnectorsClient,googleConnector,hostingerMail,whatsapp} from "./clients/connectors.js";
@@ -111,6 +111,7 @@ app.get("/api/files/:id/download",async(req,reply)=>{
  reply.type("application/octet-stream").header("Content-Disposition","attachment; filename*=UTF-8''"+encodeURIComponent(file.name));return reply.send(createReadStream(path,{flags:constants.O_RDONLY|constants.O_NOFOLLOW}));
 });
 app.get("/api/ai/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,...aiStatus()};});
+app.post("/api/ai/test",async(req,reply)=>{if(!uiAuth(req,reply))return;const settings=await (await import("./platform/settings.js")).getSettings();const result=localDiagnostics.startTest(settings.ai.model||config.localAiModel);return reply.code(result.accepted?202:409).send({ok:result.accepted,...result});});
 app.post("/api/ws-ticket",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,ticket:hub.issueTicket()};});
 for(const [plural,entity] of [["projects","project"],["clients","client"],["tasks","task"],["systems","system"],["accounts","account"]]){
  if(["systems","accounts"].includes(plural)){
@@ -140,7 +141,7 @@ async function onWhatsAppEvent(event){const r=await workspace.call("message.inge
 const backgroundState={enabled:startBackground,running:false,last_error:null};
 registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState});
 let stopJobs=async()=>{},reminders;
-app.addHook("onClose",async()=>{clearInterval(reminders);scheduler.stop();worker.stop();await stopJobs();backgroundState.running=false;whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
+app.addHook("onClose",async()=>{clearInterval(reminders);closeLocalAi();scheduler.stop();worker.stop();await stopJobs();backgroundState.running=false;whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
 if(startBackground)app.addHook("onListen",async()=>{
  scheduler.start();worker.start();backgroundState.running=true;
  const runtime=new BackgroundActionRuntime(),handlers=runtime.queueHandlers();

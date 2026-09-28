@@ -32,9 +32,7 @@ async function render(next){
  if(view==='connectors'){
   const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חיבור טלפון</h2><p>פתח במכשיר את המכשירים המקושרים וסרוק את הקוד.</p><div id="wa"></div><div class="actions">'+button('wa-connect','חבר WhatsApp')+button('wa-reconnect','חיבור מחדש')+button('wa-refresh','רענון קוד סריקה')+button('wa-disconnect','ניתוק זמני')+button('wa-delete-session','מחיקת החיבור השמור')+'</div></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
  }
- if(view==='ai'){
-  const d=await api('/api/ai/status');$('#content').innerHTML='<div class="panel"><p>מודל מקומי: '+esc(d.model)+'</p><p>מופעל: '+(d.enabled?'כן':'לא')+'</p><p>מצב: '+(d.loaded?'טעון':d.loading?'נטען':'יטען בבקשה הראשונה')+'</p><p>גיבוי חיצוני: '+(d.fallback_configured?'מוגדר':'לא מוגדר')+'</p><p>המודל מורד בבקשה הראשונה. טיוטות ותוצאות דורשות בדיקה שלך לפני שליחה.</p></div>';return;
- }
+ if(view==='ai'){await renderLocalAi();return;}
  $('#content').innerHTML='<div class="panel"><h2>הגדרות מערכת</h2><p>סיסמאות, חיבור למסד הנתונים והגדרות הספקים מנוהלים במשתני הסביבה של Hostinger.</p><p>חיבורי Google ו־WhatsApp מנוהלים במסך החיבורים. הגדרות המודל מוצגות במסך הבינה המלאכותית.</p><p>הודעות נשלחות רק בלחיצה מפורשת על שליחה. גם משימות AI יוצרות תוצאה לבדיקה בלבד.</p></div>';
 }
 const schemas={
@@ -155,7 +153,8 @@ async function renderFiles(q=fileQuery){
 }
 async function intelligenceAction(action,b){
  const id=b.dataset.id, patch=(url,data)=>api(url,{method:'PATCH',body:JSON.stringify(data)});
- if(action==='refresh-view'){await render(view);}
+ if(action==='local-ai-test'){await post('/api/ai/test');await render('ai');}
+ else if(action==='refresh-view'){await render(view);}
  else if(action==='followup-remind'||action==='followup-draft'){
   const draft=action==='followup-draft';await post('/api/followups/'+encodeURIComponent(id)+'/remind',{mode:draft?'draft_follow_up':'remind'});await render('followups');$('#notice').textContent=draft?'בקשת טיוטת המעקב נוספה לתור. כשהטיוטה תהיה מוכנה היא תופיע בשיחה לבדיקה.':'תזכורת המעקב נשמרה.';
  }
@@ -256,4 +255,14 @@ async function saveKnowledge(fields){
  const title=String(fields.title||'').trim(),body=String(fields.body||'').trim();if(!title||!body)throw Error('יש למלא כותרת ותוכן.');
  if(!confirm('לאשר את הנוהל הערוך לשימוש בשיחות אחרות? יש לוודא שאין בו מידע אישי או מידע ייחודי ללקוח.'))return;
  const {id,candidate}=knowledgeEditing;await api('/api/knowledge/'+(candidate?'candidates/':'')+encodeURIComponent(id)+(candidate?'/approve':''),{method:candidate?'POST':'PATCH',body:JSON.stringify({title,body,reviewed:true})});await render('knowledge');$('#notice').textContent='הנוהל אושר ונשמר לשימוש כללי.';
+}
+
+let localAiRefresh=null;
+async function renderLocalAi(){
+ clearTimeout(localAiRefresh);
+ const d=await api('/api/ai/status');if(view!=='ai')return;
+ const memory=m=>m?['rss','heapUsed','external'].map(k=>({rss:'זיכרון פיזי',heapUsed:'זיכרון JavaScript',external:'זיכרון חיצוני'})[k]+': '+(Number(m[k]||0)/1048576).toFixed(1)+' MB').join(' · '):'טרם נמדד';
+ const states={idle:'ממתין לטעינה',loaded:'טעון',loading:'נטען',failed:'נכשל'};
+ $('#content').innerHTML='<div class="panel"><p>מודל מוגדר: '+esc(d.model)+'</p><p>המודל שנוסה: '+esc(d.attempted_model||'טרם נוסה')+'</p><p>מופעל: '+(d.enabled?'כן':'לא')+'</p><p role="status">מצב: '+esc(states[d.state]||'ממתין לטעינה')+'</p><p>זמן טעינה: '+(d.load_duration_ms==null?'טרם נמדד':(Number(d.load_duration_ms)/1000).toFixed(1)+' שניות')+'</p><p>תחילת טעינה: '+esc(d.started_at||'—')+'</p><p>סיום טעינה: '+esc(d.finished_at||'—')+'</p>'+(d.error?'<p class="error">'+esc(d.error.message)+' ('+esc(d.error.code)+')</p>':'')+'<h2>זיכרון התהליכים לפני ואחרי הטעינה</h2><p>CRM לפני: '+esc(memory(d.memory_before))+'</p><p>CRM אחרי: '+esc(memory(d.memory_after))+'</p><p>תהליך המודל לפני: '+esc(memory(d.worker_memory_before))+'</p><p>תהליך המודל אחרי: '+esc(memory(d.worker_memory_after))+'</p><p>MB = מגה־בייט. במקרה של קריסת התהליך ייתכן שלא תהיה מדידת סיום.</p><button class="btn" data-action="local-ai-test" '+(!d.enabled||d.loading||d.test_running?'disabled':'')+'>בדיקת מודל מקומי (Test Local AI)</button> '+button('refresh-view','רענון מצב')+'<p role="status">'+(d.test_running?'בדיקת טעינה ויצירת טקסט מתבצעת ברקע…':d.test_result?.ok?'הבדיקה הצליחה: המודל יצר טקסט.':d.test_result?.error?esc(d.test_result.error.message):'')+'</p><p>הבדיקה משתמשת בטקסט קבוע בלבד, ללא נתוני לקוחות וללא ספק גיבוי.</p><p>גיבוי חיצוני: '+(d.fallback_configured?'מוגדר':'לא מוגדר')+'</p></div>';
+ if(d.loading||d.test_running)localAiRefresh=setTimeout(()=>{if(view==='ai')void renderLocalAi().catch(()=>{$('#error').textContent='לא ניתן לרענן את מצב המודל.';});},2000);
 }
