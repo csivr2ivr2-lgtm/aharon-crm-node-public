@@ -5,18 +5,20 @@ import {audit} from './audit.js';
 const mode=z.enum(['off','suggest','automatic']);
 export const settingsSchema=z.object({
   ai:z.object({provider:z.enum(['local','external','auto']),model:z.string().trim().max(255),temperature:z.number().min(0).max(2),contextSize:z.number().int().min(2000).max(64000),fallback:z.boolean()}).strict(),
-  automation:z.object({clients:mode,projects:mode,tasks:mode,drafts:mode,spam:mode,classification:mode}).strict(),
+  automation:z.object({clients:mode,projects:mode,tasks:mode,drafts:mode,spam:mode,classification:mode,followups:mode}).strict(),
+  followups:z.object({waitingHours:z.number().int().min(1).max(2160),overdueHours:z.number().int().min(0).max(2160),mode:z.enum(['remind','draft_follow_up'])}).strict(),
   messaging:z.object({policy:z.enum(['always_confirm','confirm_sensitive','auto_send_trusted','never_auto_send']),trustedClientIds:z.array(z.string().min(1).max(64)).max(500),defaultAccountId:z.string().max(64),signature:z.string().max(4000)}).strict()
 }).strict();
 export const DEFAULT_SETTINGS=Object.freeze({
   ai:{provider:'auto',model:'',temperature:0.3,contextSize:18000,fallback:true},
-  automation:{clients:'suggest',projects:'suggest',tasks:'suggest',drafts:'automatic',spam:'automatic',classification:'automatic'},
+  automation:{clients:'suggest',projects:'suggest',tasks:'suggest',drafts:'automatic',spam:'automatic',classification:'automatic',followups:'suggest'},
+  followups:{waitingHours:48,overdueHours:24,mode:'remind'},
   messaging:{policy:'always_confirm',trustedClientIds:[],defaultAccountId:'',signature:''}
 });
 export function validateSettings(patch,current=DEFAULT_SETTINGS) {
   if(!patch||Array.isArray(patch)||typeof patch!=='object')throw Error('invalid_settings');
   const merged={...current,...patch};
-  for(const key of ['ai','automation','messaging'])if(Object.hasOwn(patch,key)) {
+  for(const key of ['ai','automation','messaging','followups'])if(Object.hasOwn(patch,key)) {
     if(!patch[key]||typeof patch[key]!=='object'||Array.isArray(patch[key]))throw Error('invalid_settings');
     merged[key]={...current[key],...patch[key]};
   }

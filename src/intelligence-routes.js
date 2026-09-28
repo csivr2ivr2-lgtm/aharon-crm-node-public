@@ -8,6 +8,8 @@ import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
 import {crmIntelligence} from './crm-intelligence.js';
 import {fileIntelligence} from './file-intelligence.js';
 import {loginSecurity} from './login-security.js';
+import {getFollowupCandidates,scheduleFollowup} from './followups.js';
+import {listKnowledge,proposeKnowledge,approveKnowledge,updateKnowledge,archiveKnowledge} from './ai/knowledge.js';
 
 export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enabled:false,running:false,last_error:null}}){
  const context=()=>({actor:'dashboard',source:'chat',permissions:['read','write','send'],trustedInput:true});
@@ -15,6 +17,13 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  const route=(method,url,handler)=>app.route({method,url,handler:async(req,reply)=>{if(!uiAuth(req,reply))return;return handler(req,reply);}});
  route('GET','/api/background/status',async()=>{const [rows]=await db.execute("SELECT status,COUNT(*) AS n FROM jobs GROUP BY status");const counts=Object.fromEntries(rows.map(r=>[r.status,Number(r.n)]));return {ok:true,...backgroundState,queued:counts.queued||0,failed:counts.failed||0};});
  route('GET','/api/security/status',async()=>({ok:true,failed_attempts:[...loginSecurity.attempts].map(([ip,count])=>({ip,count})),blocked_ips:(await loginSecurity.blacklist()).blocked.map(entry=>entry.ip),locked:await loginSecurity.isLocked()}));
+ route('GET','/api/followups',()=>getFollowupCandidates());
+ route('POST','/api/followups/:id/remind',req=>scheduleFollowup(req.params.id,{mode:req.body?.mode},{actor:'dashboard'}));
+ route('GET','/api/knowledge',async()=>{const result=await listKnowledge();return {ok:true,items:result.articles};});
+ route('GET','/api/knowledge/candidates',async()=>{const result=await listKnowledge();return {ok:true,items:result.candidates};});
+ route('POST','/api/knowledge/candidates',req=>proposeKnowledge({sourceMessageId:req.body?.sourceMessageId,title:req.body?.title,body:req.body?.body,actor:'owner'}));
+ route('POST','/api/knowledge/candidates/:id/approve',req=>approveKnowledge({id:req.params.id,title:req.body?.title,body:req.body?.body,reviewed:req.body?.reviewed,actor:'owner'}));
+ route('PATCH','/api/knowledge/:id',req=>req.body?.archived===true?archiveKnowledge({id:req.params.id,actor:'owner'}):updateKnowledge({id:req.params.id,title:req.body?.title,body:req.body?.body,reviewed:req.body?.reviewed,actor:'owner'}));
  route('GET','/api/settings',async()=>({ok:true,settings:await getSettings()}));
  route('PATCH','/api/settings',async req=>({ok:true,settings:await updateSettings(req.body,{actor:'dashboard'})}));
  route('GET','/api/jobs',async()=>({ok:true,items:await listJobs()}));

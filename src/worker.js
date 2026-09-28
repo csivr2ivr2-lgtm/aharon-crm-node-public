@@ -2,9 +2,10 @@ import {randomUUID} from "node:crypto";
 import {config} from "./config.js";
 import {db,now} from "./db.js";
 import {executeAiTask} from "./ai/local-ai.js";
+import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export class SmartTaskWorker{
- constructor({logger,hub,database=db,execute=executeAiTask}){this.logger=logger;this.hub=hub;this.db=database;this.execute=execute;this.running=false;this.timer=null;this.initial=null;}
+ constructor({logger,hub,database=db,execute=executeAiTask,runtime=new BackgroundActionRuntime({database})}){this.logger=logger;this.hub=hub;this.db=database;this.execute=execute;this.runtime=runtime;this.running=false;this.timer=null;this.initial=null;}
  async claim(){
   const c=await this.db.getConnection();try{
    await c.beginTransaction();
@@ -22,7 +23,7 @@ export class SmartTaskWorker{
   try{
    const task=await this.claim();if(!task)return {ok:true,processed:0};
    try{
-    const r=await this.execute({taskId:task.id,title:task.title,notes:task.notes});
+    const r=await this.runtime.executeTask(task,this.execute);
     const [update]=await this.db.execute("UPDATE tasks SET worker_state='done',worker_result=?,worker_claim=NULL,updated_at=? WHERE id=? AND worker_claim=? AND status IN ('open','in_progress') AND automation_mode IN ('ai','ai_draft')",[r.result,now(),task.id,task.worker_claim]);
     if(!update.affectedRows)return {ok:true,skipped:"claim_expired"};
     await this.db.execute("INSERT INTO activities(event,entity_type,entity_id,title,metadata_json,created_at) VALUES(?,?,?,?,?,?)",["task.ai.completed","task",task.id,task.title,JSON.stringify({provider:r.provider,model:r.model}),now()]);

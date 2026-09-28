@@ -4,15 +4,31 @@ import {draftReply} from "./ai/local-ai.js";
 import {ConnectorsClient} from "./clients/connectors.js";
 import {WorkspaceService} from "./workspace-service.js";
 import {emailOf} from "./message-format.js";
+import {audit} from "./platform/audit.js";
 const connectors=new ConnectorsClient(),workspace=new WorkspaceService();
 
-export async function createDraft({conversationId,instruction="",tone="",idempotencyKey=""}){
+export async function createDraft({conversationId,instruction="",tone="",idempotencyKey="",expectedLatestMessageId="",reminderId="",signal},dependencies={}){
+ const database=dependencies.db||db,generate=dependencies.draftReply||draftReply;
  const draftId=idempotencyKey?"draft_"+createHash("sha256").update(idempotencyKey).digest("hex").slice(0,40):"draft_"+randomUUID();
- if(idempotencyKey){const [existing]=await db.execute("SELECT * FROM message_drafts WHERE id=?",[draftId]);if(existing.length)return {ok:true,id:draftId,draft:existing[0].body,provider:existing[0].provider,model:existing[0].model};}
- const r=await draftReply({conversationId,instruction,tone:tone||"אנושי, מקצועי, ברור וקצר"});
- const ts=now();
- await db.execute("INSERT IGNORE INTO message_drafts(id,conversation_id,body,instruction,provider,model,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",[draftId,conversationId,r.draft,instruction,r.provider,r.model,"draft",ts,ts]);
- return {ok:true,id:draftId,...r};
+ const saved=async()=>{const [rows]=await database.execute("SELECT * FROM message_drafts WHERE id=?",[draftId]);return rows[0]?{ok:true,id:draftId,draft:rows[0].body,provider:rows[0].provider,model:rows[0].model}:null;};
+ if(idempotencyKey){const existing=await saved();if(existing)return existing;}
+ async function guard(connection,lock=false){
+  if(signal?.aborted)throw Error("background_claim_lost");
+  if(!expectedLatestMessageId&&!reminderId)return true;
+  const [conversations]=await connection.execute("SELECT id FROM conversations WHERE id=?"+(lock?" FOR UPDATE":""),[conversationId]);if(!conversations.length)return false;
+  if(expectedLatestMessageId){const [latest]=await connection.execute("SELECT id FROM messages WHERE conversation_id=? ORDER BY sent_at DESC,id DESC LIMIT 1",[conversationId]);if(latest[0]?.id!==expectedLatestMessageId)return false;}
+  if(reminderId){const [reminders]=await connection.execute("SELECT id FROM reminders WHERE id=? AND conversation_id=? AND status='notified'"+(lock?" FOR UPDATE":""),[reminderId,conversationId]);if(!reminders.length)return false;}
+  return true;
+ }
+ if(!await guard(database))return {ok:true,skipped:true,reason:"followup_no_longer_needed"};
+ const r=await generate({conversationId,instruction,tone:tone||"אנושי, מקצועי, ברור וקצר"});
+ const connection=await database.getConnection();try{
+  await connection.beginTransaction();
+  if(!await guard(connection,true)){await connection.commit();return {ok:true,skipped:true,reason:"followup_no_longer_needed"};}
+  const ts=now(),[insert]=await connection.execute("INSERT IGNORE INTO message_drafts(id,conversation_id,body,instruction,provider,model,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",[draftId,conversationId,r.draft,instruction,r.provider,r.model,"draft",ts,ts]);
+  if(insert.affectedRows)await audit({action:"draft.created",source:reminderId?"followup":"draft",actor:reminderId?"worker":"dashboard",mode:"ai",entityType:"draft",entityId:draftId,after:{conversation_id:conversationId,provider:r.provider,model:r.model},confirmation:"required_before_send"},{db:connection});
+  await connection.commit();return insert.affectedRows?{ok:true,id:draftId,...r}:await saved();
+ }catch(error){await connection.rollback();throw error;}finally{connection.release();}
 }
 export async function listDrafts(conversationId){const [items]=await db.execute("SELECT * FROM message_drafts WHERE conversation_id=? ORDER BY created_at DESC LIMIT 20",[conversationId]);return items;}
 

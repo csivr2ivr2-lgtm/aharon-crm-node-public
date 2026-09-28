@@ -10,7 +10,7 @@ function harness(responses={}){
  const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,console,confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??{ok:true,items:[]};return {ok:true,status:200,json:async()=>value};}});
  vm.runInContext(source,context);return {run:code=>vm.runInContext(code,context),element,calls,context,listeners};
 }
-test('Hebrew RTL navigation reaches all intelligence and CRM screens',()=>{const html=appHtml();assert.match(html,/lang="he" dir="rtl"/);for(const page of ['assistant','spam','suggestions','reminders','notifications','settings','files'])assert.ok(html.includes('data-view="'+page+'"'));assert.match(html,/bi bi-/);});
+test('Hebrew RTL navigation reaches all intelligence and CRM screens',()=>{const html=appHtml();assert.match(html,/lang="he" dir="rtl"/);for(const page of ['assistant','spam','suggestions','reminders','notifications','settings','files','followups','knowledge'])assert.ok(html.includes('data-view="'+page+'"'));assert.match(html,/bi bi-/);});
 test('untrusted assistant reply and action arguments are escaped, confirmation includes server token',async()=>{
  const h=harness();h.run(`assistantMessages=[{role:'assistant',text:'<img src=x onerror=alert(1)>'}];pendingActions=[{id:'a1',summary:'שליחה',args:{body:'<script>bad()</script>'},status:'pending',confirmation_token:'server-issued'}];renderChat();`);
  assert.ok(h.element('#chatLog').innerHTML.includes('&lt;script&gt;'));assert.ok(!h.element('#chatLog').innerHTML.includes('<img'));
@@ -67,4 +67,34 @@ test('read messages may still wait for a reply and outgoing unread messages do n
 test('settings renders real processing and login security status and escapes errors',async()=>{
  const h=harness({'/api/settings':{settings:{ai:{},automation:{},messaging:{trustedClientIds:[]}}},'/api/background/status':{enabled:true,running:false,queued:4,failed:2,last_error:'<script>bad()</script>'},'/api/security/status':{failed_attempts:3,blocked_ips:['192.0.2.1'],locked:false}});
  await h.run(`render('settings')`);const html=h.element('#content').innerHTML;assert.match(html,/ממתינות: 4 · נכשלו: 2/);assert.match(html,/ניסיונות כניסה שנכשלו: 3/);assert.match(html,/192\.0\.2\.1/);assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));
+});
+
+test('followup screen escapes content and action modes only schedule reminders or drafts',async()=>{
+ const h=harness({'/api/followups':{items:[{id:'wait/1',title:'<script>x</script>',reason:'<img>',conversation_id:'c1',due_at:'2026-09-28'},{id:'task1',title:'משימה באיחור'}]}});await h.run(`render('followups')`);
+ const html=h.element('#content').innerHTML;assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<img>'));assert.equal((html.match(/data-action="followup-draft"/g)||[]).length,1);
+ await h.run(`intelligenceAction('followup-remind',{dataset:{id:'wait/1'}})`);await h.run(`intelligenceAction('followup-draft',{dataset:{id:'wait/1'}})`);
+ const mutations=h.calls.filter(x=>x.method==='POST');assert.equal(mutations.length,2);assert.equal(mutations[0].url,'/api/followups/wait%2F1/remind');assert.deepEqual(JSON.parse(mutations[0].body),{mode:'remind'});assert.deepEqual(JSON.parse(mutations[1].body),{mode:'draft_follow_up'});assert.ok(!mutations.some(x=>x.url.includes('/send')));
+});
+test('knowledge generation remains pending and review renders editable escaped fields without source CRM data',async()=>{
+ const candidate={id:'k/1',title:'<script>title</script>',body:'<img> procedure',status:'pending',source_message_id:'private-customer-id'};
+ const h=harness({'/api/knowledge':{items:[]},'/api/knowledge/candidates':{items:[candidate,{id:'approved',title:'already approved',status:'approved'}]}});
+ await h.run(`intelligenceAction('knowledge-propose',{dataset:{id:'m/1'}})`);
+ const mutations=h.calls.filter(x=>x.method==='POST');assert.equal(mutations.length,1);assert.equal(mutations[0].url,'/api/knowledge/candidates');assert.deepEqual(JSON.parse(mutations[0].body),{sourceMessageId:'m/1'});
+ assert.ok(!h.element('#content').innerHTML.includes('private-customer-id'));assert.ok(!h.element('#content').innerHTML.includes('already approved'));
+ await h.run(`intelligenceAction('knowledge-review',{dataset:{id:'k/1'}})`);const html=h.element('#knowledgeEditor').innerHTML;assert.ok(html.includes('name="body"'));assert.ok(html.includes('&lt;img&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('name="reviewed" required'));assert.equal(h.calls.filter(x=>x.method==='POST').length,1);
+ await assert.rejects(h.run(`saveKnowledge({title:'ערוך',body:'נוהל כללי'})`));assert.equal(h.calls.filter(x=>x.method==='POST').length,1);
+ h.context.confirm=()=>false;await h.run(`saveKnowledge({title:'ערוך',body:'נוהל כללי',reviewed:'on'})`);assert.equal(h.calls.filter(x=>x.method==='POST').length,1);
+ h.context.confirm=()=>true;await h.run(`saveKnowledge({title:'ערוך',body:'נוהל כללי',reviewed:'on'})`);const approval=h.calls.find(x=>x.url.endsWith('/approve'));assert.equal(approval.url,'/api/knowledge/candidates/k%2F1/approve');assert.deepEqual(JSON.parse(approval.body),{title:'ערוך',body:'נוהל כללי',reviewed:true});
+});
+test('approved knowledge edits require review and archive cancellation never mutates',async()=>{
+ const h=harness({'/api/knowledge':{items:[{id:'a/1',title:'נוהל',body:'תוכן',status:'approved'}]},'/api/knowledge/candidates':{items:[]}});await h.run(`render('knowledge')`);await h.run(`intelligenceAction('knowledge-edit',{dataset:{id:'a/1'}})`);
+ await h.run(`saveKnowledge({title:'נוהל מתוקן',body:'תוכן כללי',reviewed:'on'})`);const change=h.calls.find(x=>x.method==='PATCH');assert.equal(change.url,'/api/knowledge/a%2F1');assert.equal(JSON.parse(change.body).reviewed,true);
+ h.context.confirm=()=>false;await h.run(`intelligenceAction('knowledge-archive',{dataset:{id:'a/1'}})`);assert.equal(h.calls.filter(x=>x.method==='PATCH').length,1);
+ h.context.confirm=()=>true;await h.run(`intelligenceAction('knowledge-archive',{dataset:{id:'a/1'}})`);assert.deepEqual(JSON.parse(h.calls.filter(x=>x.method==='PATCH')[1].body),{archived:true});
+});
+test('followup settings use typed hours and separate automation and followup modes',async()=>{
+ const h=harness();await h.run(`saveSettings({trustedClientIds:'',followups:'automatic',waitingHours:'72',overdueHours:'12',followupMode:'draft_follow_up'})`);const data=JSON.parse(h.calls[0].body);assert.equal(data.automation.followups,'automatic');assert.deepEqual(data.followups,{waitingHours:72,overdueHours:12,mode:'draft_follow_up'});
+});
+test('both incoming and outgoing messages offer generic knowledge proposals',async()=>{
+ const h=harness({'/api/conversations/c1':{item:{title:'שיחה'},messages:[{id:'in1',direction:'in',body:'הודעה'},{id:'out1',direction:'out',body:'תשובה'}]}});await h.run(`openConversation('c1')`);const html=h.element('#content').innerHTML;assert.equal((html.match(/data-action="knowledge-propose"/g)||[]).length,2);assert.ok(html.includes('data-id="in1"'));assert.ok(html.includes('data-id="out1"'));
 });

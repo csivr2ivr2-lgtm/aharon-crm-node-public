@@ -1,6 +1,7 @@
 import {db} from "../db.js";
 import {config} from "../config.js";
 import {emailOf,phoneOf} from "../message-format.js";
+import {retrieveKnowledge} from "./knowledge.js";
 
 // No suffix/empty-phone matching: ambiguous matches must be associated by the user.
 export async function findClient(messages){
@@ -109,6 +110,7 @@ export async function buildCrmContext({conversationId="",taskId="",query="",maxC
   const safeAssociation=item=>(!item.project_id||projectIds.has(item.project_id))&&(!item.task_id||safeTasks.has(item.task_id));
   ctx.files=ctx.files.filter(safeAssociation);ctx.reminders=ctx.reminders.filter(safeAssociation);
  }
+ ctx.business_knowledge=await retrieveKnowledge({query:query||ctx.latest_message?.body||ctx.task?.title||"",maxChars:Math.min(4000,Math.floor(Number(maxChars||18000)/4))});
  const terms=String(query||ctx.latest_message?.body||ctx.task?.title||"").toLowerCase().split(/\s+/).filter(t=>t.length>=3).slice(0,8);
  ctx.related_search=[...ctx.projects,...ctx.tasks,...ctx.notes,...ctx.systems,...ctx.files,...ctx.reminders].filter(x=>terms.some(t=>JSON.stringify(x).toLowerCase().includes(t))).slice(0,12);
  ctx.sources=Object.entries(ctx).flatMap(([type,items])=>Array.isArray(items)?items.filter(x=>x?.id||x?.did).map(x=>({type,id:x.id||x.did})):[]).slice(0,100);

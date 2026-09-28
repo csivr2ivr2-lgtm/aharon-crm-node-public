@@ -72,3 +72,9 @@ test('platform migrations are additive and only create the missing unique index'
   assert.ok(columns.some(([table,column])=>table==='jobs'&&column==='lease_until'));
   assert.ok(sqls.every(sql=>!/(DROP|DELETE|TRUNCATE)/.test(sql)));assert.ok(!sqls.some(sql=>sql.startsWith('CREATE UNIQUE INDEX')));
 });
+
+test('pre-followup settings upgrade safely without changing existing automation',()=>{
+ const old=structuredClone(DEFAULT_SETTINGS);delete old.followups;delete old.automation.followups;old.automation.drafts='off';
+ const result=validateSettings(old);assert.equal(result.automation.drafts,'off');assert.equal(result.automation.followups,'suggest');assert.equal(result.followups.waitingHours,48);
+ assert.throws(()=>validateSettings({followups:{waitingHours:0}}));assert.throws(()=>validateSettings({followups:{mode:'send'}}));
+});

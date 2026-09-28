@@ -24,14 +24,16 @@ import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
 import {migratePlatform} from "./platform/schema.js";
 import {enqueueJob,startJobWorker} from "./platform/jobs.js";
-import {migrateIntelligence,processIncomingMessage} from "./ai/intelligence.js";
+import {migrateIntelligence} from "./ai/intelligence.js";
 import {migrateActions} from "./ai/actions.js";
-import {migrateCrmIntelligence,crmIntelligence} from "./crm-intelligence.js";
+import {migrateCrmIntelligence} from "./crm-intelligence.js";
 import {migrateFileIntelligence,fileIntelligence} from "./file-intelligence.js";
 import {registerIntelligenceRoutes} from "./intelligence-routes.js";
+import {migrateKnowledge} from "./ai/knowledge.js";
+import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateActions();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateActions();await migrateKnowledge();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -141,13 +143,13 @@ let stopJobs=async()=>{},reminders;
 app.addHook("onClose",async()=>{clearInterval(reminders);scheduler.stop();worker.stop();await stopJobs();backgroundState.running=false;whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
 if(startBackground)app.addHook("onListen",async()=>{
  scheduler.start();worker.start();backgroundState.running=true;
- stopJobs=startJobWorker({
-  "inbox.process":async payload=>{const result=await processIncomingMessage(payload);hub.publish("ai.inbox",{message_id:payload.messageId});return result;},
-  "file.index":payload=>fileIntelligence.indexFile(payload.fileId),
-  "reminders.tick":()=>crmIntelligence.processDueReminders(),
-  "reminder.follow_up":payload=>createDraft({conversationId:payload.conversationId,instruction:"הכן טיוטת מעקב מנומסת. אל תשלח דבר.",idempotencyKey:"reminder:"+payload.reminderId})
- },{onError:()=>{backgroundState.last_error="background_processing_failed";app.log.warn("Background processing failed; inspect the queue");}});
- reminders=setInterval(()=>{void enqueueJob("reminders.tick",{},{idempotencyKey:"reminders:"+Math.floor(Date.now()/60000)}).catch(()=>app.log.warn("Reminder scheduling failed"));},60000);reminders.unref();
+ const runtime=new BackgroundActionRuntime(),handlers=runtime.queueHandlers();
+ const processInbox=handlers["inbox.process"];
+ handlers["inbox.process"]=async(payload,job)=>{const result=await processInbox(payload,job);hub.publish("ai.inbox",{message_id:payload.messageId});return result;};
+ stopJobs=startJobWorker(handlers,{onError:()=>{backgroundState.last_error="background_processing_failed";app.log.warn("Background processing failed; inspect the queue");}});
+ const schedulePeriodic=async()=>{const minute=Math.floor(Date.now()/60000);await enqueueJob("reminders.tick",{},{idempotencyKey:"reminders:"+minute});await enqueueJob("followups.tick",{},{idempotencyKey:"followups:"+Math.floor(minute/15)});};
+ const tick=()=>{void schedulePeriodic().catch(()=>app.log.warn("Reminder scheduling failed"));};
+ reminders=setInterval(tick,60000);reminders.unref();tick();
  void whatsapp.start(onWhatsAppEvent).catch(()=>app.log.warn("WhatsApp connection failed"));
 });
 return app;

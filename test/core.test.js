@@ -109,7 +109,7 @@ test('message ingestion rolls back when storing a body fails',async t=>{
 });
 test('worker failure stops retrying after third claim and never calls external sending',async()=>{
  const {SmartTaskWorker}=await import('../src/worker.js');const calls=[];
- const worker=new SmartTaskWorker({database:{execute:async(sql,args)=>{calls.push({sql,args});return [{affectedRows:1}];}},execute:async()=>{throw Error('model failure');}});
+ const worker=new SmartTaskWorker({database:{execute:async(sql,args)=>{calls.push({sql,args});return [{affectedRows:1}];}},runtime:{executeTask:async(task,execute)=>execute(task)},execute:async()=>{throw Error('model failure');}});
  worker.claim=async()=>({id:'task',title:'draft email',worker_attempts:3,worker_claim:'claim'});
  const r=await worker.runOnce();assert.equal(r.ok,false);assert.equal(calls[0].args[0],'failed');assert.equal(worker.running,false);
 });
