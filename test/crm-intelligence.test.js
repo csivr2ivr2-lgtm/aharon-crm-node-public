@@ -18,3 +18,20 @@ for(const type of ['project','system']){
 }
 test('reminder validation prevents invalid date and external-send modes',async()=>{const f=fixture();await assert.rejects(f.api.createReminder({title:'x',due_at:'garbage'}),/invalid_reminder/);await assert.rejects(f.api.createReminder({title:'x',due_at:'2026-10-01',mode:'auto_send'}),/invalid_reminder_mode/);});
 test('reminder retry resolves existing source instead of duplicating',async()=>{const writes=[];const db={getConnection:async()=>db,beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release(){},execute:async(sql,p)=>{writes.push(sql);if(sql.startsWith('INSERT IGNORE INTO reminders'))return [{affectedRows:0}];if(sql.startsWith('SELECT id FROM reminders'))return [[{id:'existing'}]];throw Error(sql);}};const result=await createCrmIntelligence({db}).createReminder({title:'Call',due_at:'2026-10-01',source_key:'message:1'});assert.equal(result.id,'existing');assert.equal(result.duplicate,true);assert.equal(writes.length,2);});
+
+for(const scenario of ['current','reply','done','rescheduled','archived'])test('due followup handles '+scenario+' source without stale notification',async()=>{
+ const writes=[],task=['done','rescheduled'].includes(scenario);
+ const reminder={id:'r',status:'pending',title:'Follow up',conversation_id:task?null:'c',task_id:task?'t':null,project_id:scenario==='archived'?'p':null,mode:'draft_follow_up',notes:JSON.stringify({text:'Readable reminder',followup:{messageId:'m',anchorAt:'2026-09-01T23:59:59.999Z'}})};
+ let claimed=false;
+ const db={getConnection:async()=>db,beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release(){},execute:async(sql,args)=>{
+  if(sql.startsWith('SELECT * FROM reminders')){if(claimed)return [[]];claimed=true;return [[reminder]];}
+  if(sql.startsWith('SELECT id,classification'))return [[{id:scenario==='reply'?'new':'m',classification:'normal',spam_disposition:'inbox'}]];
+  if(sql.startsWith('SELECT status,due_date'))return [[{status:scenario==='done'?'done':'open',due_date:scenario==='rescheduled'?'2026-10-01':'2026-09-01'}]];
+  if(sql.startsWith('SELECT status,archived_at'))return [[{status:'active',archived_at:'2026-09-28'}]];
+  writes.push({sql,args});return [{affectedRows:1}];
+ }};
+ await createCrmIntelligence({db}).processDueReminders();
+ const notification=writes.find(w=>w.sql.startsWith('INSERT IGNORE INTO notifications'));
+ if(scenario==='current'){assert.equal(notification.args[3],'Readable reminder');assert.ok(writes.some(w=>w.sql.startsWith('INSERT IGNORE INTO jobs')));}
+ else{assert.equal(notification,undefined);assert.ok(!writes.some(w=>w.sql.startsWith('INSERT IGNORE INTO jobs')));assert.ok(writes.some(w=>w.sql.includes("status='cancelled'")));assert.ok(writes.some(w=>w.sql.startsWith('INSERT INTO ai_audit')));}
+});

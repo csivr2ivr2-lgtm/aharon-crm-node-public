@@ -4,7 +4,7 @@ Baseline GitHub main: `239306ba7d63fb9edc71fe6590bbd4e6f75823c8`.
 Saved implementation checkpoints: `cef49b86fd4e9769847d7f1cb139ea2d63c72418`, `1dab8c2047ffd816189795f6430539ab2f24165d`, `af1d2747675954e59b2db529131d2c27f4b7cf64`.
 
 - Clean installation succeeded with the existing CPU-only ONNX setup; added pinned `unpdf@1.4.0` (MIT) and `mammoth@1.13.0` (BSD-2-Clause).
-- Syntax/legacy checks, automated tests, the repository secret scan and npm dependency audit were executed after integration. 140 tests passed with 0 failures; the secret scan reported 0 findings; npm audit reported 0 vulnerabilities.
+- Syntax/legacy checks, automated tests, the repository secret scan and npm dependency audit were executed after integration. 145 tests passed with 0 failures; the secret scan reported 0 findings; npm audit reported 0 vulnerabilities.
 - Tests exercise real Fastify request injection and browser scripts in a controlled DOM VM; SQL/provider operations use controlled doubles. Real PDF and DOCX fixtures are extracted by their parsers in bounded worker threads.
 - Covered: tool schemas/permissions, confirmation tokens/expiry, sender changes, parallel sends and draft reservation, uncertain send replay, client identity locking, incoming-message/job atomicity, stale draft suppression, prompt-injection examples, client isolation, spam feedback, typed source-evidenced suggestions, lifecycle relations, reminders, parser limits/path isolation, settings, job retries and connector onboarding.
 - No real email or WhatsApp message was sent. No deployment or production database update was performed.
@@ -28,7 +28,7 @@ Saved implementation checkpoints: `cef49b86fd4e9769847d7f1cb139ea2d63c72418`, `1
 
 ## Follow-up integration — 2026-09-28
 
-Implemented configurable overdue/waiting follow-up candidates, reminder/draft scheduling, owner-reviewed generic knowledge with archive and isolated retrieval, authenticated routes and Hebrew UI. Added additive knowledge tables and backwards-compatible settings defaults. Background queue and task execution share durable action records, strict schemas, claim fencing and transactional audit completion. Follow-up drafts recheck the latest message and reminder status after generation.
+Implemented configurable overdue/waiting follow-up candidates, reminder/draft scheduling, owner-reviewed generic knowledge with archive and isolated retrieval, authenticated routes and Hebrew UI. Added additive knowledge tables and backwards-compatible settings defaults. Background queue and task execution share durable action records, strict schemas, claim fencing and transactional audit completion. Follow-up drafts recheck the latest message and reminder status after generation. Due follow-up reminders are cancelled with an audit entry when the latest message changes, a task closes or moves its deadline, or the linked project becomes inactive. Notification text excludes internal follow-up metadata.
 
 Regression coverage includes background replay, stale claims, audit rollback, follow-up deduplication and modes, knowledge privacy/review/archive, authenticated HTTP owner identity, UI review controls, and reply/cancellation/abort during draft generation. Database/provider boundaries still use doubles; the external validation requirements above remain open.
 

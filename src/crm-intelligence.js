@@ -92,7 +92,22 @@ export function createCrmIntelligence({db=defaultDb}={}){
   // Transactional claim plus deterministic notification IDs prevents duplicate notifications on retry.
   for(let i=0;i<25;i++){
    const c=await db.getConnection();try{await c.beginTransaction();const [rows]=await c.execute("SELECT * FROM reminders WHERE status='pending' AND due_at<=? ORDER BY due_at ASC LIMIT 1 FOR UPDATE",[now()]);if(!rows[0]){await c.commit();break;}
-    const r=rows[0];await c.execute('INSERT IGNORE INTO notifications(id,type,title,body,entity_type,entity_id,is_read,created_at) VALUES(?,?,?,?,?,?,?,?)',['notify_'+createHash('sha256').update(r.id).digest('hex').slice(0,40),'reminder.due',r.title,r.notes||'',r.conversation_id?'conversation':'reminder',r.conversation_id||r.id,0,now()]);
+    const r=rows[0];let metadata;try{metadata=JSON.parse(r.notes||'{}');}catch{metadata=null;}
+    if(metadata?.followup){
+     const followup=metadata.followup;let stale=false;
+     if(r.conversation_id){
+      const [latest]=await c.execute('SELECT id,classification,spam_disposition FROM messages WHERE conversation_id=? ORDER BY sent_at DESC,id DESC LIMIT 1',[r.conversation_id]);
+      stale=!latest[0]||latest[0].id!==followup.messageId||latest[0].spam_disposition==='spam'||['spam','suspicious','marketing','automated','system'].includes(latest[0].classification);
+     }else if(r.task_id){
+      const [tasks]=await c.execute('SELECT status,due_date FROM tasks WHERE id=?',[r.task_id]);const task=tasks[0];
+      const due=task?.due_date,anchor=due?Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(due)?due+'T23:59:59.999Z':due):NaN;
+      stale=!task||!['open','in_progress'].includes(task.status)||anchor!==Date.parse(followup.anchorAt);
+     }
+     if(r.project_id){const [projects]=await c.execute('SELECT status,archived_at,deleted_at FROM projects WHERE id=?',[r.project_id]);const project=projects[0];stale||=!project||Boolean(project.archived_at||project.deleted_at)||!['active','waiting'].includes(project.status);}
+     if(stale){await c.execute("UPDATE reminders SET status='cancelled',updated_at=? WHERE id=?",[now(),r.id]);await audit(c,'reminder.obsolete','reminder',r.id,{status:r.status},{status:'cancelled'},{actor:'worker',source:'automation',reason:'followup_source_changed'});await c.commit();continue;}
+    }
+    const body=metadata?.followup&&typeof metadata.text==='string'?metadata.text:r.notes||'';
+    await c.execute('INSERT IGNORE INTO notifications(id,type,title,body,entity_type,entity_id,is_read,created_at) VALUES(?,?,?,?,?,?,?,?)',['notify_'+createHash('sha256').update(r.id).digest('hex').slice(0,40),'reminder.due',r.title,body,r.conversation_id?'conversation':'reminder',r.conversation_id||r.id,0,now()]);
     if(r.mode==='draft_follow_up'&&r.conversation_id){
      const jid='remdraft_'+createHash('sha256').update(r.id).digest('hex').slice(0,40);
      await c.execute("INSERT IGNORE INTO jobs(id,type,payload_json,status,attempts,run_after,created_at,updated_at) VALUES(?,?,?,'queued',0,?,?,?)",[jid,'reminder.follow_up',JSON.stringify({reminderId:r.id,conversationId:r.conversation_id}),now(),now(),now()]);
