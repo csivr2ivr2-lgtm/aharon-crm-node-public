@@ -74,3 +74,18 @@ test('local AI test is asynchronous, ignores user prompt and keeps CRM routes av
   assert.equal((await app.inject({url:'/health'})).statusCode,200);
  }finally{await app.close();}
 });
+
+test('AI status and Test Local AI use the same effective saved model',async t=>{
+ const {localDiagnostics}=await import('../src/ai/local-ai.js');let attempted;
+ const stored={ai:{localModel:'onnx-community/SmolLM2-135M-Instruct-ONNX-MHA'}};
+ t.mock.method(db,'execute',async()=>[[{value_json:JSON.stringify(stored)}]]);
+ t.mock.method(localDiagnostics,'startTest',model=>{attempted=model;return {accepted:true,status:{}};});
+ const app=await buildApp({initializeDatabase:false,startBackground:false});try{
+  const cookie=await login(app);
+  for(const [storedModel,expected,tokenizer] of [['onnx-community/SmolLM2-135M-Instruct-ONNX-MHA','onnx-community/Supra-50M-Instruct-ONNX','SupraLabs/Supra-50M-Instruct'],['custom/tiny','custom/tiny','custom/tiny']]){
+   stored.ai.localModel=storedModel;const status=(await app.inject({url:'/api/ai/status',headers:{cookie}})).json();
+   assert.equal(status.model,expected);assert.equal(status.tokenizer_source,tokenizer);assert.equal(status.dtype,'q4');
+   assert.equal((await app.inject({method:'POST',url:'/api/ai/test',headers:{cookie}})).statusCode,202);assert.equal(attempted,status.model);
+  }
+ }finally{await app.close();}
+});

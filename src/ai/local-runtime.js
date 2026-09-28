@@ -1,4 +1,5 @@
 import {fork} from 'node:child_process';
+import {tokenizerForModel} from './local-model.js';
 import {parseStructured,tinyTestMessages,tinyTestSchema} from './tiny-contract.js';
 
 export const localErrors=Object.freeze({
@@ -6,15 +7,20 @@ export const localErrors=Object.freeze({
  disabled:'המודל המקומי כבוי בהגדרות.',invalid_model:'מזהה המודל אינו תקין. יש להשתמש בשם מאגר מודל, לא בנתיב או בכתובת.',
  busy:'המודל המקומי מטפל כעת בבקשה אחרת. נסה שוב בסיום.',timeout:'הפעולה חרגה מזמן ההמתנה; תהליך המודל נעצר.',
  memory:'אין מספיק זיכרון לטעינת המודל.',access:'הגישה למודל נדחתה. בדוק הרשאות למאגר המודל.',
- missing:'קובצי המודל או גרסת הכימות לא נמצאו.',network:'הורדת המודל נכשלה בגלל חיבור הרשת.',
+ model_file_missing:'קובץ נדרש של המודל לא נמצא.',tokenizer_file_missing:'קובץ נדרש של הטוקנייזר לא נמצא.',quantization_missing:'קובץ המודל בכימות המבוקש לא נמצא.',hub_404:'שרת המודלים החזיר 404 למשאב המבוקש.',network:'הורדת המודל נכשלה בגלל חיבור הרשת.',
  storage:'לא ניתן לקרוא או לכתוב את מטמון המודל.',runtime:'רכיב הרצת המודל אינו זמין או אינו תואם לסביבה.',
  empty:'המודל לא החזיר טקסט.',exit:'תהליך המודל הסתיים באופן בלתי צפוי.',failed:'טעינת המודל או הרצתו נכשלה.',closed:'תהליך המודל נעצר עם סגירת השירות.'
 });
-export function classifyLocalError(error){
+export function classifyLocalError(error,{stage,dtype}={}){
  const text=String(error?.message||error||'');
  if(/out of memory|allocat|ENOMEM/i.test(text))return 'memory';
  if(/401|403|unauthori|forbidden|gated/i.test(text))return 'access';
- if(/404|not found|could not locate/i.test(text))return 'missing';
+ if(/404|not found|could not locate|ENOENT/i.test(text)){
+  if(stage==='tokenizer'||/tokenizer(?:_config)?\.json|vocab\.json|merges\.txt/i.test(text))return 'tokenizer_file_missing';
+  if(/model_(?:q4|q4f16|quantized|int8|uint8|fp16|bnb4)\.onnx/i.test(text))return 'quantization_missing';
+  if(/config\.json|model\.onnx|model file/i.test(text))return 'model_file_missing';
+  return 'hub_404';
+ }
  if(/ENOSPC|EACCES|EROFS|permission denied/i.test(text))return 'storage';
  if(/fetch failed|network|ECONN|ENOTFOUND|ETIMEDOUT|certificate/i.test(text))return 'network';
  if(/onnx|unsupported|backend|shared object|dlopen/i.test(text))return 'runtime';
@@ -27,7 +33,7 @@ export function memorySnapshot(value=process.memoryUsage()){
 export class LocalRuntime{
  constructor({enabled=true,model,dtype='q4',cacheDir,timeoutMs=180000,idleMs=45000,cooldownMs=60000,queueLimit=2,maxContextChars=4000,spawn=fork,clock=()=>Date.now(),memory=memorySnapshot}={}){
   Object.assign(this,{enabled,model,dtype,cacheDir,timeoutMs,idleMs,cooldownMs,queueLimit,maxContextChars,spawn,clock,memory});this.child=null;this.pending=null;this.sequence=0;this.testPromise=null;this.queue=[];this.idleTimer=null;this.cooldownUntil=0;
-  this.state={inference_duration_ms:null,worker_memory_peak:null,worker_memory_inference_after:null,state:'idle',loaded:false,loading:false,failed:false,attempted_model:null,error:null,started_at:null,finished_at:null,load_duration_ms:null,memory_before:null,memory_after:null,worker_memory_before:null,worker_memory_after:null,test_running:false,test_result:null};
+  this.state={inference_duration_ms:null,worker_memory_peak:null,worker_memory_inference_after:null,state:'idle',loaded:false,loading:false,failed:false,attempted_model:null,attempted_tokenizer:null,error:null,started_at:null,finished_at:null,load_duration_ms:null,memory_before:null,memory_after:null,worker_memory_before:null,worker_memory_after:null,test_running:false,test_result:null};
  }
  status(){return {...structuredClone(this.state),queued:this.queue.length,cooldown_remaining_ms:Math.max(0,this.cooldownUntil-this.clock()),enabled:this.enabled,model:validModel(this.model)?this.model:'[invalid model identifier]',dtype:['q4','q8','fp32','fp16','int8','uint8','q4f16','bnb4'].includes(this.dtype)?this.dtype:'[invalid dtype]',load_duration_ms:this.state.loading?Math.max(0,this.clock()-this.started):this.state.load_duration_ms};}
  error(code,phase='load'){return Object.assign(Error('local_ai_'+code),{safe:{code,message:localErrors[code]||localErrors.failed,phase}});}
@@ -43,7 +49,7 @@ export class LocalRuntime{
  }
  start(model){
   const old=this.child;this.child=null;if(old){old.removeAllListeners();old.on('error',()=>{});old.kill('SIGKILL');}
-  this.started=this.clock();Object.assign(this.state,{inference_duration_ms:null,worker_memory_peak:null,worker_memory_inference_after:null,state:'loading',loaded:false,loading:true,failed:false,attempted_model:model,error:null,started_at:new Date(this.started).toISOString(),finished_at:null,load_duration_ms:null,memory_before:this.memory(),memory_after:null,worker_memory_before:null,worker_memory_after:null});
+  this.started=this.clock();Object.assign(this.state,{inference_duration_ms:null,worker_memory_peak:null,worker_memory_inference_after:null,state:'loading',loaded:false,loading:true,failed:false,attempted_model:model,attempted_tokenizer:tokenizerForModel(model),error:null,started_at:new Date(this.started).toISOString(),finished_at:null,load_duration_ms:null,memory_before:this.memory(),memory_after:null,worker_memory_before:null,worker_memory_after:null});
   const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>/^(PATH|HOME|TMPDIR|TEMP|TMP|SystemRoot|HF_TOKEN|HF_HOME|HTTPS?_PROXY|ALL_PROXY|NO_PROXY|https?_proxy|all_proxy|no_proxy)$/.test(key)));
   const child=this.spawn(new URL('./local-worker.js',import.meta.url),[],{stdio:['ignore','ignore','ignore','ipc'],execArgv:['--max-old-space-size=256'],env});this.child=child;
   child.on('error',()=>{if(this.child===child)this.fail('runtime',this.state.loading?'load':'inference');});
@@ -58,7 +64,7 @@ export class LocalRuntime{
    if(message.type==='loaded'){
     Object.assign(this.state,{state:'loaded',loaded:true,loading:false,failed:false,finished_at:new Date(this.clock()).toISOString(),load_duration_ms:Math.max(0,this.clock()-this.started),memory_after:this.memory(),worker_memory_after:memorySnapshot(message.memory)});return;
    }
-   if(message.type==='failure'){if(this.state.loading&&message.memory)this.state.worker_memory_after=memorySnapshot(message.memory);this.fail(Object.hasOwn(localErrors,message.code)?message.code:'failed',this.state.loading?'load':'inference');return;}
+   if(message.type==='failure'){if(this.state.loading&&message.memory)this.state.worker_memory_after=memorySnapshot(message.memory);this.fail(Object.hasOwn(localErrors,message.code)?message.code:'failed',this.state.loading?(['tokenizer','model'].includes(message.phase)?message.phase:'load'):'inference');return;}
    if(message.type==='result'){
     if(!this.state.loaded){this.fail('invalid_output','load');return;}
     try{if(this.pending.schema)parseStructured(message.text,this.pending.schema);}catch{this.fail('invalid_output','inference');return;}
@@ -95,7 +101,7 @@ export class LocalRuntime{
    const id=++this.sequence;this.pending={id,resolve,reject,schema,timer:setTimeout(()=>this.fail('timeout',this.state.loading?'load':'inference'),this.timeoutMs)};
    try{
     if(!this.child||this.state.attempted_model!==model)this.start(model);
-    this.child.send({id,model,dtype:this.dtype,cacheDir:this.cacheDir,messages,maxNew:Math.max(1,Math.min(128,Number(maxNew)||48))},error=>{if(error&&this.pending?.id===id)this.fail('runtime');});
+    this.child.send({id,model,tokenizer:tokenizerForModel(model),dtype:this.dtype,cacheDir:this.cacheDir,messages,maxNew:Math.max(1,Math.min(128,Number(maxNew)||48))},error=>{if(error&&this.pending?.id===id)this.fail('runtime');});
    }catch{this.fail('runtime');}
   });
  }

@@ -62,7 +62,8 @@ test('MCP read-only default has conversation and drafts but no sends or writes',
 test('MCP general write flag does not enable sensitive sends',async()=>{
  const names=await mcpTools({mcpAllowWrites:true,mcpAllowSensitiveWrites:false});assert.ok(names.includes('create_task'));assert.ok(names.includes('update_client'));assert.ok(!names.includes('send_whatsapp'));
 });
-test('HTTP auth, assets, ticket issuance, origin rejection and MCP initialize',async()=>{
+test('HTTP auth, assets, ticket issuance, origin rejection and MCP initialize',async t=>{
+ t.mock.method(db,'execute',async sql=>{assert.match(sql,/FROM app_settings/);return [[]];});
  const app=await buildApp({initializeDatabase:false,startBackground:false});
  try{
   assert.equal((await app.inject('/health')).statusCode,200);

@@ -1,3 +1,14 @@
+# Supra tokenizer/model split — 2026-09-28
+
+Starting GitHub HEAD: `df8222ee34f41f99a5d2243063c164171411e997`.
+
+- Tokenizer loads from `SupraLabs/Supra-50M-Instruct`; CPU/q4 model loads from `onnx-community/Supra-50M-Instruct-ONNX`, using separate Transformers.js auto loaders exclusively inside the isolated worker. A short plain prompt removes chat-template dependency; only newly generated tokens are decoded.
+- Saved local model is authoritative, with environment defaults only when unset. Known Qwen/SmolLM2 values normalize to Supra. An additive, transactional, idempotent startup migration updates obsolete DB selectors while preserving custom models and other settings. Status, test and background generation use the same resolver.
+- Added safe missing-file categories and attempted tokenizer diagnostics. Isolation, memory/timing diagnostics, queue, cooldown, timeout and idle shutdown remain.
+- 186 tests passed, including separate model/tokenizer loaders, q4/CPU options, missing-file categories, old-model migration, custom model preservation, HTTP status/test consistency, subprocess failure containment and idle release. Real model generation and deployment DB migration still require verification in Hostinger; loader tests use controlled doubles.
+
+Earlier validation records follow.
+
 # Tiny AI routing — 2026-09-28
 
 Starting GitHub HEAD: `5c40975aa8824e1b8a7f87c6ad88202f8d8a088e`.

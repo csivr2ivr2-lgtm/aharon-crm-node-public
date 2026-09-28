@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {config} from '../config.js';
+import {normalizeLocalModel,LEGACY_LOCAL_MODELS} from '../ai/local-model.js';
 import {db as defaultDb,now} from '../db.js';
 import {audit} from './audit.js';
 
@@ -11,7 +12,7 @@ export const settingsSchema=z.object({
   messaging:z.object({policy:z.enum(['always_confirm','confirm_sensitive','auto_send_trusted','never_auto_send']),trustedClientIds:z.array(z.string().min(1).max(64)).max(500),defaultAccountId:z.string().max(64),signature:z.string().max(4000)}).strict()
 }).strict();
 export const DEFAULT_SETTINGS=Object.freeze({
-  ai:{localModel:config.localAiModel,externalModel:config.aiModel,generativeProvider:'external',provider:'auto',model:'',temperature:0.3,contextSize:18000,fallback:true},
+  ai:{localModel:normalizeLocalModel(config.localAiModel),externalModel:config.aiModel,generativeProvider:'external',provider:'auto',model:'',temperature:0.3,contextSize:18000,fallback:true},
   automation:{clients:'suggest',projects:'suggest',tasks:'suggest',drafts:'automatic',spam:'automatic',classification:'automatic',followups:'suggest'},
   followups:{waitingHours:48,overdueHours:24,mode:'remind'},
   messaging:{policy:'always_confirm',trustedClientIds:[],defaultAccountId:'',signature:''}
@@ -25,9 +26,10 @@ export function validateSettings(patch,current=DEFAULT_SETTINGS) {
   }
   const legacy=patch.ai||{};
   if(legacy.model&&!Object.hasOwn(legacy,'localModel')&&!Object.hasOwn(legacy,'externalModel')){
-   if(legacy.provider==='local'||/^onnx-community\//.test(legacy.model))merged.ai.localModel=legacy.model==='onnx-community/Qwen2.5-0.5B-Instruct'?config.localAiModel:legacy.model;
+   if(legacy.provider==='local'||/^onnx-community\//.test(legacy.model))merged.ai.localModel=normalizeLocalModel(legacy.model);
    else merged.ai.externalModel=legacy.model;
   }
+  merged.ai={...merged.ai,localModel:normalizeLocalModel(merged.ai.localModel,normalizeLocalModel(config.localAiModel))};
   return settingsSchema.parse(merged);
 }
 export async function getSettings(db=defaultDb) {
@@ -48,4 +50,20 @@ export async function updateSettings(patch,{actor='owner',db=defaultDb}={}) {
     await audit({action:'settings.update',actor,before,after:settings},{db:connection});
     await connection.commit();return settings;
   }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+}
+
+// Additive data migration: change only obsolete local model selectors, keep custom models.
+export async function migrateLocalModelSettings(database=defaultDb){
+ const c=await database.getConnection();try{
+  await c.beginTransaction();const [rows]=await c.execute("SELECT value_json FROM app_settings WHERE id='global' FOR UPDATE");
+  if(rows.length){const before=JSON.parse(rows[0].value_json),ai=before.ai||{};
+   const old=ai.localModel||((ai.provider==='local'||/^onnx-community\//.test(ai.model||''))?ai.model:'');
+   if(LEGACY_LOCAL_MODELS.includes(old)){
+    const after={...before,ai:{...ai,localModel:normalizeLocalModel(old)}};
+    await c.execute("UPDATE app_settings SET value_json=?,updated_at=? WHERE id='global'",[JSON.stringify(after),now()]);
+    await audit({action:'settings.local_model_migrated',source:'migration',before:{localModel:old},after:{localModel:after.ai.localModel}},{db:c});
+   }
+  }
+  await c.commit();
+ }catch(error){await c.rollback();throw error;}finally{c.release();}
 }

@@ -44,7 +44,7 @@ test('disabled and path-like model settings cannot leak credentials or start a p
  }
 });
 test('error classifier only returns allowlisted categories',()=>{
- for(const [message,code] of [['ENOMEM /private','memory'],['401 token=secret','access'],['404 /private/model','missing'],['ENOSPC /private','storage'],['fetch failed secret','network'],['onnx /private/lib','runtime'],['unknown password=secret','failed']])assert.equal(classifyLocalError(Error(message)),code);
+ for(const [message,code] of [['ENOMEM /private','memory'],['401 token=secret','access'],['404 /private/model','hub_404'],['ENOSPC /private','storage'],['fetch failed secret','network'],['onnx /private/lib','runtime'],['unknown password=secret','failed']])assert.equal(classifyLocalError(Error(message)),code);
 });
 test('real isolated subprocess crash leaves parent responsive',async()=>{
  const runtime=new LocalRuntime({model:'org/model',timeoutMs:2000,spawn:()=>spawn(process.execPath,['-e','process.exit(1)'],{stdio:['ignore','ignore','ignore','ipc']})});
@@ -78,4 +78,9 @@ test('invalid structured output retains inference timing and memory diagnostics'
 });
 test('valid JSON cannot pass Test Local AI before a successful model load',async()=>{
  const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('result',{text:JSON.stringify({intent:'support',has_task:true,needs_reply:true})});await done;assert.equal(f.runtime.status().test_result.ok,false);
+});
+
+for(const code of ['tokenizer_file_missing','model_file_missing','quantization_missing','hub_404'])test(code+' stays isolated, records both attempted repositories and enables cooldown',async()=>{
+ const model='onnx-community/Supra-50M-Instruct-ONNX',f=fixture({model,cooldownMs:200}),p=f.runtime.generate([]);
+ assert.equal(f.children[0].request.tokenizer,'SupraLabs/Supra-50M-Instruct');f.emit('failure',{code,phase:'model'});await assert.rejects(p,new RegExp(code));assert.equal(f.runtime.status().attempted_model,model);assert.equal(f.runtime.status().attempted_tokenizer,'SupraLabs/Supra-50M-Instruct');assert.equal(f.runtime.status().error.code,code);assert.equal(f.children[0].killed,true);await assert.rejects(f.runtime.generate([]),/cooldown/);assert.equal(await new Promise(resolve=>setImmediate(()=>resolve('alive'))),'alive');
 });

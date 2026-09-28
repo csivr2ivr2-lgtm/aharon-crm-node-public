@@ -11,6 +11,8 @@ import {Transform} from "node:stream";
 import {pipeline} from "node:stream/promises";
 import {resolve,basename} from "node:path";
 import {randomBytes} from "node:crypto";
+import {getSettings,migrateLocalModelSettings} from "./platform/settings.js";
+import {resolveLocalModel} from "./ai/local-model.js";
 import {aiStatus,localDiagnostics,closeLocalAi} from "./ai/local-ai.js";
 import {migrateExtras} from "./extra-schema.js";
 import {WorkspaceService} from "./workspace-service.js";
@@ -33,7 +35,7 @@ import {migrateKnowledge} from "./ai/knowledge.js";
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateActions();await migrateKnowledge();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateActions();await migrateKnowledge();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -110,8 +112,8 @@ app.get("/api/files/:id/download",async(req,reply)=>{
  const path=await fileIntelligence.safePath(file.storage_name);
  reply.type("application/octet-stream").header("Content-Disposition","attachment; filename*=UTF-8''"+encodeURIComponent(file.name));return reply.send(createReadStream(path,{flags:constants.O_RDONLY|constants.O_NOFOLLOW}));
 });
-app.get("/api/ai/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,...aiStatus()};});
-app.post("/api/ai/test",async(req,reply)=>{if(!uiAuth(req,reply))return;const settings=await (await import("./platform/settings.js")).getSettings();const result=localDiagnostics.startTest(settings.ai.localModel||config.localAiModel);return reply.code(result.accepted?202:409).send({ok:result.accepted,...result});});
+app.get("/api/ai/status",async(req,reply)=>{if(!uiAuth(req,reply))return;const settings=await getSettings();return {ok:true,...aiStatus(settings.ai)};});
+app.post("/api/ai/test",async(req,reply)=>{if(!uiAuth(req,reply))return;const settings=await getSettings();const result=localDiagnostics.startTest(resolveLocalModel(settings.ai,config).model);return reply.code(result.accepted?202:409).send({ok:result.accepted,...result});});
 app.post("/api/ws-ticket",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,ticket:hub.issueTicket()};});
 for(const [plural,entity] of [["projects","project"],["clients","client"],["tasks","task"],["systems","system"],["accounts","account"]]){
  if(["systems","accounts"].includes(plural)){

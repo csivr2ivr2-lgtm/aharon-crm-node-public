@@ -100,8 +100,8 @@ test('both incoming and outgoing messages offer generic knowledge proposals',asy
 });
 
 test('local model screen shows safe failure, timing, both memory snapshots and test control',async()=>{
- const h=harness({'/api/ai/status':{enabled:true,model:'org/model',attempted_model:'org/tried',state:'failed',load_duration_ms:1250,error:{code:'network',message:'<error>'},memory_before:{rss:1048576},memory_after:{rss:2097152}}});
- await h.run("render('ai')");const html=h.element('#content').innerHTML;assert.ok(html.includes('org/tried'));assert.ok(html.includes('נכשל'));assert.ok(html.includes('1.3 שניות'));assert.ok(html.includes('2.0 MB'));assert.ok(html.includes('&lt;error&gt;'));assert.ok(html.includes('Test Local AI'));
+ const h=harness({'/api/ai/status':{enabled:true,model:'org/model',tokenizer_source:'org/tokenizer',attempted_model:'org/tried',attempted_tokenizer:'org/tried-tokenizer',dtype:'q4',state:'failed',load_duration_ms:1250,error:{code:'network',message:'<error>'},memory_before:{rss:1048576},memory_after:{rss:2097152}}});
+ await h.run("render('ai')");const html=h.element('#content').innerHTML;assert.ok(html.includes('org/tried'));assert.ok(html.includes('org/tokenizer'));assert.ok(html.includes('org/tried-tokenizer'));assert.ok(html.includes('q4'));assert.ok(html.includes('נכשל'));assert.ok(html.includes('1.3 שניות'));assert.ok(html.includes('2.0 MB'));assert.ok(html.includes('&lt;error&gt;'));assert.ok(html.includes('Test Local AI'));
  await h.run("intelligenceAction('local-ai-test',{dataset:{}})");assert.ok(h.calls.some(c=>c.method==='POST'&&c.url==='/api/ai/test'));
 });
 

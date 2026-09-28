@@ -1,4 +1,5 @@
 import {config} from '../config.js';
+import {resolveLocalModel} from './local-model.js';
 import {TINY_WORKLOADS,parseStructured} from './tiny-contract.js';
 
 export const externalAvailable=settings=>settings?.generativeProvider!=='disabled'&&Boolean(config.aiBaseUrl&&config.aiApiToken);
@@ -35,7 +36,7 @@ export async function generateStructured(messages,{settings={},workload,schema,p
   let result;
   if(providers)result={text:String(await providers[provider](messages)),provider,model:'test'};
   else if(provider==='local'){
-   const {generateLocal}=await import('./local-ai.js');const model=settings.localModel||config.localAiModel;
+   const {generateLocal}=await import('./local-ai.js');const model=resolveLocalModel(settings,config).model;
    result={text:await generateLocal(messages,config.localAiMaxNewTokens,model,schema),provider,model};
   }else result=await external(messages,{settings,fetcher});
   try{return {...result,data:parseStructured(result.text,schema)};}catch(error){
