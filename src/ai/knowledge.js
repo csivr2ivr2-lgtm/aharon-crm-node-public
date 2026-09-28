@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {db,now} from '../db.js';
-import {generate} from './providers.js';
+import {generateText as generate} from './providers.js';
 import {audit} from '../platform/audit.js';
 
 // Publication is an owner decision. Redaction alone cannot establish that a

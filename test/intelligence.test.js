@@ -29,7 +29,7 @@ test('project and task extraction preserve source, relationships and due date',(
  const dated=extractSuggestions({id:'m2',body:'אבדוק מחר',sent_at:'2026-09-27T08:00:00Z'});assert.equal(dated[0].payload.due_date,'2026-09-28');
 });
 test('provider abstraction falls back without giving models executable tools',async()=>{
- const r=await generate([{role:'user',content:'hi'}],{providers:{broken:async()=>{throw Error('down');},working:async()=> 'ready'}});assert.equal(r.provider,'working');assert.equal(r.text,'ready');
+ const r=await generate([{role:'user',content:'hi'}],{providers:{local:async()=>{throw Error('must_not_use_tiny');},external:async()=> 'ready'}});assert.equal(r.provider,'external');assert.equal(r.text,'ready');
 });
 test('ranking deduplicates and ranks relevant recent records',()=>{
  const items=rankContext([{id:'old',body:'unrelated',updated_at:'2020-01-01'},{id:'relevant',body:'website',updated_at:'2026-09-01'},{id:'relevant',body:'website',updated_at:'2026-09-01'}],['website']);assert.equal(items.length,2);assert.equal(items[0].id,'relevant');

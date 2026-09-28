@@ -111,7 +111,7 @@ app.get("/api/files/:id/download",async(req,reply)=>{
  reply.type("application/octet-stream").header("Content-Disposition","attachment; filename*=UTF-8''"+encodeURIComponent(file.name));return reply.send(createReadStream(path,{flags:constants.O_RDONLY|constants.O_NOFOLLOW}));
 });
 app.get("/api/ai/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,...aiStatus()};});
-app.post("/api/ai/test",async(req,reply)=>{if(!uiAuth(req,reply))return;const settings=await (await import("./platform/settings.js")).getSettings();const result=localDiagnostics.startTest(settings.ai.model||config.localAiModel);return reply.code(result.accepted?202:409).send({ok:result.accepted,...result});});
+app.post("/api/ai/test",async(req,reply)=>{if(!uiAuth(req,reply))return;const settings=await (await import("./platform/settings.js")).getSettings();const result=localDiagnostics.startTest(settings.ai.localModel||config.localAiModel);return reply.code(result.accepted?202:409).send({ok:result.accepted,...result});});
 app.post("/api/ws-ticket",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,ticket:hub.issueTicket()};});
 for(const [plural,entity] of [["projects","project"],["clients","client"],["tasks","task"],["systems","system"],["accounts","account"]]){
  if(["systems","accounts"].includes(plural)){

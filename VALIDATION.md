@@ -1,3 +1,15 @@
+# Tiny AI routing — 2026-09-28
+
+Starting GitHub HEAD: `5c40975aa8824e1b8a7f87c6ad88202f8d8a088e`.
+
+Supra-50M q4 is the new default (48 output tokens, 4000 input characters, 768 input tokens). Local operations are restricted to schema-validated short classification/extraction. Text, assistant planning, drafts, task reasoning and knowledge writing use external generation only. Settings add separate local/external model fields without destructive migration. Existing explicit deployment environment overrides require updating in Hostinger.
+
+The isolated lazy subprocess and safe load diagnostics remain. Added bounded single-inference queue, 45-second idle release, 60-second failure cooldown, inference timing, post-inference and peak worker memory, CPU-only ONNX execution and a JSON/schema-validated Test Local AI. Deterministic rules bypass AI where conclusive; invalid AI output falls back to external generation or rule results.
+
+Regression tests cover these contracts with model doubles and a real subprocess crash. Actual Supra download/load, Hebrew semantic quality, native memory consumption and hosting-wide resource limits remain unverified; no claim of production 504/restart immunity beyond the tested process boundary is made.
+
+Earlier validation records follow.
+
 # Local AI diagnostics — 2026-09-28
 
 - Added authenticated asynchronous local-only smoke test and Hebrew diagnostics UI, actual attempted model, safe categorized failures, loaded/loading/failed flags, load timing and parent/child process memory snapshots.

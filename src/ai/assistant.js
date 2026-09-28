@@ -32,7 +32,7 @@ export class Assistant{
  async chat({message,context,requestId=randomUUID()}){
   if(typeof message!=='string'||!message.trim()||message.length>12000)throw Error('invalid_chat_message');
   if(context?.source!=='chat'||context?.trustedInput!==true||!context.permissions?.includes('read'))throw Error('chat_permission_denied');
-  const generate=this.generate||(await import('./providers.js')).generate;
+  const generate=this.generate||(await import('./providers.js')).generateText;
   const settings=this.settings?await this.settings():await (await import('../platform/settings.js')).getSettings();
   const messages=[{role:'system',content:instructions+'\nזמן נוכחי: '+new Date().toISOString()+'\nכלים זמינים: '+JSON.stringify(compactCatalog())},{role:'user',content:message.trim()}];
   const contextBudget=Math.max(2000,Math.min(64000,Number(settings.ai?.contextSize)||18000));

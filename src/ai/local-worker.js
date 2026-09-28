@@ -8,12 +8,14 @@ process.on('message',async({id,model,dtype,cacheDir,messages,maxNew})=>{
   if(!generator){
    send({id,type:'loading',memory:memorySnapshot()});
    const {env,pipeline}=await import('@huggingface/transformers');env.cacheDir=cacheDir;
-   generator=await pipeline('text-generation',model,{dtype});
+   generator=await pipeline('text-generation',model,{dtype,device:'cpu',session_options:{intraOpNumThreads:1,interOpNumThreads:1}});
    send({id,type:'loaded',memory:memorySnapshot()});
   }
+  generator.tokenizer.model_max_length=768;
+  const started=performance.now();
   const out=await generator(messages,{max_new_tokens:maxNew,do_sample:false,repetition_penalty:1.05});
   const generated=out?.[0]?.generated_text;
   const text=(Array.isArray(generated)?String(generated.at(-1)?.content||''):String(generated||'')).trim();
-  send(text?{id,type:'result',text}:{id,type:'failure',code:'empty'});
+  send(text?{id,type:'result',text,inference_ms:performance.now()-started,memory:memorySnapshot(),peak_rss:process.resourceUsage().maxRSS*1024}:{id,type:'failure',code:'empty'});
  }catch(error){send({id,type:'failure',code:classifyLocalError(error),memory:memorySnapshot()});}
 });
