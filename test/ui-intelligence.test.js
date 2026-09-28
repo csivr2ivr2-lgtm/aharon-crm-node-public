@@ -104,3 +104,8 @@ test('local model screen shows safe failure, timing, both memory snapshots and t
  await h.run("render('ai')");const html=h.element('#content').innerHTML;assert.ok(html.includes('org/tried'));assert.ok(html.includes('נכשל'));assert.ok(html.includes('1.3 שניות'));assert.ok(html.includes('2.0 MB'));assert.ok(html.includes('&lt;error&gt;'));assert.ok(html.includes('Test Local AI'));
  await h.run("intelligenceAction('local-ai-test',{dataset:{}})");assert.ok(h.calls.some(c=>c.method==='POST'&&c.url==='/api/ai/test'));
 });
+
+test('settings save separate local and generative model names',async()=>{
+ const h=harness();await h.run(`saveSettings({localModel:'org/tiny',externalModel:'external-text',generativeProvider:'external',trustedClientIds:''})`);
+ const data=JSON.parse(h.calls[0].body);assert.equal(data.ai.localModel,'org/tiny');assert.equal(data.ai.externalModel,'external-text');assert.equal(data.ai.generativeProvider,'external');assert.ok(!('model' in data.ai));
+});

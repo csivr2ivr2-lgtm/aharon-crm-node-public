@@ -39,7 +39,7 @@ test('Tiny refuses tool planning, full history and oversized input without loadi
 });
 test('deterministic feedback, unsubscribe, no-reply and known spam skip AI',async()=>{
  for(const message of [{body:'unsubscribe'},{sender:'no-reply@example.test'},{body:'זכית בפרס'},{body:'mail delivery failed'}]){
-  const initial=classifyMessage(message);assert.equal(await classifyWithAi(message,initial,()=>{throw Error('must_not_run');}),initial);
+  const initial=classifyMessage(message);let calls=0;assert.equal(await classifyWithAi(message,initial,()=>{calls++;throw Error('must_not_run');}),initial);assert.equal(calls,0);
  }
  const initial=classifyMessage({body:'hello'},{feedback:'normal'});let calls=0;await classifyWithAi({},initial,()=>{calls++;});assert.equal(calls,0);
 });
@@ -50,4 +50,10 @@ test('draft and assistant production entry points retain external-only generatio
  const local=await readFile(new URL('../src/ai/local-ai.js',import.meta.url),'utf8');assert.match(local,/generateText as generate/);
  const {Assistant}=await import('../src/ai/assistant.js');const assistant=new Assistant({settings:async()=>({ai:{provider:'local',generativeProvider:'disabled'}})});
  await assert.rejects(assistant.chat({message:'שלום',context:{source:'chat',trustedInput:true,permissions:['read']}}),/external_ai_required/);
+});
+
+test('manual draft without external AI fails before context retrieval and does not load Tiny',async t=>{
+ const {db}=await import('../src/db.js');const {draftReply,aiStatus}=await import('../src/ai/local-ai.js');let reads=0;
+ t.mock.method(db,'execute',async sql=>{reads++;assert.match(sql,/FROM app_settings/);return [[{value_json:JSON.stringify({ai:{generativeProvider:'disabled'}})}]];});
+ await assert.rejects(draftReply({conversationId:'c'}),/external_ai_required/);assert.equal(reads,1);assert.equal(aiStatus().attempted_model,null);assert.equal(aiStatus().loaded,false);
 });

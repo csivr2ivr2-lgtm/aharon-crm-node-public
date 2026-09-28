@@ -71,3 +71,11 @@ test('Test Local AI uses classification and rejects plain text or wrong JSON sch
   f.emit('loaded');f.emit('result',{text});await done;assert.equal(f.runtime.status().test_result.ok,false);assert.equal(f.runtime.status().error.code,'invalid_output');assert.equal(f.runtime.status().failed,true);
  }
 });
+
+test('invalid structured output retains inference timing and memory diagnostics',async()=>{
+ const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('loaded');f.emit('result',{text:'not json',inference_ms:25,memory:{rss:256},peak_rss:512});await done;
+ assert.equal(f.runtime.status().inference_duration_ms,25);assert.equal(f.runtime.status().worker_memory_inference_after.rss,256);assert.equal(f.runtime.status().worker_memory_peak,512);assert.equal(f.runtime.status().test_result.ok,false);
+});
+test('valid JSON cannot pass Test Local AI before a successful model load',async()=>{
+ const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('result',{text:JSON.stringify({intent:'support',has_task:true,needs_reply:true})});await done;assert.equal(f.runtime.status().test_result.ok,false);
+});

@@ -37,6 +37,7 @@ export class LocalRuntime{
   const pending=this.pending;this.pending=null;if(pending)clearTimeout(pending.timer);
   const child=this.child;this.child=null;if(child){child.removeAllListeners();child.on('error',()=>{});child.kill('SIGKILL');}
   if(this.state.loading){this.state.load_duration_ms=Math.max(0,this.clock()-this.started);this.state.finished_at=new Date(this.clock()).toISOString();this.state.memory_after=this.memory();}
+  if(phase==='inference'&&this.inferenceStarted!=null&&this.state.inference_duration_ms==null)this.state.inference_duration_ms=Math.max(0,this.clock()-this.inferenceStarted);
   Object.assign(this.state,{state:'failed',loaded:false,loading:false,failed:true,error:this.error(code,phase).safe});
   pending?.reject(this.error(code,phase));
  }
@@ -49,6 +50,10 @@ export class LocalRuntime{
   child.on('exit',()=>{if(this.child===child)this.fail('exit',this.state.loading?'load':'inference');});
   child.on('message',message=>{
    if(this.child!==child||!message||message.id!==this.pending?.id)return;
+   if(Number.isFinite(message.inference_ms))this.state.inference_duration_ms=Math.max(0,message.inference_ms);
+   if(Number.isFinite(message.peak_rss))this.state.worker_memory_peak=Math.max(0,message.peak_rss);
+   if(['result','failure'].includes(message.type)&&!this.state.loading&&message.memory)this.state.worker_memory_inference_after=memorySnapshot(message.memory);
+   if(message.type==='inference'){this.inferenceStarted=this.clock();return;}
    if(message.type==='loading'){this.state.worker_memory_before=memorySnapshot(message.memory);return;}
    if(message.type==='loaded'){
     Object.assign(this.state,{state:'loaded',loaded:true,loading:false,failed:false,finished_at:new Date(this.clock()).toISOString(),load_duration_ms:Math.max(0,this.clock()-this.started),memory_after:this.memory(),worker_memory_after:memorySnapshot(message.memory)});return;
@@ -57,9 +62,6 @@ export class LocalRuntime{
    if(message.type==='result'){
     if(!this.state.loaded){this.fail('invalid_output','load');return;}
     try{if(this.pending.schema)parseStructured(message.text,this.pending.schema);}catch{this.fail('invalid_output','inference');return;}
-    this.state.inference_duration_ms=Number.isFinite(message.inference_ms)?Math.max(0,message.inference_ms):null;
-    if(message.memory)this.state.worker_memory_inference_after=memorySnapshot(message.memory);
-    if(Number.isFinite(message.peak_rss))this.state.worker_memory_peak=Math.max(0,message.peak_rss);
     if(typeof message.text!=='string'||!message.text.trim()){this.fail('empty','inference');return;}
     const pending=this.pending;this.pending=null;clearTimeout(pending.timer);pending.resolve(message.text.slice(0,12000));setImmediate(()=>this.drain());
    }
@@ -89,6 +91,7 @@ export class LocalRuntime{
   if(!this.enabled)return Promise.reject(this.error('disabled'));
   if(!validModel(model)){this.fail('invalid_model');this.state.attempted_model='[invalid model identifier]';return Promise.reject(this.error('invalid_model'));}
   return new Promise((resolve,reject)=>{
+   this.inferenceStarted=null;this.state.inference_duration_ms=null;this.state.worker_memory_inference_after=null;
    const id=++this.sequence;this.pending={id,resolve,reject,schema,timer:setTimeout(()=>this.fail('timeout',this.state.loading?'load':'inference'),this.timeoutMs)};
    try{
     if(!this.child||this.state.attempted_model!==model)this.start(model);

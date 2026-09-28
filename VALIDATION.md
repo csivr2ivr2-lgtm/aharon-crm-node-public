@@ -6,7 +6,7 @@ Supra-50M q4 is the new default (48 output tokens, 4000 input characters, 768 in
 
 The isolated lazy subprocess and safe load diagnostics remain. Added bounded single-inference queue, 45-second idle release, 60-second failure cooldown, inference timing, post-inference and peak worker memory, CPU-only ONNX execution and a JSON/schema-validated Test Local AI. Deterministic rules bypass AI where conclusive; invalid AI output falls back to external generation or rule results.
 
-Regression tests cover these contracts with model doubles and a real subprocess crash. Actual Supra download/load, Hebrew semantic quality, native memory consumption and hosting-wide resource limits remain unverified; no claim of production 504/restart immunity beyond the tested process boundary is made.
+173 regression tests cover these contracts with model doubles and a real subprocess crash. A real local smoke test attempted Supra loading with a 20-second cap: downloading failed with the safe `network` category in 206 ms; the parent stayed responsive and cooldown activated. No successful load is claimed. Hebrew semantic quality, loaded-model native memory consumption and hosting-wide resource limits remain unverified; no claim of production 504/restart immunity beyond the tested process boundary is made.
 
 Earlier validation records follow.
 
