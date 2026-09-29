@@ -1,11 +1,11 @@
 import {config} from '../config.js';
 import {resolveLocalModel} from './local-model.js';
-import {TINY_WORKLOADS,parseStructured} from './tiny-contract.js';
+import {TINY_WORKLOADS,parseStructured,LABELS,labelMessages,labelSchema,parseLabel} from './tiny-contract.js';
 
 export const externalAvailable=settings=>settings?.generativeProvider!=='disabled'&&Boolean(config.aiBaseUrl&&config.aiApiToken);
 const externalModel=settings=>settings.externalModel||(!/^(onnx-community\/|.*Supra-50M)/i.test(settings.model||'')&&settings.provider!=='local'?settings.model:'')||config.aiModel||'';
 export function providerOrder(settings={},workload='text'){
- if(!TINY_WORKLOADS.includes(workload))return externalAvailable(settings)?['external']:[];
+ if(!Object.hasOwn(LABELS,workload))return externalAvailable(settings)?['external']:[];
  return [...(config.localAiEnabled?['local']:[]),...(settings.fallback!==false&&externalAvailable(settings)?['external']:[])];
 }
 async function external(messages,{settings,fetcher}){
@@ -26,20 +26,31 @@ export async function generateText(messages,{settings={},providers,fetcher=fetch
  return external(messages,{settings,fetcher});
 }
 export const generate=generateText; // Compatibility entry point remains external-only.
+export async function generateLabel(input,{workload,settings={},providers,fetcher=fetch}={}){
+ const messages=labelMessages(workload,input),schema=labelSchema(workload);
+ const order=providers?['local',...(settings.fallback===false?[]:['external'])].filter(p=>providers[p]):providerOrder(settings,workload);let lastError;
+ for(const provider of order)try{
+  let text;
+  if(providers)text=String(await providers[provider](messages));
+  else if(provider==='local'){const {generateLocal}=await import('./local-ai.js');text=await generateLocal(messages,config.localAiMaxNewTokens,resolveLocalModel(settings,config).model,schema);}
+  else text=(await external(messages,{settings,fetcher})).text;
+  return {label:parseLabel(text,workload),provider};
+ }catch(error){lastError=error;}
+ throw lastError||Error('tiny_ai_unavailable');
+}
+// Compatibility for CRM callers: JSON is assembled by code, never requested from Tiny.
 export async function generateStructured(messages,{settings={},workload,schema,providers,fetcher=fetch}={}){
  validateMessages(messages);if(!TINY_WORKLOADS.includes(workload)||!schema?.safeParse)throw Error('invalid_tiny_workload');
- const budget=config.localAiMaxContextChars;
- // Accept only one short instruction and one message; never truncate long CRM context into a Tiny request.
- if(messages.length!==2||messages[0].role!=='system'||messages[1].role!=='user'||messages[0].content.length>800||messages.reduce((n,m)=>n+m.content.length,0)>budget)throw Error('tiny_context_too_large');
- const order=providers?['local',...(settings.fallback===false?[]:['external'])].filter(p=>providers[p]):providerOrder(settings,workload);let lastError;
- for(const provider of order){try{
-  let result;
-  if(providers)result={text:String(await providers[provider](messages)),provider,model:'test'};
-  else if(provider==='local'){
-   const {generateLocal}=await import('./local-ai.js');const model=resolveLocalModel(settings,config).model;
-   result={text:await generateLocal(messages,config.localAiMaxNewTokens,model,schema),provider,model};
-  }else result=await external(messages,{settings,fetcher});
-  const data=parseStructured(result.text,schema);return {...result,text:JSON.stringify(data),data};
- }catch(error){lastError=error;}}
- throw lastError||Error('tiny_ai_unavailable');
+ if(messages.length!==2||messages[0].role!=='system'||messages[1].role!=='user'||messages[0].content.length>800||messages.reduce((n,m)=>n+m.content.length,0)>config.localAiMaxContextChars)throw Error('tiny_context_too_large');
+ if(['classify','spam','intent'].includes(workload)){
+  const input=messages[1].content;
+  if(workload==='intent'){
+   const intent=await generateLabel(input,{workload:'intent',settings,providers,fetcher}),task=await generateLabel(input,{workload:'task',settings,providers,fetcher}),reply=await generateLabel(input,{workload:'needs_reply',settings,providers,fetcher});
+   const data=schema.parse({intent:intent.label,has_task:task.label==='yes',needs_reply:reply.label==='yes'});return {data,text:JSON.stringify(data),provider:intent.provider};
+  }
+  const result=await generateLabel(input,{workload:'classify',settings,providers,fetcher});
+  const data=schema.parse({classification:result.label,confidence:0.75,reason:'Tiny label; uncalibrated confidence'});return {data,text:JSON.stringify(data),provider:result.provider};
+ }
+ // Free extraction and multi-field suggestions require an external provider.
+ const result=await generateText(messages,{settings,providers,fetcher});const data=parseStructured(result.text,schema);return {...result,data,text:JSON.stringify(data)};
 }

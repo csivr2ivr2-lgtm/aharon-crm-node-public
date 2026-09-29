@@ -110,8 +110,8 @@ test('settings save separate local and generative model names',async()=>{
  const data=JSON.parse(h.calls[0].body);assert.equal(data.ai.localModel,'org/tiny');assert.equal(data.ai.externalModel,'external-text');assert.equal(data.ai.generativeProvider,'external');assert.ok(!('model' in data.ai));
 });
 test('bilingual diagnostics separate loaded engine from failed contract and escape fixed raw output',async()=>{
- const h=harness({'/api/ai/status':{enabled:true,state:'loaded',inference_status:'succeeded',structured_status:'failed',test_result:{ok:false,cases:[{language:'en',model_loaded:true,inference_ok:true,schema_valid:true,inference_ms:600,peak_rss:1048576,raw_output:'{"intent":"support"}'},{language:'he',model_loaded:true,inference_ok:true,schema_valid:false,raw_output:'<script>test</script>'}]}}});
+ const h=harness({'/api/ai/status':{enabled:true,state:'loaded',inference_status:'succeeded',structured_status:'failed',test_result:{ok:false,cases:[{language:'en',decisions:[{workload:'intent',label:'support',matched:true,model_loaded:true,inference_ok:true,schema_valid:true,inference_ms:600,peak_rss:1048576,raw_output:'support'}]},{language:'he',decisions:[{workload:'intent',model_loaded:true,inference_ok:true,schema_valid:false,raw_output:'<script>test</script>'}]}]}}});
  await h.run("render('ai')");const html=h.element('#content').innerHTML;
- for(const text of ['מצב מנוע: טעון','Inference: succeeded','Structured JSON: failed','English','עברית','Test raw output','600 ms','1.0 MB','&lt;script&gt;test&lt;/script&gt;'])assert.ok(html.includes(text),text);
+ for(const text of ['מצב מנוע: טעון','Inference: succeeded','Label validation: failed','English','עברית','Test raw output','600 ms','1.0 MB','&lt;script&gt;test&lt;/script&gt;'])assert.ok(html.includes(text),text);
  assert.ok(!html.includes('<script>test'));
 });

@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import {createHash} from 'node:crypto';
 import {db,now,ensureColumn} from '../db.js';
-import {emailOf,phoneOf} from '../message-format.js';
+import {emailOf,phoneOf,extractDeterministicEntities} from '../message-format.js';
 import {generateText as generate,generateStructured,externalAvailable} from './providers.js';
 import {buildCrmContext} from './context.js';
 import {audit as platformAudit} from '../platform/audit.js';
@@ -159,7 +159,7 @@ export async function processIncomingMessage({messageId},deps={}){
   // Model output always awaits review, including updates to existing records.
   if(mode==='automatic'&&suggestion.payload.origin!=='ai'&&suggestion.confidence>=.84&&conversation.client_id)await resolveSuggestion({id,decision:'approve',actor:'worker'},{db:database});
  }
- const dids=[...new Set((String(message.body||'').match(/(?:\+972[- ]?|0)[2-9](?:[- ]?\d){7,8}/g)||[]).map(normalizePhone))].slice(0,12);
+ const dids=[...new Set(extractDeterministicEntities(message.body).did_candidates.map(normalizePhone))].slice(0,12);
  for(const phone of dids){
   const local=phone.startsWith('972')?'0'+phone.slice(3):phone;
   const [systems]=await database.execute('SELECT * FROM systems WHERE did IN (?,?,?)',[phone,local,'+'+phone]);

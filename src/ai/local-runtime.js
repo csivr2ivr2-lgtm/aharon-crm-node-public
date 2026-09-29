@@ -1,9 +1,9 @@
 import {fork} from 'node:child_process';
 import {tokenizerForModel} from './local-model.js';
-import {structuredResult,tinyTestCases,tinyTestSchema} from './tiny-contract.js';
+import {localContract,tinyTestCases,labelMessages,labelSchema} from './tiny-contract.js';
 
 export const localErrors=Object.freeze({
- cooldown:'המודל מושהה זמנית לאחר כשל. אפשר לנסות מאוחר יותר.',invalid_output:'המודל החזיר פלט שאינו JSON תקין לפי המבנה הנדרש.',queue_full:'תור המודל מלא. נסה שוב מאוחר יותר.',queue_timeout:'ההמתנה בתור המודל הסתיימה.',
+ cooldown:'המודל מושהה זמנית לאחר כשל. אפשר לנסות מאוחר יותר.',invalid_output:'המודל החזיר תשובה שאינה אחת מהאפשרויות המותרות.',queue_full:'תור המודל מלא. נסה שוב מאוחר יותר.',queue_timeout:'ההמתנה בתור המודל הסתיימה.',
  disabled:'המודל המקומי כבוי בהגדרות.',invalid_model:'מזהה המודל אינו תקין. יש להשתמש בשם מאגר מודל, לא בנתיב או בכתובת.',
  busy:'המודל המקומי מטפל כעת בבקשה אחרת. נסה שוב בסיום.',timeout:'הפעולה חרגה מזמן ההמתנה; תהליך המודל נעצר.',
  memory:'אין מספיק זיכרון לטעינת המודל.',access:'הגישה למודל נדחתה. בדוק הרשאות למאגר המודל.',
@@ -69,10 +69,10 @@ export class LocalRuntime{
    if(message.type==='result'){
     if(!this.state.loaded){this.fail('runtime','load');return;}
     const pending=this.pending,nonempty=typeof message.text==='string'&&Boolean(message.text.trim());
-    const contract=pending.schema?structuredResult(message.text,pending.schema):null;
+    const contract=pending.schema?localContract(message.text,pending.schema):null;
     Object.assign(this.state,{inference_status:nonempty?'succeeded':'failed',structured_status:contract?(contract.schema_valid?'succeeded':'failed'):'idle',output_error:contract&&!contract.schema_valid?this.error('invalid_output','output').safe:null});
     // Only startTest attaches this record, to its own fixed request. Customer text is never retained.
-    if(pending.testCase)Object.assign(pending.testCase,{model_loaded:true,inference_ok:nonempty,inference_ms:this.state.inference_duration_ms,peak_rss:this.state.worker_memory_peak,raw_output:typeof message.text==='string'?message.text.slice(0,500):'',json_extracted:contract?.json_extracted||false,json_parsed:contract?.json_parsed||false,schema_valid:contract?.schema_valid||false});
+    if(pending.testCase)Object.assign(pending.testCase,{model_loaded:true,inference_ok:nonempty,inference_ms:this.state.inference_duration_ms,peak_rss:this.state.worker_memory_peak,raw_output:typeof message.text==='string'?message.text.slice(0,500):'',label:contract?.label??null,schema_valid:contract?.schema_valid||false});
     this.pending=null;clearTimeout(pending.timer);
     if(!nonempty||contract&&!contract.schema_valid)pending.reject(this.error(nonempty?'invalid_output':'empty','output'));
     else pending.resolve(message.text.slice(0,12000));
@@ -90,7 +90,7 @@ export class LocalRuntime{
   const child=this.child;this.child=null;if(child){child.removeAllListeners();child.on('error',()=>{});child.kill('SIGKILL');}
   Object.assign(this.state,{state:'idle',loaded:false,loading:false,failed:false});
  }
- generate(messages,maxNew=48,model=this.model,schema){
+ generate(messages,maxNew=8,model=this.model,schema){
   if(this.testPromise)return Promise.reject(this.error('busy','inference'));
   if(this.clock()<this.cooldownUntil)return Promise.reject(this.error('cooldown'));
   if(!Array.isArray(messages)||messages.length>2||messages.some(m=>typeof m.content!=='string')||messages.reduce((n,m)=>n+m.content.length,0)>this.maxContextChars)return Promise.reject(this.error('invalid_output','input'));
@@ -99,7 +99,7 @@ export class LocalRuntime{
   if(this.queue.length>=this.queueLimit)return Promise.reject(this.error('queue_full'));
   return new Promise((resolve,reject)=>{const entry={args:[messages,maxNew,model,schema],resolve,reject};entry.timer=setTimeout(()=>{this.queue=this.queue.filter(q=>q!==entry);reject(this.error('queue_timeout'));},this.timeoutMs);this.queue.push(entry);});
  }
- execute(messages,maxNew=48,model=this.model,schema){
+ execute(messages,maxNew=8,model=this.model,schema){
   if(this.clock()<this.cooldownUntil)return Promise.reject(this.error('cooldown'));
   if(this.pending)return Promise.reject(this.error('busy','inference'));
   if(!this.enabled)return Promise.reject(this.error('disabled'));
@@ -109,21 +109,24 @@ export class LocalRuntime{
    const id=++this.sequence;this.pending={id,resolve,reject,schema,timer:setTimeout(()=>this.fail('timeout',this.state.loading?'load':'inference'),this.timeoutMs)};
    try{
     if(!this.child||this.state.attempted_model!==model)this.start(model);
-    this.child.send({id,model,tokenizer:tokenizerForModel(model),dtype:this.dtype,cacheDir:this.cacheDir,messages,maxNew:Math.max(1,Math.min(128,Number(maxNew)||48))},error=>{if(error&&this.pending?.id===id)this.fail('runtime');});
+    this.child.send({id,model,tokenizer:tokenizerForModel(model),dtype:this.dtype,cacheDir:this.cacheDir,messages,maxNew:Math.max(1,Math.min(12,Number(maxNew)||8))},error=>{if(error&&this.pending?.id===id)this.fail('runtime');});
    }catch{this.fail('runtime');}
   });
  }
  startTest(model=this.model){
   if(this.testPromise||this.pending||this.queue.length)return {accepted:false,status:this.status()};
   this.state.test_running=true;this.state.test_result=null;
-  const results=[];
+  const results=[],testStarted=this.clock();
   this.testPromise=(async()=>{
    for(const sample of tinyTestCases){
-    const record={language:sample.language,model_loaded:false,inference_ok:false,json_extracted:false,json_parsed:false,schema_valid:false};results.push(record);
-    try{clearTimeout(this.idleTimer);const promise=this.execute(sample.messages,48,model,tinyTestSchema);if(this.pending){record.model_loaded=this.state.loaded;this.pending.testCase=record;}await promise;}
-    catch(error){record.error=error.safe||this.error('failed').safe;}
-    this.state.test_result={ok:results.length===2&&results.every(r=>r.schema_valid),schema_valid:results.length===2&&results.every(r=>r.schema_valid),cases:results,error:results.find(r=>r.error)?.error};
-    if(this.state.failed||!this.enabled)break;
+    const group={language:sample.language,decisions:[]};results.push(group);
+    for(const workload of ['intent','task','needs_reply']){
+     const record={workload,expected:workload==='intent'?'support':'yes',model_loaded:false,inference_ok:false,schema_valid:false,label:null,matched:false};group.decisions.push(record);
+     try{clearTimeout(this.idleTimer);const promise=this.execute(labelMessages(workload,sample.input),8,model,labelSchema(workload));if(this.pending){record.model_loaded=this.state.loaded;this.pending.testCase=record;}await promise;record.matched=record.label===record.expected;}
+     catch(error){record.error=error.safe||this.error('failed').safe;}
+     this.state.test_result={ok:results.length===2&&results.every(g=>g.decisions.length===3&&g.decisions.every(r=>r.matched)),cases:results,total_duration_ms:Math.max(0,this.clock()-testStarted),error:results.flatMap(g=>g.decisions).find(r=>r.error)?.error};
+     if(this.state.failed||!this.enabled)return;
+    }
    }
   })().finally(()=>{this.state.test_running=false;this.testPromise=null;this.drain();});
   return {accepted:true,status:this.status()};

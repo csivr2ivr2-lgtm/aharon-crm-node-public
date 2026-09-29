@@ -1,16 +1,32 @@
 import {z} from 'zod';
 export const TINY_WORKLOADS=['classify','spam','intent','extraction','suggestions'];
 export const tinyTestSchema=z.object({intent:z.enum(['support','sales','follow_up','other']),needs_reply:z.boolean(),has_task:z.boolean()}).strict();
-const instruction='Return only valid JSON matching exactly this schema:\n{"intent":"support|sales|follow_up|other","needs_reply":true,"has_task":true}';
-export const tinyTestCases=[
- {language:'en',messages:[{role:'system',content:instruction},{role:'user',content:'Hello, please call me tomorrow about the new website'}]},
- {language:'he',messages:[{role:'system',content:instruction},{role:'user',content:'שלום, אשמח שתתקשר אלי מחר לגבי האתר החדש'}]}
-];
-export const tinyTestMessages=tinyTestCases[1].messages;
+export const LABELS={intent:['support','sales','follow_up','other'],task:['yes','no'],needs_reply:['yes','no'],classify:['normal','spam','suspicious','automated','marketing','system','unknown'],spam:['yes','no']};
+const instructions={intent:'Classify the message.',task:'Does this message contain a task or requested action?',needs_reply:'Does this message require a reply?',classify:'Classify the inbound message.',spam:'Is this message spam?'};
+export function parseLabel(text,workload){
+ if(typeof text!=='string'||text.length>500||!Object.hasOwn(LABELS,workload))throw Error('invalid_output');
+ let label=text.trim();const fence=label.match(/^```(?:[a-z]+[ \t]*\n)?([\s\S]*?)```$/i);if(fence)label=fence[1].trim();
+ label=label.replace(/[.!?,;:]+$/,'').trim();
+ if(!LABELS[workload].includes(label))throw Error('invalid_output');return label;
+}
+export function labelSchema(workload){
+ if(!Object.hasOwn(LABELS,workload))throw Error('invalid_tiny_workload');
+ return {tinyLabel:workload,safeParse(text){try{return {success:true,data:parseLabel(text,workload)};}catch{return {success:false};}}};
+}
+export function labelMessages(workload,input){
+ if(!Object.hasOwn(LABELS,workload))throw Error('invalid_tiny_workload');
+ return [{role:'system',content:instructions[workload]+'\nReply with exactly one word:\n'+LABELS[workload].join('\n')},{role:'user',content:String(input).slice(0,1200)}];
+}
+export const tinyTestCases=[{language:'en',input:'Hello, please call me tomorrow for help with my website'},{language:'he',input:'שלום, אשמח שתתקשר אלי מחר כדי לעזור לי עם האתר'}];
+export const tinyTestMessages=labelMessages('intent',tinyTestCases[1].input);
 export function alpacaPrompt(messages){
  const instruction=messages.filter(m=>m.role==='system').map(m=>m.content).join('\n').slice(0,800);
- const input=messages.filter(m=>m.role==='user').map(m=>m.content).join('\n').slice(0,3200);
- return 'Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\n'+instruction+'\n\nDo not add explanations, markdown or code fences.\n\n### Input:\n'+input+'\n\n### Response:\n';
+ const input=messages.filter(m=>m.role==='user').map(m=>m.content).join('\n').slice(0,1200);
+ return '### Instruction:\n'+instruction+'\n\n### Input:\n'+input+'\n\n### Response:\n';
+}
+export function localContract(text,schema){
+ if(!schema?.tinyLabel)return {schema_valid:false,label:null};
+ const parsed=schema.safeParse(text);return {schema_valid:parsed.success,label:parsed.success?parsed.data:null};
 }
 // Formatting only: never repair syntax, values, missing fields or extra keys.
 export function structuredResult(text,schema){

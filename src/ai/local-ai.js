@@ -9,7 +9,7 @@ const runtime=new LocalRuntime({enabled:config.localAiEnabled,model:resolveLocal
 export function aiStatus(settings={}){const selected=resolveLocalModel(settings,config);const safe=value=>validModel(value)?value:"[invalid model identifier]";return {...runtime.status(),model:safe(selected.model),tokenizer_source:safe(selected.tokenizer),fallback_configured:Boolean(config.aiBaseUrl&&config.aiApiToken)};}
 export const localDiagnostics={startTest:model=>{const result=runtime.startTest(model);return {...result,status:aiStatus({localModel:model})};}};
 export const closeLocalAi=()=>runtime.close();
-export const generateLocal=(messages,maxNew=config.localAiMaxNewTokens,model=resolveLocalModel({},config).model,schema)=>{if(!schema?.safeParse)return Promise.reject(Error('invalid_tiny_workload'));return runtime.generate(messages,maxNew,model,schema);};
+export const generateLocal=(messages,maxNew=config.localAiMaxNewTokens,model=resolveLocalModel({},config).model,schema)=>{if(!schema?.tinyLabel)return Promise.reject(Error('invalid_tiny_workload'));return runtime.generate(messages,maxNew,model,schema);};
 export async function generateWithFallback(messages){const settings=await getSettings();return generate(messages,{settings:settings.ai});}
 export async function draftReply({conversationId,instruction="",tone="אנושי, מקצועי וקצר"}){
  const settings=await getSettings();

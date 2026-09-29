@@ -12,7 +12,7 @@ export async function loadTinyModel({model,tokenizer,dtype,cacheDir},{loadTransf
   return {async generate(messages,maxNew){
    const prompt=alpacaPrompt(messages);
    const inputs=encoder(prompt,{truncation:true,max_length:768,padding:false});
-   const output=await network.generate({...inputs,max_new_tokens:maxNew,do_sample:false,repetition_penalty:1.05});
+   const output=await network.generate({...inputs,max_new_tokens:Math.max(1,Math.min(12,Number(maxNew)||8)),do_sample:false,repetition_penalty:1.05});
    // Decode generated tokens only. Never include prompt/schema examples in the result.
    const tokens=output.tolist()[0].slice(inputs.input_ids.dims.at(-1));
    return tokens.length?encoder.decode(tokens,{skip_special_tokens:true}).trim():'';

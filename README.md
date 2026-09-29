@@ -130,11 +130,11 @@ npm start
 
 ## Tiny Local AI ואבחון
 
-ברירת המחדל היא `onnx-community/Supra-50M-Instruct-ONNX`, בכימות `q4`, עד 48 טוקנים חדשים ועד 4000 תווי קלט. שם המודל המקומי ושם מודל הכתיבה החיצוני נפרדים בהגדרות (`ai.localModel`, `ai.externalModel`, `ai.generativeProvider`). הגדרות מהגרסה הקודמת נטענות באמצעות מיזוג תואם לאחור, בלי למחוק נתונים; הערכים הישנים Qwen2.5-0.5B ו־SmolLM2-135M-Instruct-ONNX-MHA מומרים ל־Supra, כולל בשדה localModel שכבר נשמר. בהפעלה מבוצע עדכון ממוקד במסד עם רישום ביקורת; מודל מותאם אישית אחר אינו משתנה. הגדרת המודל במסד קודמת לסביבה; הסביבה משמשת ברירת מחדל רק כשאין בחירה שמורה. גם שני ערכי הסביבה הישנים מנורמלים ל־Supra. משתני סביבה קיימים בשרת אינם נכתבים מחדש בפריסה: יש לעדכן ב־Hostinger את `LOCAL_AI_MODEL`, `LOCAL_AI_MAX_NEW_TOKENS=48` ו־`LOCAL_AI_MAX_CONTEXT_CHARS=4000` אם נקבעו קודם ערכים אחרים.
+ברירת המחדל היא `onnx-community/Supra-50M-Instruct-ONNX`, בכימות `q4`, 8 טוקנים חדשים (תקרה קשיחה של 12) ועד 4000 תווי קלט. שם המודל המקומי ושם מודל הכתיבה החיצוני נפרדים בהגדרות (`ai.localModel`, `ai.externalModel`, `ai.generativeProvider`). הגדרות מהגרסה הקודמת נטענות באמצעות מיזוג תואם לאחור, בלי למחוק נתונים; הערכים הישנים Qwen2.5-0.5B ו־SmolLM2-135M-Instruct-ONNX-MHA מומרים ל־Supra, כולל בשדה localModel שכבר נשמר. בהפעלה מבוצע עדכון ממוקד במסד עם רישום ביקורת; מודל מותאם אישית אחר אינו משתנה. הגדרת המודל במסד קודמת לסביבה; הסביבה משמשת ברירת מחדל רק כשאין בחירה שמורה. גם שני ערכי הסביבה הישנים מנורמלים ל־Supra. משתני סביבה קיימים בשרת אינם נכתבים מחדש בפריסה: יש לעדכן ב־Hostinger את `LOCAL_AI_MODEL`, `LOCAL_AI_MAX_NEW_TOKENS=8` ו־`LOCAL_AI_MAX_CONTEXT_CHARS=4000` אם נקבעו קודם ערכים אחרים.
 
-הניתוב מפורש: `generateStructured` מאפשר רק classify/spam/intent/extraction/suggestions, עם הוראה קצרה והודעה בודדת, ומחייב JSON שעובר סכימה. `generateText` מיועד לצ׳אט, טיוטות, ניתוח משימות, תכנון כלים וניסוח נהלים ומשתמש רק בספק חיצוני, גם אם הגדרה ישנה ביקשה ספק מקומי. בהיעדר ספק חיצוני מוצג `external_ai_required`. עיבוד הודעה ממשיך לשמור סיווג והצעות ללא טיוטה; הוא אינו מנסה שוב ושוב לכתוב באמצעות Tiny.
+הניתוב מפורש: `generateLabel` שולח למודל המקומי החלטה אחת מתוך רשימה סגורה. `generateStructured` מרכיב את תוצאות הסיווג בקוד; חילוץ חופשי והצעות מרובות שדות מופנים לספק חיצוני בלבד. `generateText` מיועד לצ׳אט, טיוטות, ניתוח משימות, תכנון כלים וניסוח נהלים ומשתמש רק בספק חיצוני, גם אם הגדרה ישנה ביקשה ספק מקומי. בהיעדר ספק חיצוני מוצג `external_ai_required`. עיבוד הודעה ממשיך לשמור סיווג והצעות ללא טיוטה; הוא אינו מנסה שוב ושוב לכתוב באמצעות Tiny.
 
-כללים קודמים ל־AI: משוב שולח, ספאם מוכר, הסרה מרשימה, הודעות מסירה ושולחי no-reply אינם דורשים טעינה. חילוץ אימייל/טלפון/DID והצעות לפי כללים נשארים דטרמיניסטיים. הצעות AI דורשות מקור ואישור; אין למודל המקומי כלים או הרשאת שליחה. כשל או JSON פגום עוברים לספק חיצוני רק אם הוא מוגדר ומותר; אחרת נשמרת תוצאת הכללים. אין הבטחה שמודל 50M יבין עברית או יפיק JSON תקין בכל הודעה.
+כללים קודמים ל־AI: משוב שולח, ספאם מוכר, הסרה מרשימה, הודעות מסירה ושולחי no-reply אינם דורשים טעינה. חילוץ אימייל/טלפון/DID והצעות לפי כללים נשארים דטרמיניסטיים. הצעות AI דורשות מקור ואישור; אין למודל המקומי כלים או הרשאת שליחה. כשל או תשובה שאינה ברשימה המותרת עוברים לספק חיצוני רק אם הוא מוגדר ומותר; אחרת נשמרת תוצאת הכללים. אין הבטחה שמודל 50M יבין עברית או יסווג כל הודעה נכון.
 
 המודל נטען רק בעת משימה מובנית או בדיקה יזומה. פתיחת UI, כניסה, בדיקת חיות והפעלת השרת אינן טוענות מודל. ההרצה בתהליך נפרד, במעבד בלבד, עם חוט עיבוד ONNX אחד ו־256MB כגבול זיכרון JavaScript. מגבלה זו אינה מגבילה זיכרון ONNX טבעי. הקלט מוגבל בנוסף ל־768 טוקנים לפני יצירה כדי להשאיר מקום לפלט בתוך חלון המודל. לא מותקנים רכיבי CUDA.
 
@@ -142,13 +142,13 @@ npm start
 
 - `LOCAL_AI_TIMEOUT_MS=180000`: מגבלת טעינה ויצירת פלט לבקשה; חריגה עוצרת את התהליך.
 - `LOCAL_AI_IDLE_MS=45000`: שחרור תהליך המודל אחרי 45 שניות ללא עבודה, תוך שימור האבחון האחרון.
-- `LOCAL_AI_COOLDOWN_MS=60000`: המתנה של דקה לאחר כשל, לרבות פלט פגום, כדי למנוע לולאת טעינות.
+- `LOCAL_AI_COOLDOWN_MS=60000`: המתנה של דקה לאחר כשל תשתית בלבד, ללא כשל בפלט, כדי למנוע לולאת טעינות.
 - בקשה מקומית אחת רצה בכל רגע, ועד שתי בקשות ממתינות בתור מוגבל בזמן. כשל מבטל את הממתינות; תור מלא מחזיר מצב עומס.
 - `HF_HOME`: נתיב מטמון קבוע מחוץ לתיקיית גרסת הפריסה. יש להגדירו לתיקייה פרטית הנשמרת בין פריסות; כברירת מחדל המטמון תחת `DATA_DIR/huggingface`. עצירת התהליך אינה מוחקת את המטמון.
 
 מסך AI מציג את המודל שנוסה בפועל, idle/loading/loaded/failed, שגיאה מסוננת, זמן טעינה וזמן יצירת פלט, זיכרון תהליך ה־CRM והמודל לפני ואחרי, ושיא זיכרון תהליך המודל (ב־Linux). הנתונים נשמרים עד אתחול ה־CRM; מדידת סוף עלולה להיות חסרה לאחר קריסה. נתיבי מטמון, שגיאות גולמיות ופרטי התחברות אינם נחשפים.
 
-כפתור **Test Local AI** מפעיל `POST /api/ai/test` מאומת ומחזיר 202 מיד; הממשק מרענן `GET /api/ai/status`. נבדק סיווג הודעה קבועה בעברית עם `intent`, `needs_reply`, `has_task`. הצלחה מחייבת טעינה, סיום יצירה, JSON תקין ואימות הסכימה. אין שימוש בנתוני לקוחות או בגיבוי חיצוני בבדיקה זו. הבדיקה אינה הוכחה לאיכות סמנטית בעברית.
+כפתור **Test Local AI** מפעיל `POST /api/ai/test` מאומת ומחזיר 202 מיד; הממשק מרענן `GET /api/ai/status`. נבדקות הודעות קבועות באנגלית ובעברית. לכל שפה שלוש קריאות נפרדות: `intent`, `task`, `needs_reply`. הצלחה מחייבת תשובות `support`, `yes`, `yes` בהתאמה. אין שימוש בנתוני לקוחות או בגיבוי חיצוני בבדיקה זו. הבדיקה אינה הוכחה לאיכות סמנטית בעברית.
 
 ב־Hostinger יש לבדוק בפועל טעינה ראשונה מהמטמון/מהרשת, איכות הסיווג בעברית, שיא זיכרון במכסת האירוח, שחרור לאחר idle והמשך זמינות CRM בזמן כשל. בידוד תהליך אינו מונע מספק האירוח להרוג שירות שלם אם המכסה הכוללת נחצתה.
 
@@ -156,23 +156,27 @@ npm start
 
 בתהליך ה־AI בלבד, `AutoTokenizer.from_pretrained` טוען מ־`SupraLabs/Supra-50M-Instruct`, ו־`AutoModelForCausalLM.from_pretrained` טוען מ־`onnx-community/Supra-50M-Instruct-ONNX` עם `dtype=q4`. שני הרכיבים משתמשים במטמון הקבוע תחת `HF_HOME`. למודל מותאם אישית אחר, הטוקנייזר נטען מאותו מאגר של המודל. לא נטענות משקולות מהמאגר המקורי.
 
-נשלחת הנחיית טקסט קצרה עם Task/Message/JSON, ללא תלות בתבנית צ׳אט. רק הטוקנים החדשים מפוענחים ומועברים לאימות JSON וסכימה. המסך מציג בנפרד מודל מוגדר, מקור טוקנייזר, מודל וטוקנייזר שנוסו, וכימות. מסך המצב, כפתור הבדיקה וסיווג הרקע משתמשים באותה בחירה אפקטיבית.
+נשלחת הנחיית Alpaca קצרה עם Instruction/Input/Response. כל קריאה מבקשת החלטה אחת בלבד מתוך רשימת תשובות סגורה. רק הטוקנים החדשים מפוענחים ומאומתים מול הרשימה. המסך מציג בנפרד מודל מוגדר, מקור טוקנייזר, מודל וטוקנייזר שנוסו, וכימות. מסך המצב, כפתור הבדיקה וסיווג הרקע משתמשים באותה בחירה אפקטיבית.
 
 שגיאות חסרים מסוננות: `tokenizer_file_missing` לקובץ טוקנייזר, `model_file_missing` לקובץ תצורה/מודל, `quantization_missing` למשקלי הכימות המבוקש, ו־`hub_404` כשאין מידע שמאפשר זיהוי קובץ. האבחון כולל שלב טעינה בלי להציג כתובות הורדה, נתיבים או סודות. אחרי פריסה יש להפעיל Test Local AI ולוודא ששני המקורות נכונים, שהסכימה עברה ושזמן יצירת הפלט ושיא הזיכרון מוצגים; לאחר 45 שניות ללא עבודה התהליך אמור להשתחרר.
 
-### Tiny structured output diagnostics
+### Tiny single-label decisions
 
-All local workloads use a shared short Alpaca `Instruction / Input / Response` prompt,
-with greedy generation (`do_sample=false`). Supra q4 and the separate SupraLabs tokenizer
-are unchanged. Formatting normalization permits whitespace, a complete Markdown JSON
-fence, or up to 120 characters of surrounding text around one balanced JSON object.
-JSON syntax and the strict Zod contract must still pass; fields and values are never repaired.
-Provider results expose canonical JSON so downstream consumers do not reparse formatting noise.
+Supra q4 and the separate SupraLabs tokenizer are unchanged. Local generation uses a short
+Alpaca prompt for exactly one label per call, greedy decoding, 8 output tokens by default and
+a hard maximum of 12 even if an older environment setting still says 48. English labels are
+used for both languages. Parsing permits whitespace, a complete code fence and simple trailing
+punctuation only, then requires an exact case-sensitive enum match. No JSON is requested locally.
 
-Test Local AI runs fixed English and Hebrew inputs sequentially. Each result reports model
-load, non-empty inference, JSON extraction, parsing, schema validity, inference time and peak
-RSS. Only these fixed tests retain up to 500 characters of raw output; customer outputs never
-enter diagnostics. Schema failures keep the engine loaded, do not trigger load cooldown,
-and still allow external fallback. Infrastructure failures retain timeout/isolation/cooldown;
-idle shutdown still releases the worker. A passing mocked test does not verify Hebrew quality:
-run both fixed tests on Hostinger after deploying and inspect their separate contract results.
+Intent, task and needs_reply use separate calls. CRM code assembles their values. Classification
+uses one category label; its 0.75 confidence is a conservative application policy, not a measured
+model probability. Free multi-field extraction/suggestions and generative tasks use external AI.
+Email, phone, DID candidates and URLs use deterministic extraction; DID ownership is still verified
+against CRM records. Existing feedback and spam rules skip inference where conclusive.
+
+Test Local AI runs three decisions per language on the same worker, showing each label, expected
+match, inference time, fixed-test raw output (500 characters maximum), total duration and peak RSS.
+Invalid labels or wrong answers do not fail the engine or trigger load cooldown. Infrastructure
+failure still stops the worker with cooldown; idle shutdown releases memory after 45 seconds.
+Customer responses never enter diagnostics. Hostinger must verify actual English/Hebrew accuracy;
+unit tests verify the contract and lifecycle, not model language quality.
