@@ -159,3 +159,20 @@ npm start
 נשלחת הנחיית טקסט קצרה עם Task/Message/JSON, ללא תלות בתבנית צ׳אט. רק הטוקנים החדשים מפוענחים ומועברים לאימות JSON וסכימה. המסך מציג בנפרד מודל מוגדר, מקור טוקנייזר, מודל וטוקנייזר שנוסו, וכימות. מסך המצב, כפתור הבדיקה וסיווג הרקע משתמשים באותה בחירה אפקטיבית.
 
 שגיאות חסרים מסוננות: `tokenizer_file_missing` לקובץ טוקנייזר, `model_file_missing` לקובץ תצורה/מודל, `quantization_missing` למשקלי הכימות המבוקש, ו־`hub_404` כשאין מידע שמאפשר זיהוי קובץ. האבחון כולל שלב טעינה בלי להציג כתובות הורדה, נתיבים או סודות. אחרי פריסה יש להפעיל Test Local AI ולוודא ששני המקורות נכונים, שהסכימה עברה ושזמן יצירת הפלט ושיא הזיכרון מוצגים; לאחר 45 שניות ללא עבודה התהליך אמור להשתחרר.
+
+### Tiny structured output diagnostics
+
+All local workloads use a shared short Alpaca `Instruction / Input / Response` prompt,
+with greedy generation (`do_sample=false`). Supra q4 and the separate SupraLabs tokenizer
+are unchanged. Formatting normalization permits whitespace, a complete Markdown JSON
+fence, or up to 120 characters of surrounding text around one balanced JSON object.
+JSON syntax and the strict Zod contract must still pass; fields and values are never repaired.
+Provider results expose canonical JSON so downstream consumers do not reparse formatting noise.
+
+Test Local AI runs fixed English and Hebrew inputs sequentially. Each result reports model
+load, non-empty inference, JSON extraction, parsing, schema validity, inference time and peak
+RSS. Only these fixed tests retain up to 500 characters of raw output; customer outputs never
+enter diagnostics. Schema failures keep the engine loaded, do not trigger load cooldown,
+and still allow external fallback. Infrastructure failures retain timeout/isolation/cooldown;
+idle shutdown still releases the worker. A passing mocked test does not verify Hebrew quality:
+run both fixed tests on Hostinger after deploying and inspect their separate contract results.

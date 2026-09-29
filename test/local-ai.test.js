@@ -30,8 +30,8 @@ test('hung inference times out after successful load',async()=>{
  const f=fixture({timeoutMs:20}),p=f.runtime.generate([]);f.emit('loaded');await assert.rejects(p,/timeout/);assert.equal(f.runtime.status().error.phase,'inference');
 });
 test('concurrent requests fail promptly without spawning extra models; test coalesces',async()=>{
- const f=fixture();assert.equal(f.runtime.startTest().accepted,true);assert.equal(f.runtime.startTest().accepted,false);await assert.rejects(f.runtime.generate([]),/queue_full/);assert.equal(f.children.length,1);
- const finished=f.runtime.testPromise;f.emit('loaded');f.emit('result',{text:JSON.stringify({intent:'support',needs_reply:true,has_task:true})});await finished;assert.deepEqual(f.runtime.status().test_result,{ok:true,schema_valid:true});assert.equal(f.runtime.status().test_running,false);f.runtime.close();
+ const f=fixture();assert.equal(f.runtime.startTest().accepted,true);assert.equal(f.runtime.startTest().accepted,false);await assert.rejects(f.runtime.generate([]),/busy/);assert.equal(f.children.length,1);
+ const finished=f.runtime.testPromise;f.emit('loaded');f.emit('result',{text:JSON.stringify({intent:'support',needs_reply:true,has_task:true})});await new Promise(setImmediate);f.emit('result',{text:JSON.stringify({intent:'support',needs_reply:true,has_task:true})});await finished;assert.equal(f.runtime.status().test_result.ok,true);assert.equal(f.runtime.status().test_running,false);f.runtime.close();
 });
 test('crash and spawn failure are contained and sanitized',async()=>{
  const f=fixture(),p=f.runtime.generate([]);f.children[0].emit('exit',1);await assert.rejects(p,/local_ai_exit/);
@@ -67,20 +67,46 @@ test('idle shutdown releases process, preserves diagnostics and lazily reloads',
 });
 test('Test Local AI uses classification and rejects plain text or wrong JSON schema',async()=>{
  for(const text of ['שלום','{"intent":"support"}']){
-  const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;assert.match(f.children[0].request.messages[0].content,/JSON/);assert.match(f.children[0].request.messages[1].content,/האתר החדש/);
-  f.emit('loaded');f.emit('result',{text});await done;assert.equal(f.runtime.status().test_result.ok,false);assert.equal(f.runtime.status().error.code,'invalid_output');assert.equal(f.runtime.status().failed,true);
+  const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;assert.match(f.children[0].request.messages[0].content,/JSON/);assert.match(f.children[0].request.messages[1].content,/new website/);
+  f.emit('loaded');f.emit('result',{text});await new Promise(setImmediate);assert.match(f.children[0].request.messages[1].content,/האתר החדש/);f.emit('result',{text});await done;assert.equal(f.runtime.status().test_result.ok,false);assert.equal(f.runtime.status().output_error.code,'invalid_output');assert.equal(f.runtime.status().failed,false);f.runtime.close();
  }
 });
 
 test('invalid structured output retains inference timing and memory diagnostics',async()=>{
- const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('loaded');f.emit('result',{text:'not json',inference_ms:25,memory:{rss:256},peak_rss:512});await done;
- assert.equal(f.runtime.status().inference_duration_ms,25);assert.equal(f.runtime.status().worker_memory_inference_after.rss,256);assert.equal(f.runtime.status().worker_memory_peak,512);assert.equal(f.runtime.status().test_result.ok,false);
+ const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('loaded');f.emit('result',{text:'not json',inference_ms:25,memory:{rss:256},peak_rss:512});await new Promise(setImmediate);f.emit('result',{text:'not json',inference_ms:25,memory:{rss:256},peak_rss:512});await done;
+ assert.equal(f.runtime.status().inference_duration_ms,25);assert.equal(f.runtime.status().worker_memory_inference_after.rss,256);assert.equal(f.runtime.status().worker_memory_peak,512);assert.equal(f.runtime.status().test_result.ok,false);f.runtime.close();
 });
 test('valid JSON cannot pass Test Local AI before a successful model load',async()=>{
- const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('result',{text:JSON.stringify({intent:'support',has_task:true,needs_reply:true})});await done;assert.equal(f.runtime.status().test_result.ok,false);
+ const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('result',{text:JSON.stringify({intent:'support',has_task:true,needs_reply:true})});await done;assert.equal(f.runtime.status().test_result.ok,false);f.runtime.close();
 });
 
 for(const code of ['tokenizer_file_missing','model_file_missing','quantization_missing','hub_404'])test(code+' stays isolated, records both attempted repositories and enables cooldown',async()=>{
  const model='onnx-community/Supra-50M-Instruct-ONNX',f=fixture({model,cooldownMs:200}),p=f.runtime.generate([]);
  assert.equal(f.children[0].request.tokenizer,'SupraLabs/Supra-50M-Instruct');f.emit('failure',{code,phase:'model'});await assert.rejects(p,new RegExp(code));assert.equal(f.runtime.status().attempted_model,model);assert.equal(f.runtime.status().attempted_tokenizer,'SupraLabs/Supra-50M-Instruct');assert.equal(f.runtime.status().error.code,code);assert.equal(f.children[0].killed,true);await assert.rejects(f.runtime.generate([]),/cooldown/);assert.equal(await new Promise(resolve=>setImmediate(()=>resolve('alive'))),'alive');
+});
+
+test('schema failure keeps engine loaded, drains queue without cooldown, and never retains customer output',async()=>{
+ const {tinyTestSchema}=await import('../src/ai/tiny-contract.js');
+ const f=fixture({cooldownMs:60000,queueLimit:1,idleMs:10});
+ const p=f.runtime.generate([],48,'org/model',tinyTestSchema),next=f.runtime.generate([],48,'org/model',tinyTestSchema);
+ const rejected=assert.rejects(p,/invalid_output/);f.emit('loaded');f.emit('result',{text:'PRIVATE CUSTOMER OUTPUT'});await rejected;
+ assert.equal(f.runtime.status().state,'loaded');assert.equal(f.runtime.status().inference_status,'succeeded');assert.equal(f.runtime.status().cooldown_remaining_ms,0);assert.equal(f.runtime.status().error,null);
+ assert.ok(!JSON.stringify(f.runtime.status()).includes('PRIVATE CUSTOMER'));await new Promise(setImmediate);
+ f.emit('result',{text:'{"intent":"support","needs_reply":true,"has_task":true}'});await next;assert.equal(f.children.length,1);
+ await new Promise(r=>setTimeout(r,30));assert.equal(f.runtime.status().state,'idle');
+});
+test('fixed bilingual test retains bounded raw output and per-language engine/contract results',async()=>{
+ const f=fixture({cooldownMs:60000});f.runtime.startTest();const done=f.runtime.testPromise;
+ f.emit('loaded');f.emit('result',{text:'{"intent":"support","needs_reply":true,"has_task":true}',inference_ms:600,peak_rss:123});
+ await new Promise(setImmediate);f.emit('result',{text:'x'.repeat(700),inference_ms:700,peak_rss:234});await done;
+ const s=f.runtime.status();assert.deepEqual(s.test_result.cases.map(c=>c.language),['en','he']);assert.equal(s.test_result.cases[0].schema_valid,true);assert.equal(s.test_result.cases[1].schema_valid,false);assert.equal(s.test_result.cases[1].inference_ok,true);assert.equal(s.test_result.cases[1].raw_output.length,500);assert.equal(s.state,'loaded');assert.equal(s.cooldown_remaining_ms,0);f.runtime.close();
+});
+test('empty completed inference is an output failure without load cooldown',async()=>{
+ const f=fixture({cooldownMs:60000});const p=f.runtime.generate([]);f.emit('loaded');f.emit('result',{text:''});await assert.rejects(p,/empty/);
+ assert.equal(f.runtime.status().state,'loaded');assert.equal(f.runtime.status().cooldown_remaining_ms,0);f.runtime.close();
+});
+test('later customer response cannot overwrite fixed test raw diagnostics',async()=>{
+ const f=fixture();f.runtime.startTest();const done=f.runtime.testPromise;f.emit('loaded');f.emit('result',{text:'fixed en'});await new Promise(setImmediate);f.emit('result',{text:'fixed he'});await done;
+ const p=f.runtime.generate([]);f.emit('result',{text:'PRIVATE_CUSTOMER_VALUE'});await p;
+ assert.ok(!JSON.stringify(f.runtime.status()).includes('PRIVATE_CUSTOMER_VALUE'));assert.equal(f.runtime.status().test_result.cases[1].raw_output,'fixed he');f.runtime.close();
 });

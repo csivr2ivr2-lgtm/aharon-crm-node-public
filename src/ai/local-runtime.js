@@ -1,6 +1,6 @@
 import {fork} from 'node:child_process';
 import {tokenizerForModel} from './local-model.js';
-import {parseStructured,tinyTestMessages,tinyTestSchema} from './tiny-contract.js';
+import {structuredResult,tinyTestCases,tinyTestSchema} from './tiny-contract.js';
 
 export const localErrors=Object.freeze({
  cooldown:'המודל מושהה זמנית לאחר כשל. אפשר לנסות מאוחר יותר.',invalid_output:'המודל החזיר פלט שאינו JSON תקין לפי המבנה הנדרש.',queue_full:'תור המודל מלא. נסה שוב מאוחר יותר.',queue_timeout:'ההמתנה בתור המודל הסתיימה.',
@@ -33,7 +33,7 @@ export function memorySnapshot(value=process.memoryUsage()){
 export class LocalRuntime{
  constructor({enabled=true,model,dtype='q4',cacheDir,timeoutMs=180000,idleMs=45000,cooldownMs=60000,queueLimit=2,maxContextChars=4000,spawn=fork,clock=()=>Date.now(),memory=memorySnapshot}={}){
   Object.assign(this,{enabled,model,dtype,cacheDir,timeoutMs,idleMs,cooldownMs,queueLimit,maxContextChars,spawn,clock,memory});this.child=null;this.pending=null;this.sequence=0;this.testPromise=null;this.queue=[];this.idleTimer=null;this.cooldownUntil=0;
-  this.state={inference_duration_ms:null,worker_memory_peak:null,worker_memory_inference_after:null,state:'idle',loaded:false,loading:false,failed:false,attempted_model:null,attempted_tokenizer:null,error:null,started_at:null,finished_at:null,load_duration_ms:null,memory_before:null,memory_after:null,worker_memory_before:null,worker_memory_after:null,test_running:false,test_result:null};
+  this.state={inference_status:'idle',structured_status:'idle',output_error:null,inference_duration_ms:null,worker_memory_peak:null,worker_memory_inference_after:null,state:'idle',loaded:false,loading:false,failed:false,attempted_model:null,attempted_tokenizer:null,error:null,started_at:null,finished_at:null,load_duration_ms:null,memory_before:null,memory_after:null,worker_memory_before:null,worker_memory_after:null,test_running:false,test_result:null};
  }
  status(){return {...structuredClone(this.state),queued:this.queue.length,cooldown_remaining_ms:Math.max(0,this.cooldownUntil-this.clock()),enabled:this.enabled,model:validModel(this.model)?this.model:'[invalid model identifier]',dtype:['q4','q8','fp32','fp16','int8','uint8','q4f16','bnb4'].includes(this.dtype)?this.dtype:'[invalid dtype]',load_duration_ms:this.state.loading?Math.max(0,this.clock()-this.started):this.state.load_duration_ms};}
  error(code,phase='load'){return Object.assign(Error('local_ai_'+code),{safe:{code,message:localErrors[code]||localErrors.failed,phase}});}
@@ -44,7 +44,7 @@ export class LocalRuntime{
   const child=this.child;this.child=null;if(child){child.removeAllListeners();child.on('error',()=>{});child.kill('SIGKILL');}
   if(this.state.loading){this.state.load_duration_ms=Math.max(0,this.clock()-this.started);this.state.finished_at=new Date(this.clock()).toISOString();this.state.memory_after=this.memory();}
   if(phase==='inference'&&this.inferenceStarted!=null&&this.state.inference_duration_ms==null)this.state.inference_duration_ms=Math.max(0,this.clock()-this.inferenceStarted);
-  Object.assign(this.state,{state:'failed',loaded:false,loading:false,failed:true,error:this.error(code,phase).safe});
+  Object.assign(this.state,{inference_status:'failed',state:'failed',loaded:false,loading:false,failed:true,error:this.error(code,phase).safe});
   pending?.reject(this.error(code,phase));
  }
  start(model){
@@ -62,14 +62,21 @@ export class LocalRuntime{
    if(message.type==='inference'){this.inferenceStarted=this.clock();return;}
    if(message.type==='loading'){this.state.worker_memory_before=memorySnapshot(message.memory);return;}
    if(message.type==='loaded'){
+    if(this.pending.testCase)this.pending.testCase.model_loaded=true;
     Object.assign(this.state,{state:'loaded',loaded:true,loading:false,failed:false,finished_at:new Date(this.clock()).toISOString(),load_duration_ms:Math.max(0,this.clock()-this.started),memory_after:this.memory(),worker_memory_after:memorySnapshot(message.memory)});return;
    }
    if(message.type==='failure'){if(this.state.loading&&message.memory)this.state.worker_memory_after=memorySnapshot(message.memory);this.fail(Object.hasOwn(localErrors,message.code)?message.code:'failed',this.state.loading?(['tokenizer','model'].includes(message.phase)?message.phase:'load'):'inference');return;}
    if(message.type==='result'){
-    if(!this.state.loaded){this.fail('invalid_output','load');return;}
-    try{if(this.pending.schema)parseStructured(message.text,this.pending.schema);}catch{this.fail('invalid_output','inference');return;}
-    if(typeof message.text!=='string'||!message.text.trim()){this.fail('empty','inference');return;}
-    const pending=this.pending;this.pending=null;clearTimeout(pending.timer);pending.resolve(message.text.slice(0,12000));setImmediate(()=>this.drain());
+    if(!this.state.loaded){this.fail('runtime','load');return;}
+    const pending=this.pending,nonempty=typeof message.text==='string'&&Boolean(message.text.trim());
+    const contract=pending.schema?structuredResult(message.text,pending.schema):null;
+    Object.assign(this.state,{inference_status:nonempty?'succeeded':'failed',structured_status:contract?(contract.schema_valid?'succeeded':'failed'):'idle',output_error:contract&&!contract.schema_valid?this.error('invalid_output','output').safe:null});
+    // Only startTest attaches this record, to its own fixed request. Customer text is never retained.
+    if(pending.testCase)Object.assign(pending.testCase,{model_loaded:true,inference_ok:nonempty,inference_ms:this.state.inference_duration_ms,peak_rss:this.state.worker_memory_peak,raw_output:typeof message.text==='string'?message.text.slice(0,500):'',json_extracted:contract?.json_extracted||false,json_parsed:contract?.json_parsed||false,schema_valid:contract?.schema_valid||false});
+    this.pending=null;clearTimeout(pending.timer);
+    if(!nonempty||contract&&!contract.schema_valid)pending.reject(this.error(nonempty?'invalid_output':'empty','output'));
+    else pending.resolve(message.text.slice(0,12000));
+    setImmediate(()=>this.drain());
    }
   });
  }
@@ -84,6 +91,7 @@ export class LocalRuntime{
   Object.assign(this.state,{state:'idle',loaded:false,loading:false,failed:false});
  }
  generate(messages,maxNew=48,model=this.model,schema){
+  if(this.testPromise)return Promise.reject(this.error('busy','inference'));
   if(this.clock()<this.cooldownUntil)return Promise.reject(this.error('cooldown'));
   if(!Array.isArray(messages)||messages.length>2||messages.some(m=>typeof m.content!=='string')||messages.reduce((n,m)=>n+m.content.length,0)>this.maxContextChars)return Promise.reject(this.error('invalid_output','input'));
   clearTimeout(this.idleTimer);
@@ -97,7 +105,7 @@ export class LocalRuntime{
   if(!this.enabled)return Promise.reject(this.error('disabled'));
   if(!validModel(model)){this.fail('invalid_model');this.state.attempted_model='[invalid model identifier]';return Promise.reject(this.error('invalid_model'));}
   return new Promise((resolve,reject)=>{
-   this.inferenceStarted=null;this.state.inference_duration_ms=null;this.state.worker_memory_inference_after=null;
+   this.inferenceStarted=null;Object.assign(this.state,{inference_status:'running',structured_status:'pending',output_error:null});this.state.inference_duration_ms=null;this.state.worker_memory_inference_after=null;
    const id=++this.sequence;this.pending={id,resolve,reject,schema,timer:setTimeout(()=>this.fail('timeout',this.state.loading?'load':'inference'),this.timeoutMs)};
    try{
     if(!this.child||this.state.attempted_model!==model)this.start(model);
@@ -106,9 +114,18 @@ export class LocalRuntime{
   });
  }
  startTest(model=this.model){
-  if(this.testPromise||this.pending)return {accepted:false,status:this.status()};
+  if(this.testPromise||this.pending||this.queue.length)return {accepted:false,status:this.status()};
   this.state.test_running=true;this.state.test_result=null;
-  this.testPromise=this.generate(tinyTestMessages,48,model,tinyTestSchema).then(()=>{this.state.test_result={ok:true,schema_valid:true};},error=>{this.state.test_result={ok:false,error:error.safe||this.error('failed').safe};}).finally(()=>{this.state.test_running=false;this.testPromise=null;});
+  const results=[];
+  this.testPromise=(async()=>{
+   for(const sample of tinyTestCases){
+    const record={language:sample.language,model_loaded:false,inference_ok:false,json_extracted:false,json_parsed:false,schema_valid:false};results.push(record);
+    try{clearTimeout(this.idleTimer);const promise=this.execute(sample.messages,48,model,tinyTestSchema);if(this.pending){record.model_loaded=this.state.loaded;this.pending.testCase=record;}await promise;}
+    catch(error){record.error=error.safe||this.error('failed').safe;}
+    this.state.test_result={ok:results.length===2&&results.every(r=>r.schema_valid),schema_valid:results.length===2&&results.every(r=>r.schema_valid),cases:results,error:results.find(r=>r.error)?.error};
+    if(this.state.failed||!this.enabled)break;
+   }
+  })().finally(()=>{this.state.test_running=false;this.testPromise=null;this.drain();});
   return {accepted:true,status:this.status()};
  }
  close(){clearTimeout(this.idleTimer);if(this.child||this.pending||this.queue.length)this.fail('closed','shutdown');}

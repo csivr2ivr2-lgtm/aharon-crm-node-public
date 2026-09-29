@@ -27,7 +27,7 @@ test('structured local routing validates schema and uses external fallback for i
  assert.deepEqual(calls,['local','external']);assert.equal(r.provider,'external');assert.equal(r.data.has_task,true);
 });
 test('malformed schema, extra tool fields and local failure never become suggestions',async()=>{
- for(const text of ['null','[]','{"intent":"support","needs_reply":"true","has_task":true}',output.slice(0,-1)+',"send_email":true}'])await assert.rejects(generateStructured(tinyTestMessages,{workload:'extraction',schema:tinyTestSchema,providers:{local:()=>text}}),/invalid_ai_schema/);
+ for(const text of ['null','[]','{"intent":"support","needs_reply":"true","has_task":true}',output.slice(0,-1)+',"send_email":true}'])await assert.rejects(generateStructured(tinyTestMessages,{workload:'extraction',schema:tinyTestSchema,providers:{local:()=>text}}),/invalid_ai_(schema|json)/);
  const r=await generateStructured(tinyTestMessages,{workload:'classify',schema:tinyTestSchema,providers:{local:()=>{throw Error('local_ai_runtime');},external:()=>output}});assert.equal(r.provider,'external');
  await assert.rejects(generateStructured(tinyTestMessages,{workload:'classify',schema:tinyTestSchema,providers:{local:()=>{throw Error('local_ai_runtime');}}}),/local_ai_runtime/);
 });

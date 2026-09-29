@@ -39,9 +39,7 @@ export async function generateStructured(messages,{settings={},workload,schema,p
    const {generateLocal}=await import('./local-ai.js');const model=resolveLocalModel(settings,config).model;
    result={text:await generateLocal(messages,config.localAiMaxNewTokens,model,schema),provider,model};
   }else result=await external(messages,{settings,fetcher});
-  try{return {...result,data:parseStructured(result.text,schema)};}catch(error){
-   if(provider==='local'&&!providers){const {recordLocalOutputFailure}=await import('./local-ai.js');recordLocalOutputFailure();}throw error;
-  }
+  const data=parseStructured(result.text,schema);return {...result,text:JSON.stringify(data),data};
  }catch(error){lastError=error;}}
  throw lastError||Error('tiny_ai_unavailable');
 }

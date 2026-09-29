@@ -17,7 +17,7 @@ test('Supra loads original tokenizer then ONNX q4 model and decodes only generat
  const f=loaders(),engine=await loadTinyModel({model:SUPRA_MODEL,tokenizer:SUPRA_TOKENIZER,dtype:'q4',cacheDir:'/private/cache'},f);
  assert.equal(f.calls[0].tokenizer,SUPRA_TOKENIZER);assert.equal(f.calls[1].model,SUPRA_MODEL);assert.equal(f.calls[1].options.dtype,'q4');assert.equal(f.calls[1].options.device,'cpu');assert.equal(f.env.cacheDir,'/private/cache');
  assert.equal(await engine.generate([{role:'system',content:'Classify. Return JSON.'},{role:'user',content:'שלום'}],48),output);
- assert.match(f.calls[2].prompt,/Task: Classify/);assert.match(f.calls[2].prompt,/Message:\nשלום\n\nJSON:/);assert.equal(f.calls[2].options.max_length,768);assert.equal(f.calls[3].generate.max_new_tokens,48);
+ assert.match(f.calls[2].prompt,/### Instruction:\nClassify/);assert.match(f.calls[2].prompt,/### Input:\nשלום\n\n### Response:/);assert.equal(f.calls[2].options.max_length,768);assert.equal(f.calls[3].generate.max_new_tokens,48);
 });
 for(const [stage,message,code] of [
  ['tokenizer','Could not locate file: https://example.test/private/tokenizer.json','tokenizer_file_missing'],

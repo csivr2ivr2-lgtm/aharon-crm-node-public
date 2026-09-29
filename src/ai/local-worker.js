@@ -14,6 +14,6 @@ process.on('message',async({id,model,tokenizer,dtype,cacheDir,messages,maxNew})=
   }
   started=performance.now();send({id,type:'inference'});
   const text=await generator.generate(messages,maxNew);
-  send(text?{id,type:'result',text,inference_ms:performance.now()-started,memory:memorySnapshot(),peak_rss:process.resourceUsage().maxRSS*1024}:{id,type:'failure',code:'empty'});
+  send({id,type:'result',text,inference_ms:performance.now()-started,memory:memorySnapshot(),peak_rss:process.resourceUsage().maxRSS*1024});
  }catch(error){send({id,type:'failure',code:Object.hasOwn(localErrors,error.safeCode)?error.safeCode:classifyLocalError(error),phase:error.stage,memory:memorySnapshot(),inference_ms:started===null?null:performance.now()-started,peak_rss:process.resourceUsage().maxRSS*1024});}
 });
