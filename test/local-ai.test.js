@@ -81,34 +81,36 @@ test('schema failure keeps engine loaded, drains queue without cooldown, and nev
  const rejected=assert.rejects(p,/invalid_output/);f.emit('loaded');f.emit('result',{text:'PRIVATE CUSTOMER OUTPUT'});await rejected;
  assert.equal(f.runtime.status().state,'loaded');assert.equal(f.runtime.status().inference_status,'succeeded');assert.equal(f.runtime.status().cooldown_remaining_ms,0);assert.equal(f.runtime.status().error,null);
  assert.ok(!JSON.stringify(f.runtime.status()).includes('PRIVATE CUSTOMER'));await new Promise(setImmediate);
- f.emit('result',{text:'support'});await next;assert.equal(f.children.length,1);
+ f.emit('result',{decision:{label:'support',score:-1,margin:1}});await next;assert.equal(f.children.length,1);
  await new Promise(r=>setTimeout(r,30));assert.equal(f.runtime.status().state,'idle');
 });
 
 test('empty completed inference is an output failure without load cooldown',async()=>{
- const f=fixture({cooldownMs:60000});const p=f.runtime.generate([]);f.emit('loaded');f.emit('result',{text:''});await assert.rejects(p,/empty/);
+ const f=fixture({cooldownMs:60000});const p=f.runtime.generate([]);f.emit('loaded');f.emit('result',{text:''});await assert.rejects(p,/invalid_output/);
  assert.equal(f.runtime.status().state,'loaded');assert.equal(f.runtime.status().cooldown_remaining_ms,0);f.runtime.close();
 });
 
 
-async function finishLabels(f,outputs=['support','yes','yes','support','yes','yes']){
- for(let i=0;i<6;i++){
-  const request=f.children[0].request;assert.equal(request.maxNew,8);assert.ok(!request.messages[0].content.includes('JSON'));
-  assert.match(request.messages[1].content,i<3?/website/:/האתר/);
+
+async function finishBenchmark(f,{partial=false}={}){
+ const {benchmarkCases}=await import('../src/ai/tiny-benchmark.js');let i=0;
+ for(const sample of benchmarkCases)for(const workload of ['intent','task','needs_reply','spam']){
+  const request=f.children[0].request;assert.equal(request.maxNew,undefined);assert.equal(request.workload,workload);assert.ok(!request.messages[0].content.includes('JSON'));
   if(i===0)f.emit('loaded');
-  f.emit('result',{text:outputs[i],inference_ms:20+i,memory:{rss:256},peak_rss:512});await new Promise(setImmediate);
+  f.emit('result',{decision:partial&&i===0?{label:'invented',score:-1,margin:1}:partial&&i===1?{label:'yes',score:-1,margin:0}:{label:sample.expected[workload],score:-1,margin:1},inference_ms:20,memory:{rss:256},peak_rss:512});await new Promise(setImmediate);i++;
  }
 }
-test('six bilingual decisions reuse one loaded worker, match expectations, and idle shutdown remains active',async()=>{
- const f=fixture({idleMs:10});assert.equal(f.runtime.startTest().accepted,true);assert.equal(f.runtime.startTest().accepted,false);await assert.rejects(f.runtime.generate([]),/busy/);const done=f.runtime.testPromise;
- await finishLabels(f);await done;const s=f.runtime.status();assert.equal(s.test_result.ok,true);assert.equal(f.children.length,1);assert.deepEqual(s.test_result.cases.map(g=>g.language),['en','he']);
- for(const group of s.test_result.cases){assert.deepEqual(group.decisions.map(d=>d.label),['support','yes','yes']);assert.ok(group.decisions.every(d=>d.matched&&d.model_loaded&&d.inference_ok));}
- assert.equal(typeof s.test_result.total_duration_ms,'number');await new Promise(r=>setTimeout(r,30));assert.equal(f.runtime.status().state,'idle');
+test('80 benchmark decisions reuse one loaded worker and release it after idle',async()=>{
+ const f=fixture({idleMs:10});f.runtime.startTest();const done=f.runtime.testPromise;await finishBenchmark(f);await done;
+ const s=f.runtime.status();assert.equal(s.test_result.ok,true);assert.equal(s.test_result.summary.overall.correct,80);assert.equal(s.test_result.summary.languages.he.total,40);assert.equal(f.children.length,1);
+ assert.ok(!JSON.stringify(s).includes('raw_output'));await new Promise(r=>setTimeout(r,30));assert.equal(f.runtime.status().state,'idle');
 });
-test('partial decision failures preserve engine, timing, raw test output and later customer privacy',async()=>{
- const f=fixture({cooldownMs:60000});f.runtime.startTest();const done=f.runtime.testPromise;await finishLabels(f,['bad label','yes','yes','x'.repeat(700),'yes','no']);await done;
- const s=f.runtime.status();assert.equal(s.state,'loaded');assert.equal(s.cooldown_remaining_ms,0);assert.equal(s.test_result.ok,false);
- assert.equal(s.test_result.cases[0].decisions[0].error.code,'invalid_output');assert.equal(s.test_result.cases[0].decisions[1].label,'yes');assert.equal(s.test_result.cases[1].decisions[0].raw_output.length,500);assert.equal(s.test_result.cases[1].decisions[2].schema_valid,true);assert.equal(s.test_result.cases[1].decisions[2].matched,false);
- assert.equal(s.inference_duration_ms,25);assert.equal(s.worker_memory_peak,512);
+test('partial scoring contract failures and uncertainty leave engine loaded without cooldown',async()=>{
+ const f=fixture({cooldownMs:60000});f.runtime.startTest();const done=f.runtime.testPromise;await finishBenchmark(f,{partial:true});await done;
+ const s=f.runtime.status();assert.equal(s.state,'loaded');assert.equal(s.cooldown_remaining_ms,0);assert.equal(s.test_result.summary.overall.uncertain,1);assert.equal(s.test_result.summary.overall.errors,1);assert.equal(s.test_result.summary.overall.correct,78);
  const p=f.runtime.generate([]);f.emit('result',{text:'PRIVATE_CUSTOMER_VALUE'});await p;assert.ok(!JSON.stringify(f.runtime.status()).includes('PRIVATE_CUSTOMER_VALUE'));f.runtime.close();
+});
+test('scoring runtime failure stays isolated and safe without a generation retry',async()=>{
+ const {labelSchema}=await import('../src/ai/tiny-contract.js');const f=fixture({cooldownMs:60000});const promise=f.runtime.generate([],999,'org/model',labelSchema('intent'));
+ f.emit('loaded');f.emit('failure',{code:'runtime',message:'/private/token=secret'});await assert.rejects(promise,/runtime/);assert.equal(f.children.length,1);assert.ok(!JSON.stringify(f.runtime.status()).includes('secret'));assert.equal(await new Promise(resolve=>setImmediate(()=>resolve('alive'))),'alive');
 });

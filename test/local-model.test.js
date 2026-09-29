@@ -16,8 +16,7 @@ function loaders(failure){
 test('Supra loads original tokenizer then ONNX q4 model and decodes only generated tokens',async()=>{
  const f=loaders(),engine=await loadTinyModel({model:SUPRA_MODEL,tokenizer:SUPRA_TOKENIZER,dtype:'q4',cacheDir:'/private/cache'},f);
  assert.equal(f.calls[0].tokenizer,SUPRA_TOKENIZER);assert.equal(f.calls[1].model,SUPRA_MODEL);assert.equal(f.calls[1].options.dtype,'q4');assert.equal(f.calls[1].options.device,'cpu');assert.equal(f.env.cacheDir,'/private/cache');
- assert.equal(await engine.generate([{role:'system',content:'Classify. Return JSON.'},{role:'user',content:'שלום'}],48),output);
- assert.match(f.calls[2].prompt,/### Instruction:\nClassify/);assert.match(f.calls[2].prompt,/### Input:\nשלום\n\n### Response:/);assert.equal(f.calls[2].options.max_length,768);assert.equal(f.calls[3].generate.max_new_tokens,12);
+ assert.equal(typeof engine.classify,'function');assert.equal(engine.generate,undefined);
 });
 for(const [stage,message,code] of [
  ['tokenizer','Could not locate file: https://example.test/private/tokenizer.json','tokenizer_file_missing'],

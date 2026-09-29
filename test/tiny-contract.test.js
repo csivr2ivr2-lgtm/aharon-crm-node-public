@@ -5,11 +5,6 @@ const value={intent:'support',needs_reply:true,has_task:true},json=JSON.stringif
 test('exact short Alpaca label template in both languages',()=>{
  for(const sample of tinyTestCases)assert.equal(alpacaPrompt(labelMessages('intent',sample.input)),`### Instruction:
 Classify the message.
-Reply with exactly one word:
-support
-sales
-follow_up
-other
 
 ### Input:
 ${sample.input}

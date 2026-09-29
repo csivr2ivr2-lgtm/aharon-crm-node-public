@@ -10,7 +10,7 @@ export const config=Object.freeze({
  coreApiToken:e("CORE_API_TOKEN"),mcpApiToken:e("MCP_API_TOKEN"),vaultKey:e("CONNECTOR_VAULT_KEY"),oauthStateSecret:e("OAUTH_STATE_SECRET"),
  dataDir:e("DATA_DIR","./runtime"),uploadDir:e("UPLOAD_DIR","./runtime/uploads"),httpTimeoutMs:Math.max(1000,n("HTTP_TIMEOUT_MS",20000)),
  localAiEnabled:b("LOCAL_AI_ENABLED",true),localAiModel:e("LOCAL_AI_MODEL","onnx-community/Supra-50M-Instruct-ONNX"),
- localAiDtype:e("LOCAL_AI_DTYPE","q4"),localAiMaxNewTokens:Math.max(8,Math.min(12,n("LOCAL_AI_MAX_NEW_TOKENS",8))),
+ localAiMinMargin:Math.max(0,n("LOCAL_AI_MIN_MARGIN",0.15)),localAiDtype:e("LOCAL_AI_DTYPE","q4"),localAiMaxNewTokens:Math.max(8,Math.min(12,n("LOCAL_AI_MAX_NEW_TOKENS",8))),
  localAiIdleMs:Math.max(1000,Math.min(60000,n("LOCAL_AI_IDLE_MS",45000))),
  localAiCooldownMs:Math.max(1000,n("LOCAL_AI_COOLDOWN_MS",60000)),
  localAiTimeoutMs:Math.max(1000,Math.min(600000,n("LOCAL_AI_TIMEOUT_MS",180000))),

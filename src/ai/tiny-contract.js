@@ -15,7 +15,7 @@ export function labelSchema(workload){
 }
 export function labelMessages(workload,input){
  if(!Object.hasOwn(LABELS,workload))throw Error('invalid_tiny_workload');
- return [{role:'system',content:instructions[workload]+'\nReply with exactly one word:\n'+LABELS[workload].join('\n')},{role:'user',content:String(input).slice(0,1200)}];
+ return [{role:'system',content:instructions[workload]},{role:'user',content:String(input).slice(0,1200)}];
 }
 export const tinyTestCases=[{language:'en',input:'Hello, please call me tomorrow for help with my website'},{language:'he',input:'שלום, אשמח שתתקשר אלי מחר כדי לעזור לי עם האתר'}];
 export const tinyTestMessages=labelMessages('intent',tinyTestCases[1].input);

@@ -109,9 +109,7 @@ test('settings save separate local and generative model names',async()=>{
  const h=harness();await h.run(`saveSettings({localModel:'org/tiny',externalModel:'external-text',generativeProvider:'external',trustedClientIds:''})`);
  const data=JSON.parse(h.calls[0].body);assert.equal(data.ai.localModel,'org/tiny');assert.equal(data.ai.externalModel,'external-text');assert.equal(data.ai.generativeProvider,'external');assert.ok(!('model' in data.ai));
 });
-test('bilingual diagnostics separate loaded engine from failed contract and escape fixed raw output',async()=>{
- const h=harness({'/api/ai/status':{enabled:true,state:'loaded',inference_status:'succeeded',structured_status:'failed',test_result:{ok:false,cases:[{language:'en',decisions:[{workload:'intent',label:'support',matched:true,model_loaded:true,inference_ok:true,schema_valid:true,inference_ms:600,peak_rss:1048576,raw_output:'support'}]},{language:'he',decisions:[{workload:'intent',model_loaded:true,inference_ok:true,schema_valid:false,raw_output:'<script>test</script>'}]}]}}});
- await h.run("render('ai')");const html=h.element('#content').innerHTML;
- for(const text of ['מצב מנוע: טעון','Inference: succeeded','Label validation: failed','English','עברית','Test raw output','600 ms','1.0 MB','&lt;script&gt;test&lt;/script&gt;'])assert.ok(html.includes(text),text);
- assert.ok(!html.includes('<script>test'));
+test('benchmark UI shows expected/predicted labels, margin and aggregate quality without generated text',async()=>{
+ const h=harness({'/api/ai/status':{enabled:true,state:'loaded',test_result:{cases:[{id:'en_1',language:'en',decisions:[{workload:'intent',expected:'support',label:'support',matched:true,margin:0.42,inference_ms:150}]}],summary:{languages:{en:{correct:18,total:20,accuracy:90,uncertain:2}},overall:{correct:18,total:20,accuracy:90,uncertain:2},workloads:{},average_inference_ms:150}}}});
+ await h.run("render('ai')");const html=h.element('#content').innerHTML;for(const text of ['18/20','90.0%','expected support','predicted support','margin: 0.42'])assert.ok(html.includes(text));assert.ok(!html.includes('Test raw output'));
 });

@@ -1,6 +1,7 @@
+import {benchmarkCases,benchmarkSummary} from './tiny-benchmark.js';
 import {fork} from 'node:child_process';
 import {tokenizerForModel} from './local-model.js';
-import {localContract,tinyTestCases,labelMessages,labelSchema} from './tiny-contract.js';
+import {LABELS,labelMessages,labelSchema} from './tiny-contract.js';
 
 export const localErrors=Object.freeze({
  cooldown:'המודל מושהה זמנית לאחר כשל. אפשר לנסות מאוחר יותר.',invalid_output:'המודל החזיר תשובה שאינה אחת מהאפשרויות המותרות.',queue_full:'תור המודל מלא. נסה שוב מאוחר יותר.',queue_timeout:'ההמתנה בתור המודל הסתיימה.',
@@ -31,8 +32,8 @@ export function memorySnapshot(value=process.memoryUsage()){
  return Object.fromEntries(['rss','heapUsed','heapTotal','external','arrayBuffers'].map(key=>[key,Number.isFinite(value?.[key])&&value[key]>=0?value[key]:0]));
 }
 export class LocalRuntime{
- constructor({enabled=true,model,dtype='q4',cacheDir,timeoutMs=180000,idleMs=45000,cooldownMs=60000,queueLimit=2,maxContextChars=4000,spawn=fork,clock=()=>Date.now(),memory=memorySnapshot}={}){
-  Object.assign(this,{enabled,model,dtype,cacheDir,timeoutMs,idleMs,cooldownMs,queueLimit,maxContextChars,spawn,clock,memory});this.child=null;this.pending=null;this.sequence=0;this.testPromise=null;this.queue=[];this.idleTimer=null;this.cooldownUntil=0;
+ constructor({enabled=true,model,dtype='q4',cacheDir,timeoutMs=180000,idleMs=45000,cooldownMs=60000,queueLimit=2,maxContextChars=4000,minMargin=0.15,spawn=fork,clock=()=>Date.now(),memory=memorySnapshot}={}){
+  Object.assign(this,{enabled,model,dtype,cacheDir,timeoutMs,idleMs,cooldownMs,queueLimit,maxContextChars,minMargin,spawn,clock,memory});this.child=null;this.pending=null;this.sequence=0;this.testPromise=null;this.queue=[];this.idleTimer=null;this.cooldownUntil=0;
   this.state={inference_status:'idle',structured_status:'idle',output_error:null,inference_duration_ms:null,worker_memory_peak:null,worker_memory_inference_after:null,state:'idle',loaded:false,loading:false,failed:false,attempted_model:null,attempted_tokenizer:null,error:null,started_at:null,finished_at:null,load_duration_ms:null,memory_before:null,memory_after:null,worker_memory_before:null,worker_memory_after:null,test_running:false,test_result:null};
  }
  status(){return {...structuredClone(this.state),queued:this.queue.length,cooldown_remaining_ms:Math.max(0,this.cooldownUntil-this.clock()),enabled:this.enabled,model:validModel(this.model)?this.model:'[invalid model identifier]',dtype:['q4','q8','fp32','fp16','int8','uint8','q4f16','bnb4'].includes(this.dtype)?this.dtype:'[invalid dtype]',load_duration_ms:this.state.loading?Math.max(0,this.clock()-this.started):this.state.load_duration_ms};}
@@ -68,14 +69,15 @@ export class LocalRuntime{
    if(message.type==='failure'){if(this.state.loading&&message.memory)this.state.worker_memory_after=memorySnapshot(message.memory);this.fail(Object.hasOwn(localErrors,message.code)?message.code:'failed',this.state.loading?(['tokenizer','model'].includes(message.phase)?message.phase:'load'):'inference');return;}
    if(message.type==='result'){
     if(!this.state.loaded){this.fail('runtime','load');return;}
-    const pending=this.pending,nonempty=typeof message.text==='string'&&Boolean(message.text.trim());
-    const contract=pending.schema?localContract(message.text,pending.schema):null;
-    Object.assign(this.state,{inference_status:nonempty?'succeeded':'failed',structured_status:contract?(contract.schema_valid?'succeeded':'failed'):'idle',output_error:contract&&!contract.schema_valid?this.error('invalid_output','output').safe:null});
-    // Only startTest attaches this record, to its own fixed request. Customer text is never retained.
-    if(pending.testCase)Object.assign(pending.testCase,{model_loaded:true,inference_ok:nonempty,inference_ms:this.state.inference_duration_ms,peak_rss:this.state.worker_memory_peak,raw_output:typeof message.text==='string'?message.text.slice(0,500):'',label:contract?.label??null,schema_valid:contract?.schema_valid||false});
+    const pending=this.pending,decision=message.decision;
+    const scoring=Boolean(pending.schema?.tinyLabel);
+    const valid=scoring?decision&&[...LABELS[pending.schema.tinyLabel],'uncertain'].includes(decision.label)&&Number.isFinite(decision.score)&&Number.isFinite(decision.margin)&&decision.margin>=0:typeof message.text==='string'&&Boolean(message.text.trim());
+    const result=valid&&scoring?{label:decision.margin<=this.minMargin?'uncertain':decision.label,score:decision.score,margin:decision.margin}:null;
+    Object.assign(this.state,{inference_status:'succeeded',structured_status:valid?(result?.label==='uncertain'?'uncertain':'succeeded'):'failed',output_error:valid?null:this.error('invalid_output','output').safe});
+    if(pending.testCase)Object.assign(pending.testCase,{model_loaded:true,inference_ok:true,inference_ms:this.state.inference_duration_ms,peak_rss:this.state.worker_memory_peak,label:result?.label??null,margin:result?.margin??null,schema_valid:Boolean(valid)});
     this.pending=null;clearTimeout(pending.timer);
-    if(!nonempty||contract&&!contract.schema_valid)pending.reject(this.error(nonempty?'invalid_output':'empty','output'));
-    else pending.resolve(message.text.slice(0,12000));
+    if(!valid)pending.reject(this.error('invalid_output','output'));
+    else pending.resolve(scoring?result:message.text.slice(0,12000));
     setImmediate(()=>this.drain());
    }
   });
@@ -109,7 +111,7 @@ export class LocalRuntime{
    const id=++this.sequence;this.pending={id,resolve,reject,schema,timer:setTimeout(()=>this.fail('timeout',this.state.loading?'load':'inference'),this.timeoutMs)};
    try{
     if(!this.child||this.state.attempted_model!==model)this.start(model);
-    this.child.send({id,model,tokenizer:tokenizerForModel(model),dtype:this.dtype,cacheDir:this.cacheDir,messages,maxNew:Math.max(1,Math.min(12,Number(maxNew)||8))},error=>{if(error&&this.pending?.id===id)this.fail('runtime');});
+    this.child.send({id,model,tokenizer:tokenizerForModel(model),dtype:this.dtype,cacheDir:this.cacheDir,messages,workload:schema?.tinyLabel,minMargin:this.minMargin},error=>{if(error&&this.pending?.id===id)this.fail('runtime');});
    }catch{this.fail('runtime');}
   });
  }
@@ -118,13 +120,13 @@ export class LocalRuntime{
   this.state.test_running=true;this.state.test_result=null;
   const results=[],testStarted=this.clock();
   this.testPromise=(async()=>{
-   for(const sample of tinyTestCases){
-    const group={language:sample.language,decisions:[]};results.push(group);
-    for(const workload of ['intent','task','needs_reply']){
-     const record={workload,expected:workload==='intent'?'support':'yes',model_loaded:false,inference_ok:false,schema_valid:false,label:null,matched:false};group.decisions.push(record);
+   for(const sample of benchmarkCases){
+    const group={id:sample.id,language:sample.language,decisions:[]};results.push(group);
+    for(const workload of ['intent','task','needs_reply','spam']){
+     const record={workload,expected:sample.expected[workload],model_loaded:false,inference_ok:false,schema_valid:false,label:null,matched:false};group.decisions.push(record);
      try{clearTimeout(this.idleTimer);const promise=this.execute(labelMessages(workload,sample.input),8,model,labelSchema(workload));if(this.pending){record.model_loaded=this.state.loaded;this.pending.testCase=record;}await promise;record.matched=record.label===record.expected;}
      catch(error){record.error=error.safe||this.error('failed').safe;}
-     this.state.test_result={ok:results.length===2&&results.every(g=>g.decisions.length===3&&g.decisions.every(r=>r.matched)),cases:results,total_duration_ms:Math.max(0,this.clock()-testStarted),error:results.flatMap(g=>g.decisions).find(r=>r.error)?.error};
+     this.state.test_result={ok:results.length===benchmarkCases.length&&results.every(g=>g.decisions.length===4&&g.decisions.every(r=>r.matched)),cases:results,summary:benchmarkSummary(results),total_duration_ms:Math.max(0,this.clock()-testStarted),error:results.flatMap(g=>g.decisions).find(r=>r.error)?.error};
      if(this.state.failed||!this.enabled)return;
     }
    }

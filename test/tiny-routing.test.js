@@ -23,14 +23,14 @@ test('text workloads cannot use local even when legacy provider says local',asyn
  const r=await generateText(tinyTestMessages,{providers:{local:()=>{throw Error('wrong');},external:()=> 'external text'}});assert.equal(r.provider,'external');
 });
 test('CRM composes JSON from three label calls and falls back per decision',async()=>{
- const calls=[];const r=await generateStructured(tinyTestMessages,{workload:'intent',schema:tinyTestSchema,providers:{local:messages=>{calls.push(messages);return calls.length===1?'bad':'yes';},external:()=> 'support'}});
+ const calls=[];const r=await generateStructured(tinyTestMessages,{workload:'intent',schema:tinyTestSchema,providers:{local:messages=>{calls.push(messages);return calls.length===1?{label:'uncertain',score:-1,margin:0}:{label:'yes',score:-1,margin:1};},external:()=> 'support'}});
  assert.equal(calls.length,3);assert.ok(calls.every(m=>!m[0].content.includes('JSON')));assert.deepEqual(r.data,{intent:'support',needs_reply:true,has_task:true});
 });
 test('free multi-field extraction is external-only; invalid output cannot become a suggestion',async()=>{
  await assert.rejects(generateStructured(tinyTestMessages,{workload:'extraction',schema:tinyTestSchema,providers:{local:()=>{throw Error('must_not_run');}}}),/external_ai_required/);
  for(const text of ['null','[]','{"intent":"support"}'])await assert.rejects(generateStructured(tinyTestMessages,{workload:'extraction',schema:tinyTestSchema,providers:{external:()=>text}}),/invalid_ai_(schema|json)/);
- await assert.rejects(generateLabel('hello',{workload:'intent',providers:{local:()=> 'support and sales'}}),/invalid_output/);
- await assert.rejects(generateLabel('hello',{workload:'intent',providers:{local:()=>{throw Error('local_ai_runtime');}}}),/local_ai_runtime/);
+ assert.equal((await generateLabel('hello',{workload:'intent',providers:{local:()=> 'support and sales'}})).label,'uncertain');
+ assert.equal((await generateLabel('hello',{workload:'intent',providers:{local:()=>{throw Error('local_ai_runtime');}}})).label,'uncertain');
 });
 test('Tiny refuses tool planning, full history and oversized input without loading',async()=>{
  const options={workload:'intent',schema:tinyTestSchema,providers:{local:()=>{throw Error('should_not_run');}}};
@@ -63,4 +63,16 @@ test('email, phone, DID and URL extraction is deterministic and needs no provide
  const data=extractDeterministicEntities('Write USER@example.test or call 050-1234567; DID 077-1234567; visit https://example.test/help.');
  assert.deepEqual(data.emails,['user@example.test']);assert.deepEqual(data.phones,['0501234567','0771234567']);assert.deepEqual(data.did_candidates,data.phones);assert.deepEqual(data.urls,['https://example.test/help']);
  assert.deepEqual(extractDeterministicEntities('nothing here'),{emails:[],phones:[],did_candidates:[],urls:[]});
+});
+test('local classification is review-only and uncertainty preserves deterministic result',async()=>{
+ const initial={classification:'normal',confidence:0.3,source:'rules'};
+ const predicted=await classifyWithAi({body:'hello'},initial,async()=>({provider:'local',text:JSON.stringify({classification:'spam',confidence:0.75})}));
+ assert.equal(predicted.review_required,true);
+ const uncertain=await classifyWithAi({body:'hello'},initial,async()=>{throw Error('tiny_ai_uncertain');});assert.equal(uncertain,initial);
+});
+test('spam workload scores only yes/no; external fallback receives allowed labels',async()=>{
+ const {z}=await import('zod');const calls=[];
+ const r=await generateStructured(tinyTestMessages,{workload:'spam',schema:z.object({classification:z.string(),confidence:z.number(),reason:z.string()}),providers:{local:messages=>{calls.push(messages[0].content);return {label:'yes',score:-1,margin:1};}}});
+ assert.equal(r.data.classification,'spam');assert.match(calls[0],/Is this message spam/);
+ const fallback=await generateLabel('hello',{workload:'intent',providers:{local:()=>({label:'uncertain',score:-1,margin:0}),external:messages=>{assert.match(messages[0].content,/support, sales, follow_up, other/);return 'support';}}});assert.equal(fallback.provider,'external');
 });
