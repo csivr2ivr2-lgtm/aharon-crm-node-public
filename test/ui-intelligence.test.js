@@ -6,7 +6,7 @@ import {appHtml} from '../src/ui.js';
 const source=(await readFile(new URL('../src/browser.js',import.meta.url),'utf8')).replace(/void render\(location\.hash\.slice\(1\)\|\|'home'\)\.catch\(e=>\$\('#error'\)\.textContent=e\.message\);void realtime\(\);/,'');
 function harness(responses={}){
  const elements=new Map(),calls=[],listeners={};
- const element=key=>{if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',value:'',dataset:{},classList:{toggle(){}},scrollHeight:10,reset(){},insertAdjacentHTML(_position,html){this.innerHTML+=html;}});return elements.get(key);};
+ const element=key=>{if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',value:'',dataset:{},classList:{toggle(){}},scrollHeight:10,reset(){},insertAdjacentHTML(_position,html){this.innerHTML+=html;} ,closest(){return {querySelectorAll:()=>[]}}});return elements.get(key);};
  const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,console,setTimeout:()=>0,clearTimeout(){},confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??{ok:true,items:[]};return {ok:true,status:200,json:async()=>value};}});
  vm.runInContext(source,context);return {run:code=>vm.runInContext(code,context),element,calls,context,listeners};
 }
@@ -42,7 +42,7 @@ test('send confirmation displays resolved recipient, sender and body but not int
  const html=h.element('#chatLog').innerHTML;for(const value of ['972501234567','דוד','החשבון שלי','היי מה איתך'])assert.ok(html.includes(value));assert.ok(!html.includes('private:internal-key'));assert.ok(!html.includes('opaque-client-id'));assert.ok(!html.includes('secret'));
 });
 test('connector controls render distinct lifecycle actions and call matching routes',async()=>{
- const h=harness({'/api/connectors':{connectors:[{key:'google',configured:true,accounts:[{id:'a/1',email:'<unsafe@example.test>'}]},{key:'hostinger-mail',configured:true,account:'me@example.test'}]},'/api/whatsapp/status':{status:'connected'}});
+ const h=harness({'/api/connectors':{connectors:[{key:'google',configured:true,accounts:[{id:'a/1',email:'<unsafe@example.test>'}]},{key:'hostinger-mail',configured:true,account:'me@example.test'}]},'/api/whatsapp/status':{sessions:[{id:'s1',status:'connected',label:'בדיקה'}]}});
  await h.run(`render('connectors')`);
  const html=h.element('#content').innerHTML;assert.ok(html.includes('&lt;unsafe@example.test&gt;'));assert.ok(!html.includes('<unsafe'));
  const actions=[['wa-reconnect','/api/whatsapp/reconnect','POST'],['wa-disconnect','/api/whatsapp/disconnect','POST'],['wa-delete-session','/api/whatsapp/session','DELETE'],['google-disconnect','/api/google/accounts/a%2F1','DELETE'],['hostinger-disconnect','/api/hostinger/disconnect','POST']];

@@ -16,6 +16,7 @@ function historyFixture(){
    if(sql.startsWith('SELECT id,title,created_at'))return [[...sessions.values()].filter(s=>s.actor===p[0]&&!s.archived_at)];
    if(sql.startsWith('INSERT INTO assistant_chat_turns')){turns.push({id:p[0],session_id:p[1],role:p[2],body:p[3],request_id:p[4],created_at:p[5]});return [{affectedRows:1}]}
    if(sql.startsWith('SELECT id FROM assistant_chat_turns'))return [turns.filter(t=>t.session_id===p[0]&&t.request_id===p[1]&&t.role==='user').map(t=>({id:t.id}))];
+   if(sql.startsWith('SELECT role,body FROM assistant_chat_turns'))return [turns.filter(t=>t.session_id===p[0]&&t.request_id!==p[1]).map(t=>({role:t.role,body:t.body})).reverse()];
    if(sql.startsWith('SELECT id,role,body'))return [turns.filter(t=>t.session_id===p[0])];
    if(sql.startsWith('INSERT INTO assistant_chat_actions')){links.push({action_id:p[0],session_id:p[1],turn_id:p[2],tool:p[3],args_json:p[4],preview_json:p[5],dismissed_at:null});return [{affectedRows:1}]}
    if(sql.startsWith('SELECT l.action_id'))return [links.filter(l=>l.session_id===p[0]).map(l=>({...l,state:actions.get(l.action_id)||'pending',expires_at:'2099-01-01'}))];
