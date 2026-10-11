@@ -108,4 +108,4 @@ export class WhatsAppSessions {
   return connected[0].send(payload);
  }
 }
-export const whatsapp=new WhatsAppSessions();
+
