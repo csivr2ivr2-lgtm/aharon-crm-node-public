@@ -74,7 +74,9 @@ export class AssistantChatHistory{
   if(replayed.length)throw Error('assistant_request_already_received');
   const ts=this.clock(),userId=id('turn_');
   await this.database.execute('INSERT INTO assistant_chat_turns(id,session_id,role,body,request_id,created_at) VALUES(?,?,?,?,?,?)',[userId,sessionId,'user',message.trim(),requestId,ts]);
-  const response=await this.assistant.chat({message:message.trim(),context,requestId});
+  const [prior]=await this.database.execute("SELECT role,body FROM assistant_chat_turns WHERE session_id=? AND request_id<>? ORDER BY created_at DESC,id DESC LIMIT 12",[sessionId,requestId]);
+  const history=prior.reverse().map(t=>({role:t.role,text:String(t.body||'').slice(0,1400)}));
+  const response=await this.assistant.chat({message:message.trim(),context,requestId,history});
   const replyId=id('turn_');
   const result=response.reply||'לא התקבלה תשובה.';
   const c=await this.database.getConnection();
