@@ -50,7 +50,7 @@ export class AssistantChatHistory{
  }
  async load(sessionId,actor='dashboard'){
   await this.ensure(sessionId,actor);
-  const [turns]=await this.database.execute('SELECT id,role,body,request_id,created_at FROM assistant_chat_turns WHERE session_id=? ORDER BY created_at ASC,id ASC LIMIT 400',[sessionId]);
+  const [turns]=await this.database.execute('SELECT id,role,body,request_id,created_at FROM assistant_chat_turns WHERE session_id=? ORDER BY created_at ASC,CASE WHEN role='user' THEN 0 ELSE 1 END ASC,id ASC LIMIT 400',[sessionId]);
   const [links]=await this.database.execute('SELECT l.action_id,l.turn_id,l.tool,l.args_json,l.preview_json,l.dismissed_at,a.state,a.expires_at FROM assistant_chat_actions l LEFT JOIN ai_actions a ON a.id=l.action_id WHERE l.session_id=?',[sessionId]);
   const indexed=new Map();
   for(const link of links){
