@@ -11,14 +11,14 @@ export function publicAiError(error){
 }
 export async function diagnoseAi({run}={}){
  try{
-  const check=run||async()=>{
+  const check=run||(async()=>{
    const {Assistant}=await import('./assistant.js');
    const instance=new Assistant({
     // The test cannot read, send or modify customer records, even if the model requests tools.
     engine:{execute:async()=>{throw Error('diagnostic_tools_disabled');}}
    });
    return instance.chat({message:'בדיקת מערכת: השב במשפט אחד בעברית שאתה פעיל. אין צורך בכלים.',context:{actor:'diagnostic',source:'chat',permissions:['read'],trustedInput:true}});
-  };
+  });
   const result=await check();
   if(!result?.ok||!result?.provider)throw Error('ai_unexpected_error');
   return {connected:true,provider:String(result.provider).slice(0,40),model:String(result.model||'').slice(0,180)};

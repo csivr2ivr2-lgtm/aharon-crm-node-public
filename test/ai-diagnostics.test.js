@@ -21,5 +21,5 @@ test('client shows diagnostic action with human-friendly error labels',async()=>
  assert.ok(browser.includes("button('ai-external-test','בדוק חיבור AI חיצוני')"));
  assert.ok(routes.includes("route('POST','/api/ai/diagnose'"));
  assert.ok(browser.includes("ai_provider_unauthorized:'"));
- assert.ok(browser.includes("id=\\"externalAiResult\\""));
+ assert.ok(browser.includes('id="externalAiResult"'));
 });
