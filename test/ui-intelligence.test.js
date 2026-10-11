@@ -46,7 +46,7 @@ test('connector controls render distinct lifecycle actions and call matching rou
  await h.run(`render('connectors')`);
  const html=h.element('#content').innerHTML;assert.ok(html.includes('&lt;unsafe@example.test&gt;'));assert.ok(!html.includes('<unsafe'));
  const actions=[['wa-reconnect','/api/whatsapp/reconnect','POST'],['wa-disconnect','/api/whatsapp/disconnect','POST'],['wa-delete-session','/api/whatsapp/session','DELETE'],['google-disconnect','/api/google/accounts/a%2F1','DELETE'],['hostinger-disconnect','/api/hostinger/disconnect','POST']];
- for(const [action,url,method] of actions){assert.ok(html.includes('data-action="'+action+'"'));const b={dataset:{action,id:'a/1'}};await h.listeners.click({target:{closest:()=>b}});assert.ok(h.calls.some(x=>x.url===url&&x.method===method));assert.equal(b.disabled,false);}
+ for(const [action,url,method] of actions){assert.ok((html+h.element('#wa').innerHTML).includes('data-action="'+action+'"'));const b={dataset:{action,id:'a/1'}};await h.listeners.click({target:{closest:()=>b}});assert.ok(h.calls.some(x=>x.url===url&&x.method===method));assert.equal(b.disabled,false);}
 });
 test('cancelling connector disconnect or session deletion never calls a mutation',async()=>{
  const h=harness();h.context.confirm=()=>false;
@@ -62,7 +62,7 @@ test('archived file search remains available after restore and uses lifecycle fl
 });
 test('read messages may still wait for a reply and outgoing unread messages do not wait for us',async()=>{
  const h=harness({'/api/inbox':{items:[{id:'c1',title:'read incoming',unread_count:0,last_message_direction:'in'},{id:'c2',title:'unread outgoing',unread_count:2,last_message_direction:'out'}]}});await h.run(`render('inbox')`);
- const html=h.element('#content').innerHTML;assert.match(html,/נקרא/);assert.match(html,/2 לא נקראו/);assert.equal((html.match(/ממתין לתשובה שלך/g)||[]).length,1);assert.equal((html.match(/ממתין לתשובת הצד השני/g)||[]).length,1);
+ const html=h.element('#inboxItems').innerHTML;assert.match(html,/נקרא/);assert.match(html,/2 לא נקראו/);assert.equal((html.match(/ממתין לתשובה שלך/g)||[]).length,1);assert.equal((html.match(/ממתין לתשובת הצד השני/g)||[]).length,1);
 });
 test('settings renders real processing and login security status and escapes errors',async()=>{
  const h=harness({'/api/settings':{settings:{ai:{},automation:{},messaging:{trustedClientIds:[]}}},'/api/background/status':{enabled:true,running:false,queued:4,failed:2,last_error:'<script>bad()</script>'},'/api/security/status':{failed_attempts:3,blocked_ips:['192.0.2.1'],locked:false}});
