@@ -89,5 +89,5 @@ test('real assistant responds to "מי מהלקוחות מחכה לתשובה מ
  assert.equal(result.model,'verified_crm');
  assert.match(result.reply,/prospect@example\.com/);
  assert.match(result.reply,/עשרה מספרים/);
- assert.deepEqual(result.actions,[]);
+ assert.equal(result.actions.length,0);
 });
