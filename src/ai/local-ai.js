@@ -6,7 +6,7 @@ import {generateText as generate,externalAvailable} from "./providers.js";
 import {getSettings} from "../platform/settings.js";
 
 const runtime=new LocalRuntime({enabled:config.localAiEnabled,model:resolveLocalModel({},config).model,dtype:config.localAiDtype,cacheDir:process.env.HF_HOME||config.dataDir+"/huggingface",timeoutMs:config.localAiTimeoutMs,idleMs:config.localAiIdleMs,cooldownMs:config.localAiCooldownMs,minMargin:config.localAiMinMargin,maxContextChars:config.localAiMaxContextChars});
-export function aiStatus(settings={}){const selected=resolveLocalModel(settings,config);const safe=value=>validModel(value)?value:"[invalid model identifier]";return {...runtime.status(),model:safe(selected.model),tokenizer_source:safe(selected.tokenizer),fallback_configured:Boolean(config.aiBaseUrl&&config.aiApiToken)};}
+export function aiStatus(settings={}){const selected=resolveLocalModel(settings,config);const safe=value=>validModel(value)?value:"[invalid model identifier]";return {...runtime.status(),model:safe(selected.model),tokenizer_source:safe(selected.tokenizer),fallback_configured:externalAvailable(settings)};}
 export const localDiagnostics={startTest:model=>{const result=runtime.startTest(model);return {...result,status:aiStatus({localModel:model})};}};
 export const closeLocalAi=()=>runtime.close();
 export const generateLocal=(messages,maxNew=config.localAiMaxNewTokens,model=resolveLocalModel({},config).model,schema)=>{if(!schema?.tinyLabel)return Promise.reject(Error('invalid_tiny_workload'));return runtime.generate(messages,maxNew,model,schema);};
