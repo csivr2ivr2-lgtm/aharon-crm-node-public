@@ -5,6 +5,7 @@ import {WorkspaceService} from '../workspace-service.js';
 import {audit as writeAudit} from '../platform/audit.js';
 import {getSettings} from '../platform/settings.js';
 import {emailOf,phoneOf} from '../message-format.js';
+import {selectWaitingCustomerRows} from './waiting-customer-rows.js';
 
 const text=(max=500)=>z.string().trim().min(1).max(max);
 const id=text(128),optionalText=(max=20000)=>z.string().max(max).optional();
@@ -140,7 +141,12 @@ export class ActionEngine{
   return {to,client,account,provider,externalId};
  }
  async perform(tool,args,actionId,approvedPreview=null){
-  if(tool.op==='waiting_for_reply'){const [items]=await this.database.execute("SELECT c.id,c.title,c.client_id,c.channel,m.sent_at AS waiting_since,LEFT(COALESCE(m.body,''),900) AS latest_inbound_body FROM conversations c JOIN messages m ON m.conversation_id=c.id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN projects p ON p.id=c.project_id WHERE m.direction='in' AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND COALESCE(m.spam_disposition,'inbox') NOT IN ('spam','updates','review') AND COALESCE(m.classification,'normal') NOT IN ('spam','marketing','system','automated','suspicious') AND LOWER(COALESCE(m.subject,'')) NOT REGEXP '^(welcome to supabase|your temporary (chatgpt )?login code|new login from |new sign-in to |summary of failures for google apps script|oauth application approval)' AND (cl.id IS NULL OR cl.status='active') AND p.deleted_at IS NULL AND p.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id))) ORDER BY m.sent_at DESC,m.id DESC LIMIT "+Math.max(1,Math.min(50,Number(args.limit)||50)));return {ok:true,items};}
+  if(tool.op==='waiting_for_reply'){
+    const requested=Math.max(1,Math.min(50,Number(args.limit)||10));
+    const [candidates]=await this.database.execute("SELECT c.id,c.title,c.client_id,c.channel,c.external_id AS conversation_external_id,COALESCE(NULLIF(TRIM(cl.name),''),NULLIF(TRIM(m.sender),''),NULLIF(TRIM(c.title),''),'פונה לא מזוהה') AS contact_name,m.sender,m.subject,m.classification_reason,m.sent_at AS waiting_since,LEFT(COALESCE(m.body,''),900) AS latest_inbound_body FROM conversations c JOIN messages m ON m.conversation_id=c.id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN projects p ON p.id=c.project_id WHERE m.direction='in' AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND COALESCE(m.spam_disposition,'inbox') NOT IN ('spam','updates','review') AND COALESCE(m.classification,'normal') NOT IN ('spam','marketing','system','automated','suspicious') AND LOWER(COALESCE(m.subject,'')) NOT REGEXP '^(welcome to supabase|your temporary (chatgpt )?login code|new login from |new sign-in to |summary of failures for google apps script|oauth application approval)' AND (cl.id IS NULL OR cl.status='active') AND p.deleted_at IS NULL AND p.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id))) ORDER BY m.sent_at DESC,m.id DESC LIMIT "+Math.min(300,Math.max(75,requested*6)));
+    const items=selectWaitingCustomerRows(candidates,requested);
+    return {ok:true,items};
+   }
   if(tool.permission==='send'){
    const {to,client,account,provider,externalId}=await this.resolveSend(tool.name,args),channel=provider==='google'?'gmail':provider;
    if(approvedPreview&&(approvedPreview.recipient!==to||approvedPreview.account_key!==account.integration_key))throw Error('destination_changed_request_new_confirmation');
