@@ -113,3 +113,54 @@ test('benchmark UI shows expected/predicted labels, margin and aggregate quality
  const h=harness({'/api/ai/status':{enabled:true,state:'loaded',test_result:{cases:[{id:'en_1',language:'en',decisions:[{workload:'intent',expected:'support',label:'support',matched:true,margin:0.42,inference_ms:150}]}],summary:{languages:{en:{correct:18,total:20,accuracy:90,uncertain:2}},overall:{correct:18,total:20,accuracy:90,uncertain:2},workloads:{},average_inference_ms:150}}}});
  await h.run("render('ai')");const html=h.element('#content').innerHTML;for(const text of ['18/20','90.0%','expected support','predicted support','margin: 0.42'])assert.ok(html.includes(text));assert.ok(!html.includes('Test raw output'));
 });
+
+
+test('previous assistant session loads actions in-place and confirms via session-owned route',async()=>{
+ const history='/api/assistant/sessions/chat_12345678-1234-1234-1234-123456789abc';
+ const h=harness({
+  '/api/assistant/sessions':{ok:true,items:[{id:'chat_12345678-1234-1234-1234-123456789abc',title:'שיחת בדיקה'}]},
+  [history]:{ok:true,messages:[
+   {role:'user',text:'צור משימה בשם "בדיקה"'},
+   {role:'assistant',text:'פעולה ממתינה',actions:[{id:'act_123456789012',tool:'create_task',args:{title:'בדיקה'},status:'pending',confirmation_token:'TEST_NON_SECRET'}]},
+   {role:'user',text:'מה עם הלקוח?'},
+   {role:'assistant',text:'צריך לבדוק את פרטי הלקוח.',actions:[]}
+  ]},
+  [history+'/actions/act_123456789012/confirm']:{ok:true,status:'completed',result:{ok:true}}
+ });
+ await h.run("renderIntelligence('assistant')");
+ assert.ok(h.element('#assistantSessions').innerHTML.includes('שיחת בדיקה'));
+ let html=h.element('#chatLog').innerHTML;
+ assert.ok(html.indexOf('data-action="assistant-confirm"')<html.indexOf('מה עם הלקוח?'));
+ await h.run("intelligenceAction('assistant-confirm',{dataset:{id:'act_123456789012'}})");
+ const call=h.calls.find(x=>x.url.endsWith('/actions/act_123456789012/confirm'));
+ assert.ok(call);assert.deepEqual(JSON.parse(call.body),{confirmed:true,confirmation_token:'TEST_NON_SECRET'});
+ html=h.element('#chatLog').innerHTML;
+ assert.ok(html.indexOf('הושלם')<html.indexOf('מה עם הלקוח?'));
+});
+test('historical inbox triage respects explicit consent and never deletes anything',async()=>{
+ const h=harness({'/api/inbox/history/triage':{ok:true,scanned:2,updated:1,next_cursor:'m2',done:true},'/api/inbox':{items:[]}});
+ h.run("view='inbox'");
+ h.context.confirm=()=>false;
+ await h.listeners.click({target:{closest:()=>({dataset:{action:'historical-triage',id:''}})}});
+ assert.equal(h.calls.length,0);
+ h.context.confirm=()=>true;
+ await h.listeners.click({target:{closest:()=>({dataset:{action:'historical-triage',id:''}})}});
+ const requests=h.calls.filter(x=>x.url==='/api/inbox/history/triage');
+ assert.equal(requests.length,1);
+ assert.equal(JSON.parse(requests[0].body).confirmed,true);
+ assert.ok(!h.calls.some(x=>/DELETE|\/delete/.test(x.method||'')||/\/delete/.test(x.url)));
+});
+test('reply variants use existing CRM-grounded draft route and never send',async()=>{
+ const h=harness({
+  '/api/conversations/c1':{ok:true,item:{title:'פנייה עסקית',client_id:'',project_id:''},messages:[{id:'m1',direction:'in',classification:'normal',body:'אשמח להצעת מחיר'}]},
+  '/api/clients':{items:[]},'/api/projects':{items:[]},
+  '/api/conversations/c1/drafts':{items:[]},'/api/conversations/c1/read':{ok:true},
+  '/api/conversations/c1/draft':{ok:true,id:'draft_1',draft:'שלום, אשמח לשלוח הצעת מחיר.'}
+ });
+ await h.run("openConversation('c1')");
+ await h.listeners.click({target:{closest:()=>({dataset:{action:'reply-suggestion',id:'short'}})}});
+ const calls=h.calls.filter(x=>x.url==='/api/conversations/c1/draft'&&x.method==='POST');
+ assert.equal(calls.length,1);assert.match(JSON.parse(calls[0].body).instruction,/תשובה קצרה/);
+ assert.equal(h.element('#reply').value,'שלום, אשמח לשלוח הצעת מחיר.');
+ assert.ok(!h.calls.some(x=>x.url.endsWith('/send')));
+});
