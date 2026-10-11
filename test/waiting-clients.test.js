@@ -58,3 +58,36 @@ test('server query fetches historical candidate window, sender and optional clie
  assert.ok(assistant.includes("if(!rows.length||!waitingNeedsSummary(message))"));
  assert.ok(assistant.includes('const listing=await this.engine.execute('));
 });
+
+
+test('real assistant responds to "מי מהלקוחות מחכה לתשובה ממני?" from CRM, no AI provider used',async()=>{
+ const vm=await import('node:vm');
+ const {createHash,randomUUID}=await import('node:crypto');
+ const intents=await import('../src/ai/assistant-intents.js');
+ const source=await readFile(new URL('../src/ai/assistant.js',import.meta.url),'utf8');
+ const isolated=source.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=(?:function|class|const))/g,'');
+ const sandbox={createHash,randomUUID,actionEngine:{},toolDefinitions:()=>[],selectToolCatalog:()=>[],...intents};
+ vm.runInNewContext(isolated+'\nthis.TestAssistant=Assistant;',sandbox);
+ const calls=[];
+ const assistant=new sandbox.TestAssistant({
+  engine:{execute:async(name,args)=>{
+   calls.push([name,args]);
+   return {ok:true,status:'completed',result:{ok:true,items:[
+    {sender:'prospect@example.com',contact_name:'prospect@example.com',channel:'email',latest_inbound_body:'מעוניין בעשרה מספרים לקבלת SMS'}
+   ]}};
+  }},
+  settings:async()=>({ai:{contextSize:18000}}),
+  generate:async()=>{throw Error('An LLM must not be called for a simple who-is-waiting query');}
+ });
+ const result=await assistant.chat({
+  message:'מי מהלקוחות מחכה לתשובה ממני?',
+  context:{actor:'dashboard',source:'chat',trustedInput:true,permissions:['read']}
+ });
+ assert.equal(calls.length,1);
+ assert.equal(calls[0][0],'waiting_for_reply');
+ assert.equal(calls[0][1].limit,10);
+ assert.equal(result.model,'verified_crm');
+ assert.match(result.reply,/prospect@example\.com/);
+ assert.match(result.reply,/עשרה מספרים/);
+ assert.deepEqual(result.actions,[]);
+});
