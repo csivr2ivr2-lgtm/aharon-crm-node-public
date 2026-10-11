@@ -1,4 +1,5 @@
 import {config} from "../config.js";
+import {syncIssue} from "../sync-diagnostics.js";
 import {EncryptedVault} from "../connectors/vault.js";
 import {GoogleConnector} from "../connectors/google.js";
 import {hostingerMail} from "../connectors/hostinger-mail.js";
@@ -17,7 +18,7 @@ export class ConnectorsClient{
  ]}}
  async sync(){
   const events=[];
-  for(const [name,connector] of [["google",google],["hostinger",hostingerMail]]){if(!connector.configured())continue;try{events.push(...await connector.sync());}catch{events.push({type:"sync.error",source:name,error:"connector_sync_failed"});}}
+  for(const [name,connector] of [["google",google],["hostinger",hostingerMail]]){if(!connector.configured())continue;try{events.push(...await connector.sync());}catch(error){events.push(syncIssue(name,"connect",error,name==="hostinger"?hostingerMail.settings().user:""));}}
   return {ok:true,events,generated_at:new Date().toISOString()};
  }
  async send(channel,payload){
