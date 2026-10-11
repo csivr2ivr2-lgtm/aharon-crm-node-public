@@ -3,6 +3,7 @@ import {Boom} from "@hapi/boom";
 import QRCode from "qrcode";
 import {mkdir,rm} from "node:fs/promises";
 import {config} from "../config.js";
+import {pairingPhoneNumber} from "./whatsapp-phone.js";
 
 export function whatsappDestination(value){
  const raw=String(value||"").trim();
@@ -22,11 +23,6 @@ const textFrom=m=>{
  return "";
 };
 
-export function pairingPhoneNumber(input){
- const number=String(input||"").trim();
- if(!/^[1-9]\d{7,14}$/.test(number))throw Error("invalid_whatsapp_pairing_number");
- return number;
-}
 export class WhatsAppConnector{
  constructor(){this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false}
  configured(){return config.whatsappEnabled}
