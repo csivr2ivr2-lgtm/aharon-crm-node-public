@@ -30,7 +30,7 @@ async function render(next){
  }
  if(view==='files'){await renderFiles();return;}
  if(view==='connectors'){
-  const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חיבור טלפון</h2><p>פתח במכשיר את המכשירים המקושרים וסרוק את הקוד.</p><div id="wa"></div><div class="actions">'+button('wa-connect','חבר WhatsApp')+button('wa-reconnect','חיבור מחדש')+button('wa-refresh','רענון קוד סריקה')+button('wa-disconnect','ניתוק זמני')+button('wa-delete-session','מחיקת החיבור השמור')+'</div></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
+  const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חשבונות מקושרים</h2><p>לכל מספר סשן נפרד. קוד הקישור מוצג כאן ומוזן בטלפון הראשי.</p><div id="wa"></div><form id="waPairForm"><label>מספר WhatsApp חדש עם קידומת מדינה וללא +<input name="phone_number" inputmode="numeric" pattern="[1-9][0-9]{7,14}" required autocomplete="tel" placeholder="972501234567"></label><button class="btn primary" type="submit">הוסף חשבון וקבל קוד קישור</button><p class="muted">בטלפון: WhatsApp ← מכשירים מקושרים ← קישור מכשיר ← קישור באמצעות מספר טלפון.</p></form></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
  }
  if(view==='ai'){await renderLocalAi();return;}
  $('#content').innerHTML='<div class="panel"><h2>הגדרות מערכת</h2><p>סיסמאות, חיבור למסד הנתונים והגדרות הספקים מנוהלים במשתני הסביבה של Hostinger.</p><p>חיבורי Google ו־WhatsApp מנוהלים במסך החיבורים. הגדרות המודל מוצגות במסך הבינה המלאכותית.</p><p>הודעות נשלחות רק בלחיצה מפורשת על שליחה. גם משימות AI יוצרות תוצאה לבדיקה בלבד.</p></div>';
@@ -76,7 +76,16 @@ async function openConversation(id){
  await post('/api/conversations/'+encodeURIComponent(id)+'/read');
  $('.conversation').scrollTop=$('.conversation').scrollHeight;
 }
-async function loadWa(){const d=await api('/api/whatsapp/status');$('#wa').innerHTML='<p>'+esc(statusLabel(d.status))+'</p>'+(d.qr&&d.qr.startsWith('data:image/png;base64,')?'<img alt="קוד לחיבור WhatsApp" src="'+esc(d.qr)+'" width="260">':'');}
+async function loadWa(){
+ const d=await api('/api/whatsapp/status');
+ $('#wa').innerHTML=(d.sessions||[]).map(s=>{
+  const code=s.pairing_code?'<p role="status">קוד קישור: <strong dir="ltr">'+esc(s.pairing_code)+'</strong></p>':'';
+  const qr=s.qr&&s.qr.startsWith('data:image/png;base64,')?'<img alt="QR לקישור" width="220" src="'+esc(s.qr)+'">':'';
+  const error=s.last_error?'<p class="error">'+esc(userError(s.last_error))+'</p>':'';
+  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
+ }).join('')||'<p>אין עדיין חשבונות WhatsApp מחוברים.</p>';
+}
+
 document.addEventListener('click',async e=>{
  const b=e.target.closest('button');if(!b)return;$('#error').textContent='';
  if(b.dataset.view){location.hash=b.dataset.view;return;}
@@ -90,17 +99,17 @@ document.addEventListener('click',async e=>{
   if(action==='sync'){const d=await post('/api/sync');$('#notice').textContent='יובאו '+d.imported+' הודעות; שגיאות: '+d.errors;await render(view);}
   if(action==='upload'){const file=$('#fileInput').files[0];if(!file)return;const data=new FormData();data.append('file',file);const r=await fetch('/api/files',{method:'POST',body:data,credentials:'same-origin'});if(!r.ok)throw Error('העלאת הקובץ נכשלה');const result=await r.json();await api('/api/files/'+encodeURIComponent(result.id),{method:'PATCH',body:JSON.stringify({client_id:$('#fileClient').value,project_id:$('#fileProject').value,task_id:$('#fileTask').value})});await render('files');}
   if(action==='google'){const d=await post('/api/google/auth-url');const target=new URL(d.url);if(target.protocol!=='https:'||target.hostname!=='accounts.google.com')throw Error('כתובת ההתחברות אינה תקינה');location.href=target.href;}
-  if(action==='wa-connect'){await post('/api/whatsapp/connect');await loadWa();}
-  if(action==='wa-reconnect'){await post('/api/whatsapp/reconnect');await loadWa();}
-  if(action==='wa-disconnect'&&confirm('לנתק זמנית את WhatsApp? ניתן להתחבר מחדש בלי למחוק את החיבור השמור.')){await post('/api/whatsapp/disconnect');await loadWa();}
-  if(action==='wa-delete-session'&&confirm('למחוק את החיבור השמור של WhatsApp? לחיבור הבא תידרש סריקה חדשה.')){await api('/api/whatsapp/session',{method:'DELETE'});await loadWa();}
+  if(action==='wa-connect'){await post('/api/whatsapp/connect',{session_id:id});await loadWa();}
+  if(action==='wa-reconnect'){await post('/api/whatsapp/reconnect',{session_id:id});await loadWa();}
+  if(action==='wa-disconnect'&&confirm('לנתק זמנית את הסשן הזה בלבד?')){await post('/api/whatsapp/disconnect',{session_id:id});await loadWa();}
+  if(action==='wa-delete-session'&&confirm('למחוק לצמיתות את פרטי הקישור של הסשן הזה בלבד?')){await api('/api/whatsapp/session',{method:'DELETE',body:JSON.stringify({session_id:id})});await loadWa();}
   if(action==='google-disconnect'&&confirm('לנתק את חשבון Google הזה מהמערכת?')){await api('/api/google/accounts/'+encodeURIComponent(b.dataset.id),{method:'DELETE'});await render('connectors');}
   if(action==='hostinger-disconnect'&&confirm('לנתק את חשבון הדואר של Hostinger?')){await post('/api/hostinger/disconnect');await render('connectors');}
   if(action==='wa-refresh')await loadWa();
-  if(action==='wa-logout'&&confirm('לנתק את חשבון WhatsApp?')){await post('/api/whatsapp/logout');await loadWa();}
+  if(action==='wa-logout'&&confirm('לנתק את החשבון המקושר?')){await post('/api/whatsapp/logout',{session_id:id});await loadWa();}
   if(action==='associate'){await api('/api/conversations/'+encodeURIComponent(conversation),{method:'PATCH',body:JSON.stringify({client_id:$('#convClient').value,project_id:$('#convProject').value})});$('#notice').textContent='השיוך נשמר';}
   if(action==='draft'){
-   $('#draftInfo').textContent='יוצר טיוטה. בטעינה הראשונה נדרשת הורדת מודל…';
+   $('#draftInfo').textContent='יוצר טיוטה באמצעות ספק AI חיצוני…';
    const d=await post('/api/conversations/'+encodeURIComponent(conversation)+'/draft',{instruction:$('#instruction').value});$('#reply').value=d.draft;$('#reply').dataset.draftId=d.id;$('#draftInfo').textContent='טיוטה מוכנה לעריכה. מקור: '+d.provider;
   }
   if(action==='send'){
@@ -114,9 +123,9 @@ async function realtime(){try{const d=await post('/api/ws-ticket'),url=new URL('
 
 
 
-function userError(code){const errors={external_ai_required:'לצ׳אט, לטיוטות ולניתוח מורכב נדרש ספק AI חיצוני. הגדר ספק חיצוני בהגדרות השרת.',external_ai_model_required:'יש להגדיר מודל כתיבה חיצוני, בנפרד ממודל Tiny המקומי.',knowledge_private_data:'התוכן מכיל פרטים אישיים או מזהים. יש להסיר אותם לפני שמירה.',knowledge_review_required:'נדרשת בדיקה ואישור שהתוכן כללי ומתאים לשיתוף בין שיחות.',invalid_knowledge_content:'יש למלא כותרת עד 255 תווים ותוכן עד 12000 תווים.',invalid_knowledge_extraction:'לא הופק נוהל כללי תקין מההודעה. אפשר לנסות הודעה אחרת.',confirmation_expired_or_used:'האישור פג תוקף או שכבר נעשה בו שימוש. בקש מהעוזר להכין את הפעולה מחדש.',destination_changed_request_new_confirmation:'פרטי הנמען השתנו. יש להכין את ההודעה מחדש ולקבל אישור חדש.',invalid_confirmation:'האישור אינו תקין. בקש להכין את הפעולה מחדש.',invalid_settings:'יש לבדוק את ערכי ההגדרות.',tool_permission_denied:'אין הרשאה לביצוע הפעולה.',not_found:'הרשומה לא נמצאה.',invalid_draft:'הטיוטה אינה זמינה לשליחה. יש לרענן את השיחה.',action_failed_review_required:'הפעולה לא הושלמה בוודאות. יש לבדוק את יומן הפעולות לפני ניסיון נוסף.',file_type_not_editable:'לא ניתן לערוך את סוג הקובץ הזה.',connection_failed:'החיבור נכשל. בדוק את פרטי החשבון.'};return errors[code]||(/[\u0590-\u05ff]/.test(String(code))?String(code):'הפעולה נכשלה. בדוק את הנתונים ונסה שוב.');}
+function userError(code){const errors={external_ai_required:'לצ׳אט, לטיוטות ולניתוח מורכב נדרש ספק AI חיצוני. הגדר ספק חיצוני בהגדרות השרת.',external_ai_model_required:'יש להגדיר מודל כתיבה חיצוני, בנפרד ממודל Tiny המקומי.',knowledge_private_data:'התוכן מכיל פרטים אישיים או מזהים. יש להסיר אותם לפני שמירה.',knowledge_review_required:'נדרשת בדיקה ואישור שהתוכן כללי ומתאים לשיתוף בין שיחות.',invalid_knowledge_content:'יש למלא כותרת עד 255 תווים ותוכן עד 12000 תווים.',invalid_knowledge_extraction:'לא הופק נוהל כללי תקין מההודעה. אפשר לנסות הודעה אחרת.',confirmation_expired_or_used:'האישור פג תוקף או שכבר נעשה בו שימוש. בקש מהעוזר להכין את הפעולה מחדש.',destination_changed_request_new_confirmation:'פרטי הנמען השתנו. יש להכין את ההודעה מחדש ולקבל אישור חדש.',invalid_confirmation:'האישור אינו תקין. בקש להכין את הפעולה מחדש.',invalid_settings:'יש לבדוק את ערכי ההגדרות.',tool_permission_denied:'אין הרשאה לביצוע הפעולה.',not_found:'הרשומה לא נמצאה.',invalid_draft:'הטיוטה אינה זמינה לשליחה. יש לרענן את השיחה.',action_failed_review_required:'הפעולה לא הושלמה בוודאות. יש לבדוק את יומן הפעולות לפני ניסיון נוסף.',file_type_not_editable:'לא ניתן לערוך את סוג הקובץ הזה.',connection_failed:'החיבור נכשל. בדוק את פרטי החשבון.',invalid_whatsapp_pairing_number:'הזן מספר בינלאומי, ספרות בלבד, כולל קידומת מדינה.',whatsapp_not_enabled:'חיבור WhatsApp אינו מופעל בשרת.',whatsapp_already_connected:'WhatsApp כבר מחובר. אין צורך בקוד נוסף.',whatsapp_pairing_in_progress:'קישור WhatsApp כבר מתבצע. נסה שוב לאחר סיומו.',whatsapp_pairing_failed:'לא הצלחנו לקבל קוד קישור. בדוק את המספר והחיבור ונסה שוב.'};return errors[code]||(/[\u0590-\u05ff]/.test(String(code))?String(code):'הפעולה נכשלה. בדוק את הנתונים ונסה שוב.');}
 function toolLabel(name){return ({send_email:'שליחת דואר',send_whatsapp:'שליחת WhatsApp',create_client:'יצירת לקוח',update_client:'עדכון לקוח',create_project:'יצירת פרויקט',update_project:'עדכון פרויקט',archive_project:'העברה לארכיון',create_task:'יצירת משימה',update_task:'עדכון משימה',update_system:'עדכון מערכת',create_draft:'יצירת טיוטה',create_file:'יצירת קובץ',update_file:'עדכון קובץ',create_reminder:'יצירת תזכורת'})[name];}
-const statusNames={manual:'ידני',ai:'טיפול חכם',ai_draft:'טיוטה חכמה',queued:'בתור',active:'פעיל',in_progress:'בטיפול',cancelled:'בוטל',normal:'רגיל',spam:'ספאם',suspicious:'חשוד',automated:'אוטומטי',marketing:'שיווקי',system:'מערכת',unknown:'לא ידוע',pending:'ממתין',completed:'הושלם',failed:'נכשל',running:'פועל',connected:'מחובר',connecting:'מתחבר',disconnected:'מנותק',reconnecting:'מתחבר מחדש',error:'שגיאה',open:'פתוח',done:'הושלם',archived:'בארכיון',deleted:'נמחק',draft:'טיוטה'};
+const statusNames={manual:'ידני',ai:'טיפול חכם',ai_draft:'טיוטה חכמה',queued:'בתור',active:'פעיל',in_progress:'בטיפול',cancelled:'בוטל',normal:'רגיל',spam:'ספאם',suspicious:'חשוד',automated:'אוטומטי',marketing:'שיווקי',system:'מערכת',unknown:'לא ידוע',pending:'ממתין',completed:'הושלם',failed:'נכשל',running:'פועל',connected:'מחובר',pairing_pending:'מבקש קוד',pairing_code_ready:'קוד מוכן להזנה בטלפון',qr_required:'נדרש QR',connecting:'מתחבר',disconnected:'מנותק',reconnecting:'מתחבר מחדש',error:'שגיאה',open:'פתוח',done:'הושלם',archived:'בארכיון',deleted:'נמחק',draft:'טיוטה'};
 const statusLabel=value=>statusNames[value]||value||'';
 const empty=text=>'<p class="empty">'+esc(text)+'</p>';
 const lifecycleButtons=x=>'<div class="actions">'+button('relations','קשרים',x.id||x.did)+button(x.archived_at||x.deleted_at?'restore':'archive',x.archived_at||x.deleted_at?'שחזור':'ארכיון',x.id||x.did)+button('delete','מחיקה',x.id||x.did)+(x.deleted_at?button('hard_delete','מחיקה לצמיתות',x.id||x.did):'')+'</div>';
@@ -210,12 +219,13 @@ async function intelligenceAction(action,b){
  return true;
 }
 document.addEventListener('submit',async e=>{
- const form=e.target;if(!['assistantForm','mailSetup','reminderForm','settingsForm','fileSearch','knowledgeForm'].includes(form.id))return;e.preventDefault();const submit=e.submitter;submit.disabled=true;$('#error').textContent='';
+ const form=e.target;if(!['assistantForm','mailSetup','waPairForm','reminderForm','settingsForm','fileSearch','knowledgeForm'].includes(form.id))return;e.preventDefault();const submit=e.submitter;submit.disabled=true;$('#error').textContent='';
  try{
   const fields=Object.fromEntries(new FormData(form));
   if(form.id==='assistantForm'){
    assistantMessages.push({role:'user',text:fields.message});renderChat();const d=await post('/api/assistant/chat',{message:fields.message});assistantMessages.push({role:'assistant',text:d.reply||'הבקשה טופלה.'});pendingActions.push(...(d.actions||[]));form.reset();renderChat();
   }
+  if(form.id==='waPairForm'){await post('/api/whatsapp/pair',{phone_number:fields.phone_number});form.reset();await loadWa();}
   if(form.id==='mailSetup'){
    $('#mailStatus').textContent='בודק את חיבור הדואר…';await post('/api/hostinger/accounts',fields);form.reset();$('#mailStatus').textContent='החשבון חובר בהצלחה.';
   }

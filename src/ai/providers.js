@@ -1,29 +1,28 @@
 import {config} from '../config.js';
 import {resolveLocalModel} from './local-model.js';
+import {parseAiProviders,callExternalAi} from './external-router.js';
 import {TINY_WORKLOADS,parseStructured,LABELS,labelMessages,labelSchema,parseLabel} from './tiny-contract.js';
 
-export const externalAvailable=settings=>settings?.generativeProvider!=='disabled'&&Boolean(config.aiBaseUrl&&config.aiApiToken);
+const configuredRoutes=()=>parseAiProviders(config);
+export const externalAvailable=settings=>settings?.generativeProvider!=='disabled'&&configuredRoutes().length>0;
 const externalModel=settings=>settings.externalModel||(!/^(onnx-community\/|.*Supra-50M)/i.test(settings.model||'')&&settings.provider!=='local'?settings.model:'')||config.aiModel||'';
 export function providerOrder(settings={},workload='text'){
  if(!Object.hasOwn(LABELS,workload))return externalAvailable(settings)?['external']:[];
  return [...(config.localAiEnabled?['local']:[]),...(settings.fallback!==false&&externalAvailable(settings)?['external']:[])];
 }
-async function external(messages,{settings,fetcher}){
- if(!externalAvailable(settings))throw Error('external_ai_required');
- const url=new URL(config.aiBaseUrl+'/chat/completions');
- if(url.protocol!=='https:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))throw Error('ai_endpoint_requires_https');
- const model=externalModel(settings);
- if(/Supra-50M|^onnx-community\//i.test(model))throw Error('external_ai_model_required');
- const response=await fetcher(url,{method:'POST',redirect:'error',signal:AbortSignal.timeout(config.httpTimeoutMs),headers:{'Content-Type':'application/json',Authorization:'Bearer '+config.aiApiToken},body:JSON.stringify({model:model||undefined,messages,temperature:Math.min(1,Math.max(0,Number(settings.temperature??0.2))),max_tokens:1024})});
- if(!response.ok)throw Error('ai_provider_http_'+response.status);
- const data=await response.json(),text=String(data.choices?.[0]?.message?.content||'').trim();if(!text)throw Error('empty_ai_response');return {text,provider:'external',model:model||'default'};
+async function external(messages,{settings,fetcher,routes}){
+ if(settings?.generativeProvider==='disabled')throw Error('external_ai_required');
+ const selected=routes||configuredRoutes();
+ const adjusted=selected.map(r=>r.id==='primary'&&!r.model?{...r,model:externalModel(settings)}:r);
+ return callExternalAi(messages,{routes:adjusted,fetcher,timeoutMs:config.httpTimeoutMs,temperature:settings?.temperature??0.2});
 }
+
 function validateMessages(messages){if(!Array.isArray(messages)||messages.some(m=>!['system','user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('invalid_ai_messages');}
 // Text, reasoning and tool planning are external-only, even under legacy provider=local.
-export async function generateText(messages,{settings={},providers,fetcher=fetch}={}){
+export async function generateText(messages,{settings={},providers,fetcher=fetch,routes}={}){
  validateMessages(messages);
  if(providers){if(!providers.external)throw Error('external_ai_required');return {text:String(await providers.external(messages)),provider:'external',model:externalModel(settings)||'test'};}
- return external(messages,{settings,fetcher});
+ return external(messages,{settings,fetcher,routes});
 }
 export const generate=generateText; // Compatibility entry point remains external-only.
 export async function generateLabel(input,{workload,settings={},providers,fetcher=fetch}={}){
