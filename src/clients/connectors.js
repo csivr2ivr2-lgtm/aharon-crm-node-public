@@ -2,7 +2,7 @@ import {config} from "../config.js";
 import {EncryptedVault} from "../connectors/vault.js";
 import {GoogleConnector} from "../connectors/google.js";
 import {hostingerMail} from "../connectors/hostinger-mail.js";
-import {whatsapp} from "../connectors/whatsapp.js";
+import {whatsapp} from "../connectors/whatsapp-sessions.js";
 
 const vault=new EncryptedVault(),google=new GoogleConnector(vault);
 export const googleConnector=google;

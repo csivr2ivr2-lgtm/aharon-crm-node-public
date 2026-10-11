@@ -56,7 +56,7 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
   let references=[];try{references=JSON.parse(inbound.references_json||"[]");}catch{}
   if(inbound.rfc_message_id)references.push(inbound.rfc_message_id);
   payload={...payload,to,account_id:externalAccountId,subject:/^re:/i.test(inbound.subject||"")?inbound.subject:"Re: "+String(inbound.subject||""),thread_id:inbound.thread_id?.replace(/^gmail:[^:]+:/,""),in_reply_to:inbound.rfc_message_id||"",references:[...new Set(references)]};channel=provider==="google"?"gmail":"hostinger";
- }else if(provider==="whatsapp"){channel="whatsapp";payload.to=conv.external_id;}else throw Error("unsupported_conversation_channel");
+ }else if(provider==="whatsapp"){channel="whatsapp";payload.to=conv.external_id;payload.account_id=externalAccountId;}else throw Error("unsupported_conversation_channel");
  const [claim]=await database.execute("INSERT IGNORE INTO outgoing_sends(id,conversation_id,status,request_hash,created_at,updated_at) VALUES(?,?,'sending',?,?,?)",[requestId,conversationId,requestHash,now(),now()]);
  if(!claim.affectedRows){
   const [old]=await database.execute("SELECT * FROM outgoing_sends WHERE id=?",[requestId]);

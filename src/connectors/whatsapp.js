@@ -24,9 +24,9 @@ const textFrom=m=>{
 };
 
 export class WhatsAppConnector{
- constructor(){this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false}
+ constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false}
  configured(){return config.whatsappEnabled}
- status(){return {key:"whatsapp",configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError}}
+ status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError}}
  async pairWithPhone(number,onEvent=this.onEvent){
   if(!this.configured())throw Error("whatsapp_not_enabled");
   const phone=pairingPhoneNumber(number);
@@ -51,8 +51,8 @@ export class WhatsAppConnector{
   this.stopped=false;this.onEvent=onEvent;if(!this.configured()||this.sock||this.connecting)return;
   this.connecting=true;this.qrReady=false;clearTimeout(this.retryTimer);this.statusValue="connecting";this.lastError=null;
   try{
-   await mkdir(config.whatsappSessionDir,{recursive:true,mode:0o700});
-   const {state,saveCreds}=await useMultiFileAuthState(config.whatsappSessionDir);
+   await mkdir(this.sessionDir,{recursive:true,mode:0o700});
+   const {state,saveCreds}=await useMultiFileAuthState(this.sessionDir);
    const sock=makeWASocket({auth:state,markOnlineOnConnect:false,syncFullHistory:false,generateHighQualityLinkPreview:false,logger:{level:"silent",child(){return this},trace(){},debug(){},info(){},warn(){},error(){},fatal(){}}});
    if(this.stopped){sock.end?.(new Error("shutdown"));return;}
    this.sock=sock;this.statusValue="connecting";
@@ -79,8 +79,8 @@ export class WhatsAppConnector{
      if(!m?.key?.remoteJid||m.key.remoteJid==="status@broadcast")continue;
      const body=textFrom(m);if(!body&&!m.message)continue;
      const jid=String(m.key.remoteJid),direction=m.key.fromMe?"out":"in";
-     const event={id:"wa:"+String(m.key.id||Date.now()),type:"message",source:"whatsapp.baileys",channel:"whatsapp",account_id:"whatsapp-main",
-      account:{provider:"whatsapp",type:"whatsapp",identifier:"whatsapp-main",label:"WhatsApp"},
+     const event={id:"wa:"+this.sessionId+":"+String(m.key.id||Date.now()),type:"message",source:"whatsapp.baileys",channel:"whatsapp",account_id:this.sessionId,
+      account:{provider:"whatsapp",type:"whatsapp",identifier:this.sessionId,label:this.label},
       conversation_external_id:jid,external_id:String(m.key.id||""),direction,sender:direction==="in"?jid:"me",recipient:direction==="out"?jid:"me",
       subject:"",body,is_read:direction==="out",sent_at:new Date(Number(m.messageTimestamp||Math.floor(Date.now()/1000))*1000).toISOString()};
      try{await this.onEvent?.(event)}catch{this.lastError="message_ingestion_failed";}
@@ -96,9 +96,8 @@ export class WhatsAppConnector{
   try{await sock?.logout();}catch{this.lastError="logout_failed";throw Error("whatsapp_logout_failed");}finally{sock?.end?.(new Error("logout"));}
   // Removing stored credentials also works when there is no active socket.
   await this.credentialWrites;
-  await rm(config.whatsappSessionDir,{recursive:true,force:true});this.statusValue="logged_out";this.lastError=null;
+  await rm(this.sessionDir,{recursive:true,force:true});this.statusValue="logged_out";this.lastError=null;
  }
  async deleteSession(){await this.logout();return {ok:true,...this.status()};}
  async send({to,body}){if(!this.sock||this.statusValue!=="connected")throw Error("WhatsApp is not connected");const jid=whatsappDestination(to);if(!String(body||"").trim())throw Error("body_required");const r=await this.sock.sendMessage(jid,{text:String(body)});return {ok:true,message_id:String(r?.key?.id||""),jid};}
 }
-export const whatsapp=new WhatsAppConnector();

@@ -85,7 +85,7 @@ app.post("/api/conversations/:id/draft",async(req,reply)=>{if(!uiAuth(req,reply)
 app.get("/api/conversations/:id/drafts",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,items:await listDrafts(req.params.id)}});
 app.post("/api/conversations/:id/send",async(req,reply)=>{if(!uiAuth(req,reply))return;if(req.body?.confirmed!==true)throw Error("confirmation_required");const body=String(req.body?.body||"").trim();if(!body)return reply.code(422).send({ok:false,error:"body_required"});const sent=await sendConversationReply({conversationId:req.params.id,body,draftId:String(req.body?.draft_id||""),requestId:String(req.body?.request_id||"")});hub.publish("message.sent",{conversation_id:req.params.id});return sent;});
 app.get("/api/connectors",async(req,reply)=>{if(!uiAuth(req,reply))return;return connectors.status()});
-app.get("/api/whatsapp/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,...whatsapp.status()}});
+app.get("/api/whatsapp/status",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.initialize();return {ok:true,...whatsapp.status({includeSecrets:true})}});
 app.post("/api/sync",async(req,reply)=>{if(!uiAuth(req,reply))return;return scheduler.runOnce()});
 app.post("/api/google/auth-url",async(req,reply)=>{if(!uiAuth(req,reply))return;if(!googleConnector.configured())return reply.code(503).send({ok:false,error:"google_not_configured"});const url=googleConnector.authUrl(String(req.body?.account_hint||""));reply.setCookie("oauth_state",new URL(url).searchParams.get("state"),{...cookieOpts,signed:true,sameSite:"lax",maxAge:600});return {ok:true,url}});
 app.get("/oauth/google/callback",async(req,reply)=>{
@@ -125,15 +125,15 @@ for(const [plural,entity] of [["projects","project"],["clients","client"],["task
 app.patch("/api/conversations/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.update",{...(req.body||{}),id:req.params.id});});
 app.get("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("note.list",req.query||{});});
 app.post("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("note.create",req.body||{});});
-app.post("/api/whatsapp/connect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.start(onWhatsAppEvent);return {ok:true,...whatsapp.status()};});
-app.post("/api/whatsapp/pair",async(req,reply)=>{if(!uiAuth(req,reply))return;return whatsapp.pairWithPhone(req.body?.phone_number,onWhatsAppEvent);});
-app.post("/api/whatsapp/logout",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.logout();return {ok:true};});
+app.post("/api/whatsapp/connect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.start(onWhatsAppEvent,String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};});
+app.post("/api/whatsapp/pair",async(req,reply)=>{if(!uiAuth(req,reply))return;return whatsapp.pairWithPhone(req.body?.phone_number,onWhatsAppEvent,String(req.body?.session_id||""));});
+app.post("/api/whatsapp/logout",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.logout(String(req.body?.session_id||"whatsapp-main"));return {ok:true};});
 app.post("/api/hostinger/accounts",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.configure(req.body||{});});
 app.post("/api/hostinger/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.disconnect();});
 app.delete("/api/google/accounts/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.disconnect(req.params.id);});
-app.post("/api/whatsapp/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.disconnect();return {ok:true,...whatsapp.status()};});
-app.post("/api/whatsapp/reconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.reconnect(onWhatsAppEvent);return {ok:true,...whatsapp.status()};});
-app.delete("/api/whatsapp/session",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.deleteSession();return {ok:true,...whatsapp.status()};});
+app.post("/api/whatsapp/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.disconnect(String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};});
+app.post("/api/whatsapp/reconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.reconnect(String(req.body?.session_id||"whatsapp-main"),onWhatsAppEvent);return {ok:true,...whatsapp.status({includeSecrets:true})};});
+app.delete("/api/whatsapp/session",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.deleteSession(String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};});
 
 app.get("/v1/status",async(req,reply)=>{if(!apiAuth(req,reply))return;return {ok:true,workspace:await workspace.call("status"),connectors:await connectors.status()}});
 app.post("/v1/workspace/:op",async(req,reply)=>{if(!apiAuth(req,reply))return;return workspace.call(req.params.op,req.body||{});});
@@ -154,7 +154,7 @@ if(startBackground)app.addHook("onListen",async()=>{
  const schedulePeriodic=async()=>{const minute=Math.floor(Date.now()/60000);await enqueueJob("reminders.tick",{},{idempotencyKey:"reminders:"+minute});await enqueueJob("followups.tick",{},{idempotencyKey:"followups:"+Math.floor(minute/15)});};
  const tick=()=>{void schedulePeriodic().catch(()=>app.log.warn("Reminder scheduling failed"));};
  reminders=setInterval(tick,60000);reminders.unref();tick();
- void whatsapp.start(onWhatsAppEvent).catch(()=>app.log.warn("WhatsApp connection failed"));
+ void whatsapp.startAll(onWhatsAppEvent).catch(()=>app.log.warn("WhatsApp connections failed"));
 });
 return app;
 }
