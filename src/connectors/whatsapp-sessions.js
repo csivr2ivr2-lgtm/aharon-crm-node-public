@@ -10,14 +10,16 @@ const MAX_SESSIONS=10;
 
 // Preserve the old WhatsApp session at the auth root; new sessions stay in isolated child directories.
 export class WhatsAppSessions {
- constructor({rootDir=config.whatsappSessionDir,connectorFactory=options=>new WhatsAppConnector(options)}={}){
+ constructor({rootDir=config.whatsappSessionDir,connectorFactory=options=>new WhatsAppConnector(options),enabled=config.whatsappEnabled}={}){
+  this.enabled=enabled;
   this.rootDir=rootDir;this.connectorFactory=connectorFactory;this.sessions=new Map();
   this.sessions.set('whatsapp-main',this.make('whatsapp-main',null));
   this.initializing=null;this.mutations=Promise.resolve();this.onEvent=null;
  }
  make(id,phone){
   const sessionDir=id==='whatsapp-main'?this.rootDir:join(this.rootDir,'sessions',id);
-  return this.connectorFactory({sessionId:id,sessionDir,label:phone?'WhatsApp · '+phone:'WhatsApp (ראשי)'});
+  const connector=this.connectorFactory({sessionId:id,sessionDir,label:phone?'WhatsApp · '+phone:'WhatsApp (ראשי)'});
+  connector.phoneNumber=phone;return connector;
  }
  async initialize(){
   if(this.initializing)return this.initializing;
@@ -59,16 +61,16 @@ export class WhatsAppSessions {
    const {qr,pairing_code,...safe}=s;
    return {id,...safe,...(includeSecrets?{qr,pairing_code}:{})};
   });
-  return {key:'whatsapp',configured:config.whatsappEnabled,status:sessions.some(s=>s.status==='connected')?'connected':sessions.some(s=>s.status==='connecting')?'connecting':'disconnected',sessions};
+  return {key:'whatsapp',configured:this.enabled,status:sessions.some(s=>s.status==='connected')?'connected':sessions.some(s=>s.status==='connecting')?'connecting':'disconnected',sessions};
  }
- async startAll(onEvent){await this.initialize();this.onEvent=onEvent;if(!config.whatsappEnabled)return this.status();
+ async startAll(onEvent){await this.initialize();this.onEvent=onEvent;if(!this.enabled)return this.status();
   await Promise.allSettled([...this.sessions.values()].map(c=>c.start(onEvent)));
   return this.status();
  }
  async start(onEvent=this.onEvent,id='whatsapp-main'){await this.initialize();this.onEvent=onEvent;await this.get(id).start(onEvent);return this.status({includeSecrets:true});}
  async pairWithPhone(number,onEvent=this.onEvent,id=''){
   await this.initialize();
-  if(!config.whatsappEnabled)throw Error('whatsapp_not_enabled');
+  if(!this.enabled)throw Error('whatsapp_not_enabled');
   const phone=pairingPhoneNumber(number);this.onEvent=onEvent;
   const connector=await this.mutate(async()=>{
    let existing=id?this.get(id):[...this.sessions.values()].find(c=>c.phoneNumber===phone);
