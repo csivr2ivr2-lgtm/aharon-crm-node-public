@@ -6,16 +6,16 @@ import {appHtml} from '../src/ui.js';
 const source=(await readFile(new URL('../src/browser.js',import.meta.url),'utf8')).replace(/void render\(location\.hash\.slice\(1\)\|\|'home'\)\.catch\(e=>\$\('#error'\)\.textContent=e\.message\);void realtime\(\);/,'');
 function harness(responses={}){
  const elements=new Map(),calls=[],listeners={};
- const element=key=>{if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',value:'',dataset:{},classList:{toggle(){}},scrollHeight:10,reset(){},insertAdjacentHTML(_position,html){this.innerHTML+=html;}});return elements.get(key);};
+ const element=key=>{if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',value:'',dataset:{},classList:{toggle(){}},scrollHeight:10,reset(){},insertAdjacentHTML(_position,html){this.innerHTML+=html;} ,closest(){return {querySelectorAll:()=>[]}}});return elements.get(key);};
  const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,console,setTimeout:()=>0,clearTimeout(){},confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??{ok:true,items:[]};return {ok:true,status:200,json:async()=>value};}});
  vm.runInContext(source,context);return {run:code=>vm.runInContext(code,context),element,calls,context,listeners};
 }
 test('Hebrew RTL navigation reaches all intelligence and CRM screens',()=>{const html=appHtml();assert.match(html,/lang="he" dir="rtl"/);for(const page of ['assistant','spam','suggestions','reminders','notifications','settings','files','followups','knowledge'])assert.ok(html.includes('data-view="'+page+'"'));assert.match(html,/bi bi-/);});
 test('untrusted assistant reply and action arguments are escaped, confirmation includes server token',async()=>{
- const h=harness();h.run(`assistantMessages=[{role:'assistant',text:'<img src=x onerror=alert(1)>'}];pendingActions=[{id:'a1',summary:'שליחה',args:{body:'<script>bad()</script>'},status:'pending',confirmation_token:'server-issued'}];renderChat();`);
+ const h=harness({'/api/assistant/actions/a1/confirm':{ok:true,status:'completed'}});h.run(`assistantMessages=[{role:'assistant',text:'<img src=x onerror=alert(1)>',actions:[{id:'a1',summary:'שליחה',args:{body:'<script>bad()</script>'},status:'pending',confirmation_token:'server-issued'}]}];renderChat();`);
  assert.ok(h.element('#chatLog').innerHTML.includes('&lt;script&gt;'));assert.ok(!h.element('#chatLog').innerHTML.includes('<img'));
  await h.run(`intelligenceAction('assistant-confirm',{dataset:{id:'a1'}})`);assert.deepEqual(JSON.parse(h.calls[0].body),{confirmed:true,confirmation_token:'server-issued'});
- await h.run(`intelligenceAction('assistant-confirm',{dataset:{id:'a1'}})`);assert.equal(h.calls.length,1);assert.equal(h.run('pendingActions[0].confirmation_token'),undefined);
+ await h.run(`intelligenceAction('assistant-confirm',{dataset:{id:'a1'}})`);assert.equal(h.calls.length,1);assert.equal(h.run('assistantMessages[0].actions[0].confirmation_token'),undefined);
 });
 test('cancelled lifecycle confirmation reads relations and never mutates',async()=>{
  const h=harness({'/api/projects/p1/relations':{ok:true,relations:{tasks:3}}});h.context.confirm=()=>false;h.run(`view='projects'`);
@@ -38,15 +38,15 @@ test('file deletion is explicitly confirmed and all identifiers are path encoded
  await h.run(`intelligenceAction('file-read',{dataset:{id:'../private'}})`);assert.equal(h.calls[0].url,'/api/files/..%2Fprivate/content');
 });
 test('send confirmation displays resolved recipient, sender and body but not integration keys',()=>{
- const h=harness();h.run(`pendingActions=[{id:'a1',tool:'send_whatsapp',args:{client_id:'opaque-client-id'},preview:{recipient:'972501234567',client:'דוד',account:'החשבון שלי',account_key:'private:internal-key',body:'היי מה איתך'},status:'pending',confirmation_token:'secret'}];renderChat();`);
+ const h=harness();h.run(`assistantMessages=[{role:'assistant',text:'פרטי שליחה',actions:[{id:'a1',tool:'send_whatsapp',args:{client_id:'opaque-client-id'},preview:{recipient:'972501234567',client:'דוד',account:'החשבון שלי',account_key:'private:internal-key',body:'היי מה איתך'},status:'pending',confirmation_token:'secret'}]}];renderChat();`);
  const html=h.element('#chatLog').innerHTML;for(const value of ['972501234567','דוד','החשבון שלי','היי מה איתך'])assert.ok(html.includes(value));assert.ok(!html.includes('private:internal-key'));assert.ok(!html.includes('opaque-client-id'));assert.ok(!html.includes('secret'));
 });
 test('connector controls render distinct lifecycle actions and call matching routes',async()=>{
- const h=harness({'/api/connectors':{connectors:[{key:'google',configured:true,accounts:[{id:'a/1',email:'<unsafe@example.test>'}]},{key:'hostinger-mail',configured:true,account:'me@example.test'}]},'/api/whatsapp/status':{status:'connected'}});
+ const h=harness({'/api/connectors':{connectors:[{key:'google',configured:true,accounts:[{id:'a/1',email:'<unsafe@example.test>'}]},{key:'hostinger-mail',configured:true,account:'me@example.test'}]},'/api/whatsapp/status':{sessions:[{id:'s1',status:'connected',label:'בדיקה'}]}});
  await h.run(`render('connectors')`);
  const html=h.element('#content').innerHTML;assert.ok(html.includes('&lt;unsafe@example.test&gt;'));assert.ok(!html.includes('<unsafe'));
  const actions=[['wa-reconnect','/api/whatsapp/reconnect','POST'],['wa-disconnect','/api/whatsapp/disconnect','POST'],['wa-delete-session','/api/whatsapp/session','DELETE'],['google-disconnect','/api/google/accounts/a%2F1','DELETE'],['hostinger-disconnect','/api/hostinger/disconnect','POST']];
- for(const [action,url,method] of actions){assert.ok(html.includes('data-action="'+action+'"'));const b={dataset:{action,id:'a/1'}};await h.listeners.click({target:{closest:()=>b}});assert.ok(h.calls.some(x=>x.url===url&&x.method===method));assert.equal(b.disabled,false);}
+ for(const [action,url,method] of actions){assert.ok((html+h.element('#wa').innerHTML).includes('data-action="'+action+'"'));const b={dataset:{action,id:'a/1'}};await h.listeners.click({target:{closest:()=>b}});assert.ok(h.calls.some(x=>x.url===url&&x.method===method));assert.equal(b.disabled,false);}
 });
 test('cancelling connector disconnect or session deletion never calls a mutation',async()=>{
  const h=harness();h.context.confirm=()=>false;
@@ -62,7 +62,7 @@ test('archived file search remains available after restore and uses lifecycle fl
 });
 test('read messages may still wait for a reply and outgoing unread messages do not wait for us',async()=>{
  const h=harness({'/api/inbox':{items:[{id:'c1',title:'read incoming',unread_count:0,last_message_direction:'in'},{id:'c2',title:'unread outgoing',unread_count:2,last_message_direction:'out'}]}});await h.run(`render('inbox')`);
- const html=h.element('#content').innerHTML;assert.match(html,/נקרא/);assert.match(html,/2 לא נקראו/);assert.equal((html.match(/ממתין לתשובה שלך/g)||[]).length,1);assert.equal((html.match(/ממתין לתשובת הצד השני/g)||[]).length,1);
+ const html=h.element('#inboxItems').innerHTML;assert.match(html,/נקרא/);assert.match(html,/2 לא נקראו/);assert.equal((html.match(/ממתין לתשובה שלך/g)||[]).length,1);assert.equal((html.match(/ממתין לתשובת הצד השני/g)||[]).length,1);
 });
 test('settings renders real processing and login security status and escapes errors',async()=>{
  const h=harness({'/api/settings':{settings:{ai:{},automation:{},messaging:{trustedClientIds:[]}}},'/api/background/status':{enabled:true,running:false,queued:4,failed:2,last_error:'<script>bad()</script>'},'/api/security/status':{failed_attempts:3,blocked_ips:['192.0.2.1'],locked:false}});
@@ -112,4 +112,55 @@ test('settings save separate local and generative model names',async()=>{
 test('benchmark UI shows expected/predicted labels, margin and aggregate quality without generated text',async()=>{
  const h=harness({'/api/ai/status':{enabled:true,state:'loaded',test_result:{cases:[{id:'en_1',language:'en',decisions:[{workload:'intent',expected:'support',label:'support',matched:true,margin:0.42,inference_ms:150}]}],summary:{languages:{en:{correct:18,total:20,accuracy:90,uncertain:2}},overall:{correct:18,total:20,accuracy:90,uncertain:2},workloads:{},average_inference_ms:150}}}});
  await h.run("render('ai')");const html=h.element('#content').innerHTML;for(const text of ['18/20','90.0%','expected support','predicted support','margin: 0.42'])assert.ok(html.includes(text));assert.ok(!html.includes('Test raw output'));
+});
+
+
+test('previous assistant session loads actions in-place and confirms via session-owned route',async()=>{
+ const history='/api/assistant/sessions/chat_12345678-1234-1234-1234-123456789abc';
+ const h=harness({
+  '/api/assistant/sessions':{ok:true,items:[{id:'chat_12345678-1234-1234-1234-123456789abc',title:'שיחת בדיקה'}]},
+  [history]:{ok:true,messages:[
+   {role:'user',text:'צור משימה בשם "בדיקה"'},
+   {role:'assistant',text:'פעולה ממתינה',actions:[{id:'act_123456789012',tool:'create_task',args:{title:'בדיקה'},status:'pending',confirmation_token:'TEST_NON_SECRET'}]},
+   {role:'user',text:'מה עם הלקוח?'},
+   {role:'assistant',text:'צריך לבדוק את פרטי הלקוח.',actions:[]}
+  ]},
+  [history+'/actions/act_123456789012/confirm']:{ok:true,status:'completed',result:{ok:true}}
+ });
+ await h.run("renderIntelligence('assistant')");
+ assert.ok(h.element('#assistantSessions').innerHTML.includes('שיחת בדיקה'));
+ let html=h.element('#chatLog').innerHTML;
+ assert.ok(html.indexOf('data-action="assistant-confirm"')<html.indexOf('מה עם הלקוח?'));
+ await h.run("intelligenceAction('assistant-confirm',{dataset:{id:'act_123456789012'}})");
+ const call=h.calls.find(x=>x.url.endsWith('/actions/act_123456789012/confirm'));
+ assert.ok(call);assert.deepEqual(JSON.parse(call.body),{confirmed:true,confirmation_token:'TEST_NON_SECRET'});
+ html=h.element('#chatLog').innerHTML;
+ assert.ok(html.indexOf('הושלם')<html.indexOf('מה עם הלקוח?'));
+});
+test('historical inbox triage respects explicit consent and never deletes anything',async()=>{
+ const h=harness({'/api/inbox/history/triage':{ok:true,scanned:2,updated:1,next_cursor:'m2',done:true},'/api/inbox':{items:[]}});
+ h.run("view='inbox'");
+ h.context.confirm=()=>false;
+ await h.listeners.click({target:{closest:()=>({dataset:{action:'historical-triage',id:''}})}});
+ assert.equal(h.calls.length,0);
+ h.context.confirm=()=>true;
+ await h.listeners.click({target:{closest:()=>({dataset:{action:'historical-triage',id:''}})}});
+ const requests=h.calls.filter(x=>x.url==='/api/inbox/history/triage');
+ assert.equal(requests.length,1);
+ assert.equal(JSON.parse(requests[0].body).confirmed,true);
+ assert.ok(!h.calls.some(x=>/DELETE|\/delete/.test(x.method||'')||/\/delete/.test(x.url)));
+});
+test('reply variants use existing CRM-grounded draft route and never send',async()=>{
+ const h=harness({
+  '/api/conversations/c1':{ok:true,item:{title:'פנייה עסקית',client_id:'',project_id:''},messages:[{id:'m1',direction:'in',classification:'normal',body:'אשמח להצעת מחיר'}]},
+  '/api/clients':{items:[]},'/api/projects':{items:[]},
+  '/api/conversations/c1/drafts':{items:[]},'/api/conversations/c1/read':{ok:true},
+  '/api/conversations/c1/draft':{ok:true,id:'draft_1',draft:'שלום, אשמח לשלוח הצעת מחיר.'}
+ });
+ await h.run("openConversation('c1')");
+ await h.listeners.click({target:{closest:()=>({dataset:{action:'reply-suggestion',id:'short'}})}});
+ const calls=h.calls.filter(x=>x.url==='/api/conversations/c1/draft'&&x.method==='POST');
+ assert.equal(calls.length,1);assert.match(JSON.parse(calls[0].body).instruction,/תשובה קצרה/);
+ assert.equal(h.element('#reply').value,'שלום, אשמח לשלוח הצעת מחיר.');
+ assert.ok(!h.calls.some(x=>x.url.endsWith('/send')));
 });

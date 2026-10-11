@@ -51,6 +51,30 @@ textarea{resize:vertical;line-height:1.6}.muted{color:#66768a}.tag{background:#e
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .assistant-empty{text-align:center;margin:45px auto 20px;max-width:380px;color:#687b95}.assistant-empty i{font-size:34px;color:#94acdf}.assistant-empty h3{color:#2a3d60;margin:8px 0}
 .assistant-composer{border-top:1px solid #e8eef6;padding:13px 20px;display:flex;gap:12px;align-items:flex-end;background:#fff}.assistant-composer textarea{min-height:52px;max-height:150px;flex:1;padding:11px 13px}.assistant-composer .btn{white-space:nowrap}.assistant-disclaimer{text-align:center;font-size:11px;color:#7e8a9e;margin:0;padding:0 20px 13px;background:#fff}
+
+/* Historical assistant conversations; inline confirmations never leave the originating turn. */
+.assistant-layout{display:grid;grid-template-columns:minmax(195px,255px) minmax(0,1fr);gap:16px;align-items:start}
+.assistant-history{padding:16px;background:var(--card,#fff);border:1px solid #e0e8f3;border-radius:18px;min-width:0;position:sticky;top:16px}
+.assistant-history-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
+.assistant-history-head h3{font-size:15px;margin:0}.assistant-history-head button{font-size:12px;padding:6px 9px;min-height:32px}
+.assistant-session-list{display:grid;gap:7px;max-height:min(65dvh,630px);overflow:auto}
+.assistant-session{display:flex;align-items:center;gap:3px;border-radius:10px;border:1px solid #e9eef6;padding:5px}
+.assistant-session.selected{background:#eef3ff;border-color:#c2d3fc}
+.assistant-session button:first-child{flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;min-width:0;font-size:13px}
+.assistant-session button:last-child{padding:5px;font-size:11px;min-height:29px;flex:none;border:0;background:transparent;color:#61738e}
+.assistant-history>.muted{font-size:11px;margin:12px 3px 0}
+.assistant-layout .assistant-workspace{margin:0;min-height:min(75dvh,810px)}
+.assistant-action-card{align-self:stretch;min-width:min(100%,400px);margin-top:9px;border:1px solid #b8c8e6;background:#fff;border-radius:14px;padding:12px;box-shadow:0 5px 14px #1b325016}
+.assistant-action-title{display:flex;align-items:center;gap:7px;color:#264c85}.assistant-action-title strong{font-size:13px}
+.assistant-action-card .note{font-size:12px;overflow-wrap:anywhere;max-height:180px;overflow:auto}
+.assistant-action-controls{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+.assistant-action-controls button:first-child{background:#dcefe7;color:#15583f}
+.assistant-action-controls .tag{background:#e7f5ec;color:#226449}
+.chat-turn:has(.assistant-action-card){max-width:min(88%,720px)}
+@media(max-width:950px){.assistant-layout{grid-template-columns:1fr}.assistant-history{position:static}.assistant-session-list{display:flex;overflow-x:auto;max-height:none}.assistant-session{flex:0 0 180px}.assistant-history>.muted{display:none}}
+@media(max-width:600px){.assistant-layout{gap:9px}.assistant-history{padding:10px}.assistant-session{flex-basis:155px}.chat-turn:has(.assistant-action-card){max-width:97%}}
+
+.reply-variants{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}.reply-variants .muted{flex-basis:100%;font-size:12px}.reply-variants button{min-height:34px;padding:6px 12px;font-size:12px;background:#edf4ff;border:1px solid #d3e1fa;border-radius:20px;color:#24549a}
 @media(max-width:1100px){.conversation-layout{grid-template-columns:1fr}.conversation-sidebar{position:static;display:flex;gap:12px;align-items:end;flex-wrap:wrap}.conversation-sidebar h3{width:100%}.conversation-sidebar label{min-width:170px;flex:1}.conversation-sidebar .btn{width:auto}}
 @media(max-width:800px){
 .app{display:block}.side{height:auto;position:fixed;inset:auto 0 0;z-index:1000;padding:5px 8px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -5px 20px #14243e2b}

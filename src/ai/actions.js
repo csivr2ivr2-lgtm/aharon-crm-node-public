@@ -115,6 +115,22 @@ export class ActionEngine{
    await this.database.execute("UPDATE ai_actions SET state='completed',result_json=?,updated_at=? WHERE id=?",[JSON.stringify(safeJSON(result)),now(),action.id]);await this.audit(action,'completed',before,result);return {ok:true,id:action.id,tool:tool.name,status:'completed',result:safeJSON(result)};
   }catch(error){await this.database.execute("UPDATE ai_actions SET state='uncertain',error=?,updated_at=? WHERE id=?",['action_failed_review_required',now(),action.id]);await this.audit(action,'uncertain',before,{error:'action_failed_review_required'});throw error;}
  }
+ async reissuePendingToken(actionId,context){
+  if(context?.source!=='chat'||context?.trustedInput!==true||!context?.actor)throw Error('chat_permission_denied');
+  const [rows]=await this.database.execute('SELECT id,actor,source,state,expires_at,token_hash FROM ai_actions WHERE id=?',[actionId]);
+  const a=rows[0];if(!a||a.actor!==context.actor||a.source!=='chat')throw Error('action_not_found');
+  if(a.state!=='pending'||Date.parse(a.expires_at)<=this.clock())return null;
+  const token=randomBytes(32).toString('hex');
+  const [changed]=await this.database.execute("UPDATE ai_actions SET token_hash=?,updated_at=? WHERE id=? AND state='pending' AND token_hash=?",[hash(token),now(),actionId,a.token_hash]);
+  if(!changed.affectedRows)throw Error('action_token_rotation_conflict');
+  return token;
+ }
+ async dismissPending(actionId,context){
+  if(context?.source!=='chat'||context?.trustedInput!==true||!context?.actor)throw Error('chat_permission_denied');
+  const [changed]=await this.database.execute("UPDATE ai_actions SET state='dismissed',token_hash='',updated_at=? WHERE id=? AND actor=? AND source='chat' AND state='pending'",[now(),actionId,context.actor]);
+  if(!changed.affectedRows)throw Error('action_not_pending');
+  return {ok:true,status:'dismissed'};
+ }
  async resolveSend(name,args){
   const result=await this.workspace.call('client.get',{id:args.client_id});if(!result.ok)throw Error('client_not_found');const client=result.item;
   const accounts=await this.workspace.call('account.list',{});const account=accounts.items.find(a=>a.id===args.account_id&&a.status==='active');if(!account)throw Error('account_not_found');
@@ -124,7 +140,7 @@ export class ActionEngine{
   return {to,client,account,provider,externalId};
  }
  async perform(tool,args,actionId,approvedPreview=null){
-  if(tool.op==='waiting_for_reply'){const [items]=await this.database.execute("SELECT c.id,c.title,c.client_id,c.channel,m.sent_at AS waiting_since,LEFT(COALESCE(m.body,''),900) AS latest_inbound_body FROM conversations c JOIN messages m ON m.conversation_id=c.id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN projects p ON p.id=c.project_id WHERE m.direction='in' AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND COALESCE(m.spam_disposition,'inbox')<>'spam' AND COALESCE(m.classification,'normal')='normal' AND (cl.id IS NULL OR cl.status='active') AND p.deleted_at IS NULL AND p.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id))) ORDER BY m.sent_at DESC,m.id DESC LIMIT "+Math.max(1,Math.min(50,Number(args.limit)||50)));return {ok:true,items};}
+  if(tool.op==='waiting_for_reply'){const [items]=await this.database.execute("SELECT c.id,c.title,c.client_id,c.channel,m.sent_at AS waiting_since,LEFT(COALESCE(m.body,''),900) AS latest_inbound_body FROM conversations c JOIN messages m ON m.conversation_id=c.id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN projects p ON p.id=c.project_id WHERE m.direction='in' AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND COALESCE(m.spam_disposition,'inbox') NOT IN ('spam','updates','review') AND COALESCE(m.classification,'normal') NOT IN ('spam','marketing','system','automated','suspicious') AND LOWER(COALESCE(m.subject,'')) NOT REGEXP '^(welcome to supabase|your temporary (chatgpt )?login code|new login from |new sign-in to |summary of failures for google apps script|oauth application approval)' AND (cl.id IS NULL OR cl.status='active') AND p.deleted_at IS NULL AND p.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id))) ORDER BY m.sent_at DESC,m.id DESC LIMIT "+Math.max(1,Math.min(50,Number(args.limit)||50)));return {ok:true,items};}
   if(tool.permission==='send'){
    const {to,client,account,provider,externalId}=await this.resolveSend(tool.name,args),channel=provider==='google'?'gmail':provider;
    if(approvedPreview&&(approvedPreview.recipient!==to||approvedPreview.account_key!==account.integration_key))throw Error('destination_changed_request_new_confirmation');
