@@ -115,6 +115,22 @@ export class ActionEngine{
    await this.database.execute("UPDATE ai_actions SET state='completed',result_json=?,updated_at=? WHERE id=?",[JSON.stringify(safeJSON(result)),now(),action.id]);await this.audit(action,'completed',before,result);return {ok:true,id:action.id,tool:tool.name,status:'completed',result:safeJSON(result)};
   }catch(error){await this.database.execute("UPDATE ai_actions SET state='uncertain',error=?,updated_at=? WHERE id=?",['action_failed_review_required',now(),action.id]);await this.audit(action,'uncertain',before,{error:'action_failed_review_required'});throw error;}
  }
+ async reissuePendingToken(actionId,context){
+  if(context?.source!=='chat'||context?.trustedInput!==true||!context?.actor)throw Error('chat_permission_denied');
+  const [rows]=await this.database.execute('SELECT id,actor,source,state,expires_at,token_hash FROM ai_actions WHERE id=?',[actionId]);
+  const a=rows[0];if(!a||a.actor!==context.actor||a.source!=='chat')throw Error('action_not_found');
+  if(a.state!=='pending'||Date.parse(a.expires_at)<=this.clock())return null;
+  const token=randomBytes(32).toString('hex');
+  const [changed]=await this.database.execute("UPDATE ai_actions SET token_hash=?,updated_at=? WHERE id=? AND state='pending' AND token_hash=?",[hash(token),now(),actionId,a.token_hash]);
+  if(!changed.affectedRows)throw Error('action_token_rotation_conflict');
+  return token;
+ }
+ async dismissPending(actionId,context){
+  if(context?.source!=='chat'||context?.trustedInput!==true||!context?.actor)throw Error('chat_permission_denied');
+  const [changed]=await this.database.execute("UPDATE ai_actions SET state='dismissed',token_hash='',updated_at=? WHERE id=? AND actor=? AND source='chat' AND state='pending'",[now(),actionId,context.actor]);
+  if(!changed.affectedRows)throw Error('action_not_pending');
+  return {ok:true,status:'dismissed'};
+ }
  async resolveSend(name,args){
   const result=await this.workspace.call('client.get',{id:args.client_id});if(!result.ok)throw Error('client_not_found');const client=result.item;
   const accounts=await this.workspace.call('account.list',{});const account=accounts.items.find(a=>a.id===args.account_id&&a.status==='active');if(!account)throw Error('account_not_found');
