@@ -2,6 +2,7 @@ import {randomBytes,createHash} from "node:crypto";
 import {db,now} from "./db.js";
 import {enqueueJob} from "./platform/jobs.js";
 import {phoneOf,emailOf} from "./message-format.js";
+import {isWhatsAppChannelJid,whatsappChannelExclusionSql} from "./connectors/whatsapp-channel-filter.js";
 const id=p=>p+"_"+randomBytes(8).toString("hex");
 const lim=(v,d=50,m=200)=>Math.max(1,Math.min(m,Number.parseInt(String(v??d),10)||d));
 const j=v=>JSON.stringify(v??{});
@@ -41,6 +42,8 @@ export async function ingestMessage(p){
  const externalAccountId=String(p.account_id||account.identifier||"default"),integrationKey=provider+":"+externalAccountId;
  const ext=String(p.conversation_external_id||p.thread_id||p.external_id||p.id||"");
  const ev=String(p.external_id||p.id||"");
+ // Never store WhatsApp channel posts as customer conversations, even if an alternate connector bypasses Baileys.
+ if((p.channel==="whatsapp"||provider==="whatsapp")&&isWhatsAppChannelJid(ext))return {inserted:false,skipped:"whatsapp_channel"};
  if(!ext||!ev)throw Error("message_and_conversation_id_required");
  const accountId=hashId("acct",integrationKey);let convId=hashId("conv",provider+"|"+externalAccountId+"|"+ext);
  const msgId=hashId("msg",provider+"|"+externalAccountId+"|"+ev);
@@ -127,6 +130,8 @@ export class WorkspaceService{
    if(p.project_id&&["task","client","account"].includes(entity)){where.push("EXISTS(SELECT 1 FROM entity_relations r WHERE r.from_type=? AND r.from_id=e.id AND r.to_type='project' AND r.to_id=?)");values.push(entity,String(p.project_id));}
    if(entity==="conversation"&&p.unread_only)where.push("unread_count>0");
    if(entity==="conversation"){
+    // Exclude pre-existing WhatsApp channel conversations from ALL folders, including Updates and Spam.
+    where.push(whatsappChannelExclusionSql);
     const latest="(SELECT m.spam_disposition FROM messages m WHERE m.conversation_id=e.id AND m.direction='in' ORDER BY m.sent_at DESC,m.id DESC LIMIT 1)";
     const latestClass="(SELECT m.classification FROM messages m WHERE m.conversation_id=e.id AND m.direction='in' ORDER BY m.sent_at DESC,m.id DESC LIMIT 1)";
     const latestSubject="(SELECT m.subject FROM messages m WHERE m.conversation_id=e.id AND m.direction='in' ORDER BY m.sent_at DESC,m.id DESC LIMIT 1)";
