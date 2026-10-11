@@ -1,7 +1,7 @@
 /* Browser-only UI. Record data is escaped and never inserted into executable attributes. */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const labels={followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'ראשי',inbox:'תיבת הודעות',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
+const labels={followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'ראשי',inbox:'תיבת הודעות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
 const entityNames={clients:'client',projects:'project',tasks:'task',systems:'system',accounts:'account'};
 let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
@@ -23,10 +23,10 @@ async function render(next){
   const d=await api('/api/status');$('#content').innerHTML='<div class="grid">'+Object.entries(d.counts||{}).map(([k,n])=>'<div class="card"><div class="metric">'+Number(n)+'</div>'+esc(labels[k]||({conversations:'שיחות',messages:'הודעות'})[k]||k)+'</div>').join('')+'</div><div class="panel">'+button('sync','סנכרון הודעות')+'</div>';return;
  }
  if(await renderIntelligence(view))return;
- if(view==='inbox'||view==='spam'){
-  const d=await api('/api/inbox'+(view==='spam'?'?folder=spam':''));
+ if(view==='inbox'||view==='spam'||view==='updates'){
+  const d=await api('/api/inbox'+(view==='spam'?'?folder=spam':view==='updates'?'?folder=updates':''));
   inboxItems=d.items||[];
-  $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><div><p class="eyebrow">מרכז הודעות</p><h2>'+(view==='spam'?'דואר לבדיקה':'כל השיחות במקום אחד')+'</h2><p class="muted">WhatsApp, Gmail ו־Hostinger במרחב עבודה אחד</p></div>'+button('sync','סנכרון עכשיו')+'</div><div class="inbox-toolbar"><label class="search-field"><span class="sr-only">חיפוש</span><input id="inboxSearch" type="search" value="'+esc(inboxQuery)+'" placeholder="חיפוש לפי שם או נושא…"></label><div class="inbox-filters">'+button('inbox-filter','הכול','all')+button('inbox-filter','לא נקראו','unread')+'</div></div><div id="inboxItems" class="inbox-items"></div></section>';
+  $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><div><p class="eyebrow">מרכז הודעות</p><h2>'+(view==='spam'?'דואר לבדיקה':view==='updates'?'עדכונים והודעות מערכת':'כל השיחות במקום אחד')+'</h2><p class="muted">WhatsApp, Gmail ו־Hostinger במרחב עבודה אחד</p></div>'+button('sync','סנכרון עכשיו')+'</div><div class="inbox-toolbar"><label class="search-field"><span class="sr-only">חיפוש</span><input id="inboxSearch" type="search" value="'+esc(inboxQuery)+'" placeholder="חיפוש לפי שם או נושא…"></label><div class="inbox-filters">'+button('inbox-filter','הכול','all')+button('inbox-filter','לא נקראו','unread')+'</div></div><div id="inboxItems" class="inbox-items"></div></section>';
   renderInboxItems();return;
  }
  if(entityNames[view]){
@@ -79,7 +79,7 @@ function renderInboxItems(){
  root.innerHTML=rows.map(x=>'<article class="inbox-item"><span class="inbox-avatar">'+esc(String(x.title||'ש').charAt(0))+'</span><div class="inbox-copy"><strong>'+esc(x.title||'שיחה ללא נושא')+'</strong><span class="muted">'+esc(channel(x))+' · '+esc(formatDate(x.last_message_at))+'</span>'+inboxState(x)+'</div>'+(Number(x.unread_count||0)>0?'<span class="unread-count">'+Number(x.unread_count)+'</span>':'')+button('conversation','פתיחה',x.id)+'</article>').join('')||'<div class="empty-state"><i class="bi bi-inbox"></i><p>לא נמצאו שיחות מתאימות</p></div>';
  root.closest('.inbox-hub')?.querySelectorAll('[data-action="inbox-filter"]').forEach(btn=>{btn.classList.toggle('active',btn.dataset.id===inboxFilter);btn.setAttribute('aria-pressed',String(btn.dataset.id===inboxFilter));});
 }
-const syncErrorLabel=code=>({auth_expired:'נדרש חיבור חשבון מחדש',permission_denied:'הרשאת חשבון חסרה',rate_limited:'חריגה זמנית ממכסת בקשות',connection_failed:'כשל תקשורת',database_schema_error:'תקלה במבנה מסד הנתונים',db_conflict:'התנגשות בכתיבת הודעה',invalid_message_date:'תאריך הודעה לא תקין',provider_unavailable:'ספק הדואר לא זמין',unknown_error:'שגיאה לא מזוהה – יש לבדוק יומן שרת'})[code]||'שגיאת סנכרון';
+const syncErrorLabel=code=>({auth_expired:'נדרש חיבור חשבון מחדש',gmail_api_disabled:'Gmail API כבוי בפרויקט Google Cloud – יש להפעילו',gmail_scope_missing:'חסרה הרשאת Gmail – יש לחבר את החשבון מחדש עם הרשאות קריאת דואר',permission_denied:'Google החזיר 403 – יש לבדוק הרשאות, API ומגבלות בפרויקט',rate_limited:'חריגה זמנית ממכסת בקשות',connection_failed:'כשל תקשורת',database_schema_error:'תקלה במבנה מסד הנתונים',db_conflict:'התנגשות בכתיבת הודעה',invalid_message_date:'תאריך הודעה לא תקין',provider_unavailable:'ספק הדואר לא זמין',unknown_error:'שגיאה לא מזוהה – יש לבדוק יומן שרת'})[code]||'שגיאת סנכרון';
 function showSyncReport(d){
  const issues=(d.issues||[]).map(i=>'<div class="sync-issue"><b>'+esc(i.source||'חיבור')+'</b><span>'+esc(i.account_id||'')+'</span><span>'+esc(syncErrorLabel(i.error))+' · '+esc(i.stage||'sync')+'</span></div>').join('');
  $('#syncReport')?.remove();
@@ -119,7 +119,7 @@ document.addEventListener('click',async e=>{
   if(action==='back-inbox'){location.hash='inbox';await render('inbox');}
   if(action==='inbox-filter'){inboxFilter=b.dataset.id;renderInboxItems();}
   if(action==='assistant-prompt'){const examples={waiting:'מי מהלקוחות מחכה לתשובה ממני?',urgent:'אילו משימות דחופות עדיין פתוחות?',new:'סכם את הפניות החדשות שקיבלתי'};const t=$('#assistantMessage');if(t){t.value=examples[b.dataset.id]||'';t.focus();}}
-  if(action==='sync'){const d=await post('/api/sync');if(view==='inbox'||view==='spam')await render(view);showSyncReport(d);}
+  if(action==='sync'){const d=await post('/api/sync');if(view==='inbox'||view==='spam'||view==='updates')await render(view);showSyncReport(d);}
   if(action==='upload'){const file=$('#fileInput').files[0];if(!file)return;const data=new FormData();data.append('file',file);const r=await fetch('/api/files',{method:'POST',body:data,credentials:'same-origin'});if(!r.ok)throw Error('העלאת הקובץ נכשלה');const result=await r.json();await api('/api/files/'+encodeURIComponent(result.id),{method:'PATCH',body:JSON.stringify({client_id:$('#fileClient').value,project_id:$('#fileProject').value,task_id:$('#fileTask').value})});await render('files');}
   if(action==='google'){const d=await post('/api/google/auth-url');const target=new URL(d.url);if(target.protocol!=='https:'||target.hostname!=='accounts.google.com')throw Error('כתובת ההתחברות אינה תקינה');location.href=target.href;}
   if(action==='wa-connect'){await post('/api/whatsapp/connect',{session_id:id});await loadWa();}
