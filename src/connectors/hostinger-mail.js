@@ -1,4 +1,5 @@
 import {ImapFlow} from "imapflow";
+import {syncIssue} from "../sync-diagnostics.js";
 import nodemailer from "nodemailer";
 import {simpleParser} from "mailparser";
 import {EncryptedVault} from "./vault.js";
@@ -58,7 +59,7 @@ export class HostingerMailConnector{
       external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?"out":"in",sender:from,recipient:to,cc,subject:String(mail.subject||""),
       body:String(mail.text||""),is_read:Boolean(meta?.flags?.has("\\Seen")),sent_at:(mail.date||new Date()).toISOString()
      });
-    }catch(error){events.push({id:"hostinger-error:"+uid,type:"sync.error",source:"hostinger.imap",title:"Hostinger mail parse failed",error:"mail_message_parse_failed"})}
+    }catch(error){events.push({...syncIssue("hostinger.imap","parse",error,settings.user),message_index:String(uid).slice(0,30)});}
    }
   }finally{lock?.release();await c.logout().catch(()=>{})}
   return events;

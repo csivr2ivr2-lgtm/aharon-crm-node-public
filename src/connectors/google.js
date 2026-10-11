@@ -1,4 +1,5 @@
 import {simpleParser} from "mailparser";
+import {syncIssue} from "../sync-diagnostics.js";
 import {emailOf,safeHeader} from "../message-format.js";
 import { google } from "googleapis";
 import { config } from "../config.js";
@@ -72,7 +73,7 @@ export class GoogleConnector{
   return {ok:true,account:publicAccount(account),message_id:r.data.id,thread_id:r.data.threadId};
  }
  async sync(){
-  const events=[]; for(const account of await this.accounts()){try{const recent=await this.gmailRecent({account_id:account.id,max_results:config.googleSyncMaxResults,q:config.googleSyncQuery});for(const m of recent.messages){const fromSelf=emailOf(m.from)===account.email.toLowerCase();events.push({id:"gmail:"+account.id+":"+m.id,type:"message",source:"google.gmail",channel:"email",account_id:account.id,account:{provider:"google",type:"email",identifier:account.email,label:account.name||account.email},conversation_external_id:"gmail:"+account.id+":"+(m.thread_id||m.id),external_id:m.id,thread_id:m.thread_id,direction:fromSelf?"out":"in",sender:m.from,recipient:m.to,cc:m.cc,rfc_message_id:m.message_id,references:m.references,subject:m.subject,body:m.body,is_read:!m.unread,sent_at:m.sent_at});}}catch(error){events.push({id:"google-sync-error:"+account.id+":"+Date.now(),type:"sync.error",source:"google.gmail",account_id:account.id,title:"Google sync failed",error:"google_sync_failed"});}}
+  const events=[]; for(const account of await this.accounts()){try{const recent=await this.gmailRecent({account_id:account.id,max_results:config.googleSyncMaxResults,q:config.googleSyncQuery});for(const m of recent.messages){const fromSelf=emailOf(m.from)===account.email.toLowerCase();events.push({id:"gmail:"+account.id+":"+m.id,type:"message",source:"google.gmail",channel:"email",account_id:account.id,account:{provider:"google",type:"email",identifier:account.email,label:account.name||account.email},conversation_external_id:"gmail:"+account.id+":"+(m.thread_id||m.id),external_id:m.id,thread_id:m.thread_id,direction:fromSelf?"out":"in",sender:m.from,recipient:m.to,cc:m.cc,rfc_message_id:m.message_id,references:m.references,subject:m.subject,body:m.body,is_read:!m.unread,sent_at:m.sent_at});}}catch(error){events.push(syncIssue("google.gmail","fetch",error,account.email||account.id));}}
   return events;
  }
 }

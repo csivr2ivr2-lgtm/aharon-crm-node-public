@@ -87,6 +87,7 @@ app.post("/api/conversations/:id/send",async(req,reply)=>{if(!uiAuth(req,reply))
 app.get("/api/connectors",async(req,reply)=>{if(!uiAuth(req,reply))return;return connectors.status()});
 app.get("/api/whatsapp/status",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.initialize();return {ok:true,...whatsapp.status({includeSecrets:true})}});
 app.post("/api/sync",async(req,reply)=>{if(!uiAuth(req,reply))return;return scheduler.runOnce()});
+app.get("/api/sync/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,report:scheduler.lastReport||null};});
 app.post("/api/google/auth-url",async(req,reply)=>{if(!uiAuth(req,reply))return;if(!googleConnector.configured())return reply.code(503).send({ok:false,error:"google_not_configured"});const url=googleConnector.authUrl(String(req.body?.account_hint||""));reply.setCookie("oauth_state",new URL(url).searchParams.get("state"),{...cookieOpts,signed:true,sameSite:"lax",maxAge:600});return {ok:true,url}});
 app.get("/oauth/google/callback",async(req,reply)=>{
  const state=String(req.query?.state||""),saved=req.unsignCookie(req.cookies?.oauth_state||"");

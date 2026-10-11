@@ -13,7 +13,7 @@ export const settingsSchema=z.object({
 }).strict();
 export const DEFAULT_SETTINGS=Object.freeze({
   ai:{localModel:normalizeLocalModel(config.localAiModel),externalModel:config.aiModel,generativeProvider:'external',provider:'auto',model:'',temperature:0.3,contextSize:18000,fallback:true},
-  automation:{clients:'suggest',projects:'suggest',tasks:'suggest',drafts:'automatic',spam:'automatic',classification:'automatic',followups:'suggest'},
+  automation:{clients:'automatic',projects:'suggest',tasks:'automatic',drafts:'automatic',spam:'automatic',classification:'automatic',followups:'suggest'},
   followups:{waitingHours:48,overdueHours:24,mode:'remind'},
   messaging:{policy:'always_confirm',trustedClientIds:[],defaultAccountId:'',signature:''}
 });

@@ -46,7 +46,7 @@ export async function classifyWithAi(message,initial,generateFn=generateStructur
   if(!CLASSIFICATIONS.includes(parsed.classification)||typeof parsed.confidence!=='number'||parsed.confidence<0||parsed.confidence>1)return initial;
   // AI cannot downgrade a deterministic warning or assert sender authenticity.
   if(['spam','suspicious','marketing'].includes(initial.classification)&&parsed.classification==='normal')return initial;
-  return parsed.confidence>initial.confidence?{classification:parsed.classification,confidence:parsed.confidence,reason:String(parsed.reason||'סיווג AI').slice(0,500),source:result.provider,review_required:result.provider==='local'}:initial;
+  return parsed.confidence>initial.confidence?{classification:parsed.classification,confidence:parsed.confidence,reason:String(parsed.reason||'סיווג AI').slice(0,500),source:result.provider,review_required:result.provider==='local'||(['spam','suspicious'].includes(parsed.classification)&&parsed.confidence<.9)}:initial;
  }catch{return initial;}
 }
 async function audit(database,event,entityId,details){await platformAudit({action:event,entityType:'message',entityId,actor:details.actor||'worker',source:'inbox_ai',mode:details.ai===false?'manual':'ai',reason:details.reason,confidence:details.confidence,before:details.before,after:details.after,confirmation:details.confirmation_state},{db:database});}
@@ -120,7 +120,7 @@ export async function processIncomingMessage({messageId},deps={}){
  let classification=classifyMessage(message,{feedback});
  if(automation.classification!=='off'&&settings.ai?.enabled!==false)classification=await classifyWithAi(message,classification,tinyFn,settings.ai);
  if(automation.spam!=='off'){
-  await database.execute('UPDATE messages SET classification=?,classification_score=?,classification_reason=?,spam_disposition=? WHERE id=?',[classification.classification,classification.confidence,classification.reason,classification.classification==='spam'?(automation.spam==='suggest'||classification.review_required?'review':'spam'):'inbox',messageId]);
+  await database.execute('UPDATE messages SET classification=?,classification_score=?,classification_reason=?,spam_disposition=? WHERE id=?',[classification.classification,classification.confidence,classification.reason,classification.classification==='spam'?(automation.spam==='suggest'||classification.review_required?'review':'spam'):classification.classification==='suspicious'?'review':'inbox',messageId]);
   if(message.classification!==classification.classification)await audit(database,'inbox.classified',messageId,{before:message.classification,after:classification.classification,confidence:classification.confidence,reason:classification.reason});
  }
  if(classification.review_required)return {classification,skipped_automation:true,review_required:true};
@@ -131,7 +131,7 @@ export async function processIncomingMessage({messageId},deps={}){
  let resolved=await resolveIdentity(database,message,conversation);
  const ruleSuggestions=extractSuggestions(message,{clientId:conversation.client_id,projectId:conversation.project_id});
  const extracted=['clients','projects','tasks'].some(key=>automation[key]!=='off')&&!ruleSuggestions.length&&!resolved.ambiguous&&settings.ai&&settings.ai.enabled!==false?await extractWithAi(message,{clientId:resolved.client?.id,projectId:conversation.project_id,settings:settings.ai,generateFn:tinyFn}):[];
- if(!resolved.client&&automation.clients==='automatic'&&resolved.confidence>=.9&&!resolved.ambiguous){
+ if(!resolved.client&&automation.clients==='automatic'&&resolved.confidence>=.9&&!resolved.ambiguous&&identity.key){
   const connection=await database.getConnection();let locked=false;
   try{
    const [locks]=await connection.execute("SELECT GET_LOCK('crm_entity_resolution',5) AS acquired");if(Number(locks[0]?.acquired)!==1)throw Error('entity_resolution_busy');locked=true;
