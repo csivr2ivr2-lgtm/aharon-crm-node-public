@@ -2,7 +2,6 @@ import {randomBytes} from 'node:crypto';
 import {readFile,writeFile,rename,mkdir,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {config} from '../config.js';
-import {WhatsAppConnector} from './whatsapp.js';
 import {pairingPhoneNumber} from './whatsapp-phone.js';
 
 const validId=id=>typeof id==='string'&&/^(?:whatsapp-main|wa_[a-f0-9]{16})$/.test(id);
@@ -10,7 +9,8 @@ const MAX_SESSIONS=10;
 
 // Preserve the old WhatsApp session at the auth root; new sessions stay in isolated child directories.
 export class WhatsAppSessions {
- constructor({rootDir=config.whatsappSessionDir,connectorFactory=options=>new WhatsAppConnector(options),enabled=config.whatsappEnabled}={}){
+ constructor({rootDir=config.whatsappSessionDir,connectorFactory,enabled=config.whatsappEnabled}={}){
+  if(typeof connectorFactory!=='function')throw Error('whatsapp_connector_factory_required');
   this.enabled=enabled;
   this.rootDir=rootDir;this.connectorFactory=connectorFactory;this.sessions=new Map();
   this.sessions.set('whatsapp-main',this.make('whatsapp-main',null));
