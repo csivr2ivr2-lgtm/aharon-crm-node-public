@@ -8,6 +8,7 @@ let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
 let assistantMessages=[], pendingActions=[], showArchived=false, showArchivedFiles=false, fileQuery='';
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
 let assistantSession='',assistantSessions=[];
+let historyTriageCursor='',conversationReplyEligible=true;
 const button=(action,label,id='')=>'<button type="button" class="btn" data-action="'+action+'" data-id="'+esc(id)+'">'+esc(label)+'</button>';
 const channel=c=>c.channel==='whatsapp'?'WhatsApp':String(c.integration_key||'').startsWith('hostinger:')?'Hostinger Email':'Gmail';
 async function api(url,opt={}){
@@ -27,7 +28,7 @@ async function render(next){
  if(view==='inbox'||view==='spam'||view==='updates'){
   const d=await api('/api/inbox'+(view==='spam'?'?folder=spam':view==='updates'?'?folder=updates':''));
   inboxItems=d.items||[];
-  $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><div><p class="eyebrow">מרכז הודעות</p><h2>'+(view==='spam'?'דואר לבדיקה':view==='updates'?'עדכונים והודעות מערכת':'כל השיחות במקום אחד')+'</h2><p class="muted">WhatsApp, Gmail ו־Hostinger במרחב עבודה אחד</p></div>'+button('sync','סנכרון עכשיו')+'</div><div class="inbox-toolbar"><label class="search-field"><span class="sr-only">חיפוש</span><input id="inboxSearch" type="search" value="'+esc(inboxQuery)+'" placeholder="חיפוש לפי שם או נושא…"></label><div class="inbox-filters">'+button('inbox-filter','הכול','all')+button('inbox-filter','לא נקראו','unread')+'</div></div><div id="inboxItems" class="inbox-items"></div></section>';
+  $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><div><p class="eyebrow">מרכז הודעות</p><h2>'+(view==='spam'?'דואר לבדיקה':view==='updates'?'עדכונים והודעות מערכת':'כל השיחות במקום אחד')+'</h2><p class="muted">WhatsApp, Gmail ו־Hostinger במרחב עבודה אחד</p></div>'+button('sync','סנכרון עכשיו')+button('historical-triage','סנן הודעות ישנות')+'</div><div class="inbox-toolbar"><label class="search-field"><span class="sr-only">חיפוש</span><input id="inboxSearch" type="search" value="'+esc(inboxQuery)+'" placeholder="חיפוש לפי שם או נושא…"></label><div class="inbox-filters">'+button('inbox-filter','הכול','all')+button('inbox-filter','לא נקראו','unread')+'</div></div><div id="inboxItems" class="inbox-items"></div></section>';
   renderInboxItems();return;
  }
  if(entityNames[view]){
@@ -89,9 +90,12 @@ function showSyncReport(d){
 async function openConversation(id){
  const [d,clients,projects,drafts]=await Promise.all([api('/api/conversations/'+encodeURIComponent(id)),api('/api/clients'),api('/api/projects'),api('/api/conversations/'+encodeURIComponent(id)+'/drafts')]);
  conversation=id;requestId=crypto.randomUUID();$('#title').textContent=d.item.title||'שיחה';
+ const newestInbound=[...(d.messages||[])].reverse().find(m=>m.direction==='in');
+ conversationReplyEligible=!newestInbound||!['spam','suspicious','marketing','system','automated'].includes(String(newestInbound.classification||''));
+
  const options=(items,selected)=>'<option value="">ללא שיוך</option>'+items.map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(x.name)+'</option>').join('');
  const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+String(m.sender||''))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools">'+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
- $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+'<h2>'+esc(d.item.title||'שיחה')+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">תשובות לא נשלחות בלי אישור מפורש.</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
+ $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+'<h2>'+esc(d.item.title||'שיחה')+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
  const draft=(drafts.items||[]).find(x=>x.status==='draft');if(draft){$('#reply').value=draft.body;$('#reply').dataset.draftId=draft.id;}
  await post('/api/conversations/'+encodeURIComponent(id)+'/read');
  const timeline=$('.conversation');if(timeline)timeline.scrollTop=timeline.scrollHeight;
@@ -120,6 +124,18 @@ document.addEventListener('click',async e=>{
   if(action==='back-inbox'){location.hash='inbox';await render('inbox');}
   if(action==='inbox-filter'){inboxFilter=b.dataset.id;renderInboxItems();}
   if(action==='assistant-prompt'){const examples={waiting:'מי מהלקוחות מחכה לתשובה ממני?',urgent:'אילו משימות דחופות עדיין פתוחות?',new:'סכם את הפניות החדשות שקיבלתי'};const t=$('#assistantMessage');if(t){t.value=examples[b.dataset.id]||'';t.focus();}}
+  if(action==='historical-triage'){
+   if(!confirm('לסווג מחדש הודעות היסטוריות לפי כללים שמרניים? הודעות לא יימחקו, וסיווגים ידניים יישמרו.'))return;
+   let cursor=historyTriageCursor,scanned=0,updated=0,complete=false;
+   for(let batch=0;batch<25;batch++){
+    const report=await post('/api/inbox/history/triage',{confirmed:true,cursor,limit:200});
+    scanned+=Number(report.scanned||0);updated+=Number(report.updated||0);cursor=report.next_cursor||cursor;
+    if(report.done){complete=true;break;}
+   }
+   historyTriageCursor=complete?'':cursor;
+   if(['inbox','spam','updates'].includes(view))await render(view);
+   $('#notice').textContent='נסרקו '+scanned+' הודעות ישנות · '+updated+' עודכנו.'+(complete?' הסריקה הסתיימה.':' ללחיצה נוספת המשך סריקה.');
+  }
   if(action==='sync'){const d=await post('/api/sync');if(view==='inbox'||view==='spam'||view==='updates')await render(view);showSyncReport(d);}
   if(action==='upload'){const file=$('#fileInput').files[0];if(!file)return;const data=new FormData();data.append('file',file);const r=await fetch('/api/files',{method:'POST',body:data,credentials:'same-origin'});if(!r.ok)throw Error('העלאת הקובץ נכשלה');const result=await r.json();await api('/api/files/'+encodeURIComponent(result.id),{method:'PATCH',body:JSON.stringify({client_id:$('#fileClient').value,project_id:$('#fileProject').value,task_id:$('#fileTask').value})});await render('files');}
   if(action==='google'){const d=await post('/api/google/auth-url');const target=new URL(d.url);if(target.protocol!=='https:'||target.hostname!=='accounts.google.com')throw Error('כתובת ההתחברות אינה תקינה');location.href=target.href;}
@@ -132,7 +148,17 @@ document.addEventListener('click',async e=>{
   if(action==='wa-refresh')await loadWa();
   if(action==='wa-logout'&&confirm('לנתק את החשבון המקושר?')){await post('/api/whatsapp/logout',{session_id:id});await loadWa();}
   if(action==='associate'){await api('/api/conversations/'+encodeURIComponent(conversation),{method:'PATCH',body:JSON.stringify({client_id:$('#convClient').value,project_id:$('#convProject').value})});$('#notice').textContent='השיוך נשמר';}
+  if(action==='reply-suggestion'){
+   if(!conversationReplyEligible)throw Error('לא ניתן להציע תשובה להודעת מערכת, ספאם או הודעה חשודה לפני שינוי הסיווג.');
+   const variant={short:'נסח תשובה קצרה, ברורה ואנושית; רק לפי המידע והבקשה של הלקוח.',detailed:'נסח תשובה מקצועית ומפורטת; השתמש אך ורק בעובדות מה־CRM של הלקוח.',followup:'נסח מעקב שירותי וידידותי לפי ההיסטוריה, ללא הבטחות שלא סוכמו.'}[id];
+   if(!variant)throw Error('סגנון טיוטה לא מוכר.');
+   $('#instruction').value=variant;
+   $('#draftInfo').textContent='מכין הצעת תשובה על בסיס היסטוריית השיחה והלקוח…';
+   const d=await post('/api/conversations/'+encodeURIComponent(conversation)+'/draft',{instruction:variant});
+   $('#reply').value=d.draft;$('#reply').dataset.draftId=d.id;$('#draftInfo').textContent='הצעה מוכנה לעריכה ולאישור. לא נשלחה הודעה.';
+  }
   if(action==='draft'){
+   if(!conversationReplyEligible)throw Error('יש לסווג את ההודעה כלא ספאם לפני יצירת טיוטה חכמה.');
    $('#draftInfo').textContent='יוצר טיוטה באמצעות ספק AI חיצוני…';
    const d=await post('/api/conversations/'+encodeURIComponent(conversation)+'/draft',{instruction:$('#instruction').value});$('#reply').value=d.draft;$('#reply').dataset.draftId=d.id;$('#draftInfo').textContent='טיוטה מוכנה לעריכה. מקור: '+d.provider;
   }
