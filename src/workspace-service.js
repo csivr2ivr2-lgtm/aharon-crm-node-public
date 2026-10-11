@@ -128,7 +128,12 @@ export class WorkspaceService{
    if(entity==="conversation"&&p.unread_only)where.push("unread_count>0");
    if(entity==="conversation"){
     const latest="(SELECT m.spam_disposition FROM messages m WHERE m.conversation_id=e.id AND m.direction='in' ORDER BY m.sent_at DESC,m.id DESC LIMIT 1)";
-    where.push(p.folder==="spam"?latest+"='spam'":"COALESCE("+latest+",'inbox')<>'spam'");
+    const latestClass="(SELECT m.classification FROM messages m WHERE m.conversation_id=e.id AND m.direction='in' ORDER BY m.sent_at DESC,m.id DESC LIMIT 1)";
+    const latestSubject="(SELECT m.subject FROM messages m WHERE m.conversation_id=e.id AND m.direction='in' ORDER BY m.sent_at DESC,m.id DESC LIMIT 1)";
+    const updates="(e.channel='whatsapp' AND e.external_id LIKE '%@newsletter') OR COALESCE("+latest+",'inbox')='updates' OR COALESCE("+latestClass+",'unknown') IN ('marketing','system','automated') OR LOWER(COALESCE("+latestSubject+",'')) REGEXP '^(your temporary (chatgpt )?login code|new login from |new sign-in to |reset your password|oauth application approval|summary of failures for google apps script)'";
+    if(p.folder==="spam")where.push(latest+"='spam'");
+    else if(p.folder==="updates")where.push("COALESCE("+latest+",'inbox')<>'spam' AND ("+updates+")");
+    else where.push("COALESCE("+latest+",'inbox') NOT IN ('spam','review') AND NOT ("+updates+")");
    }
    if(p.q){const fields={project:["name","description","next_step"],client:["name","phone","email","notes"],system:["did","notes"],task:["title","notes"],conversation:["title"],account:["label","identifier"]}[entity];where.push("("+fields.map(f=>`e.${f} LIKE ?`).join(" OR ")+")");values.push(...fields.map(()=>"%"+String(p.q)+"%"));}
    const order=entity==="conversation"?"last_message_at":"updated_at";

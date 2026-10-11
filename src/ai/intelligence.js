@@ -6,6 +6,7 @@ import {generateText as generate,generateStructured,externalAvailable} from './p
 import {buildCrmContext} from './context.js';
 import {audit as platformAudit} from '../platform/audit.js';
 import {getSettings} from '../platform/settings.js';
+import {nonCustomerSignal} from './inbox-signals.js';
 
 export const CLASSIFICATIONS=['normal','spam','suspicious','automated','marketing','system','unknown'];
 const stableId=(prefix,value)=>prefix+'_'+createHash('sha256').update(String(value)).digest('hex').slice(0,48);
@@ -30,6 +31,7 @@ export function classifyMessage(message,{feedback}={}){
  const text=String(message.subject||'')+'\n'+String(message.body||'');
  // Trusted feedback wins over provider predictions, but never authorizes execution.
  if(CLASSIFICATIONS.includes(feedback))return {classification:feedback,confidence:1,reason:'סיווג לפי משוב קודם על השולח',source:'feedback'};
+ const nonCustomer=nonCustomerSignal(message);if(nonCustomer)return nonCustomer;
  if(/ignore (all |previous |your )*instructions|reveal.{0,30}(secret|token)|send me all (client|customer)|התעלם.{0,20}(הוראות|הנחיות)|שלח.{0,20}כל הלקוחות/i.test(text))return {classification:'suspicious',confidence:.98,reason:'ניסיון לשנות הנחיות או לקבל מידע חסוי',source:'rules'};
  if(/(?:password|סיסמ[אה]|verification code|קוד אימות).{0,70}(?:send|reply|שלח|השב)|(?:send|reply|שלח|השב).{0,70}(?:password|סיסמ[אה]|verification code|קוד אימות)/i.test(text))return {classification:'suspicious',confidence:.92,reason:'בקשה למסירת פרטי גישה',source:'rules'};
  if(/you (?:have )?won|lottery winner|claim your prize|זכית בפרס|העברת כספים.{0,20}ירושה/i.test(text))return {classification:'spam',confidence:.96,reason:'תבנית מוכרת של פרס או הונאה',source:'rules'};
@@ -120,11 +122,11 @@ export async function processIncomingMessage({messageId},deps={}){
  let classification=classifyMessage(message,{feedback});
  if(automation.classification!=='off'&&settings.ai?.enabled!==false)classification=await classifyWithAi(message,classification,tinyFn,settings.ai);
  if(automation.spam!=='off'){
-  await database.execute('UPDATE messages SET classification=?,classification_score=?,classification_reason=?,spam_disposition=? WHERE id=?',[classification.classification,classification.confidence,classification.reason,classification.classification==='spam'?(automation.spam==='suggest'||classification.review_required?'review':'spam'):classification.classification==='suspicious'?'review':'inbox',messageId]);
+  await database.execute('UPDATE messages SET classification=?,classification_score=?,classification_reason=?,spam_disposition=? WHERE id=?',[classification.classification,classification.confidence,classification.reason,classification.classification==='spam'?(automation.spam==='suggest'||classification.review_required?'review':'spam'):classification.classification==='suspicious'?'review':['marketing','system','automated'].includes(classification.classification)?'updates':'inbox',messageId]);
   if(message.classification!==classification.classification)await audit(database,'inbox.classified',messageId,{before:message.classification,after:classification.classification,confidence:classification.confidence,reason:classification.reason});
  }
  if(classification.review_required)return {classification,skipped_automation:true,review_required:true};
- if(classification.classification!=='normal'||classifyMessage(message).classification==='suspicious'){
+ if(classification.classification!=='normal'||nonCustomerSignal(message)||classifyMessage(message).classification==='suspicious'){
   if(['spam','suspicious'].includes(classification.classification))await notify(database,'inbox.warning','הודעה הועברה לבדיקה',conversation.id);
   return {classification,skipped_automation:true};
  }
