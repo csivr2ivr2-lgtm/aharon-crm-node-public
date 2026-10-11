@@ -3,6 +3,7 @@ import {getSettings,updateSettings} from './platform/settings.js';
 import {listJobs,retryJob,enqueueJob} from './platform/jobs.js';
 import {audit,listAudit} from './platform/audit.js';
 import {assistant} from './ai/assistant.js';
+import {AssistantChatHistory} from './assistant-chat-history.js';
 import {diagnoseAi} from './ai/diagnostics.js';
 import {actionEngine} from './ai/actions.js';
 import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
@@ -14,6 +15,7 @@ import {listKnowledge,proposeKnowledge,approveKnowledge,updateKnowledge,archiveK
 
 export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enabled:false,running:false,last_error:null}}){
  const context=()=>({actor:'dashboard',source:'chat',permissions:['read','write','send'],trustedInput:true});
+ const chatHistory=new AssistantChatHistory({engine:actionEngine,assistant});
  const scope={internal:true,actor:'dashboard',source:'manual'};
  let lastAiDiagnostic=0;
  const route=(method,url,handler)=>app.route({method,url,handler:async(req,reply)=>{if(!uiAuth(req,reply))return;return handler(req,reply);}});
@@ -31,6 +33,21 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  route('GET','/api/jobs',async()=>({ok:true,items:await listJobs()}));
  route('POST','/api/jobs/:id/retry',async req=>{const result=await retryJob(req.params.id);await audit({action:'job.retry',actor:'dashboard',entityType:'job',entityId:req.params.id,after:result});return result;});
  route('GET','/api/audit',async()=>({ok:true,items:await listAudit()}));
+ // Session-scoped chat history, with server-side action ownership checks.
+ route('GET','/api/assistant/sessions',()=>chatHistory.list(context().actor));
+ route('POST','/api/assistant/sessions',()=>chatHistory.create(context().actor));
+ route('GET','/api/assistant/sessions/:id',req=>chatHistory.load(req.params.id,context().actor));
+ route('POST','/api/assistant/sessions/:id/archive',req=>chatHistory.archive(req.params.id,context().actor));
+ route('POST','/api/assistant/sessions/:id/chat',req=>chatHistory.send({sessionId:req.params.id,message:req.body?.message,requestId:req.body?.request_id,actor:context().actor,context:context()}));
+ route('POST','/api/assistant/sessions/:id/actions/:actionId/confirm',async req=>{
+  if(req.body?.confirmed!==true)throw Error('confirmation_required');
+  await chatHistory.actionBelongs(req.params.id,req.params.actionId,context().actor);
+  const result=await actionEngine.confirm(req.params.actionId,req.body.confirmation_token,context());
+  hub.publish('ai.action',{id:req.params.actionId});
+  return result;
+ });
+ route('POST','/api/assistant/sessions/:id/actions/:actionId/dismiss',req=>chatHistory.dismiss(req.params.id,req.params.actionId,context().actor));
+ // Legacy read-only client support; new dashboard always uses persisted session endpoints.
  route('POST','/api/assistant/chat',async req=>assistant.chat({message:req.body?.message,context:context()}));
  route('POST','/api/ai/diagnose',async()=>{
   if(Date.now()-lastAiDiagnostic<30000)return {ok:true,connected:false,error:'ai_diagnostic_throttled'};
