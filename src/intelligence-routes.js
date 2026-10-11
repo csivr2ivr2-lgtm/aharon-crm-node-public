@@ -7,6 +7,7 @@ import {AssistantChatHistory} from './assistant-chat-history.js';
 import {diagnoseAi} from './ai/diagnostics.js';
 import {actionEngine} from './ai/actions.js';
 import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
+import {backfillInboxHistory} from './ai/historical-triage.js';
 import {crmIntelligence} from './crm-intelligence.js';
 import {fileIntelligence} from './file-intelligence.js';
 import {loginSecurity} from './login-security.js';
@@ -62,6 +63,10 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  route('POST','/api/notifications/:id/read',async req=>{await db.execute('UPDATE notifications SET is_read=1 WHERE id=?',[req.params.id]);return {ok:true};});
  route('GET','/api/suggestions',async()=>{const [rows]=await db.execute('SELECT * FROM ai_suggestions ORDER BY created_at DESC LIMIT 200');return {ok:true,items:rows.map(({payload_json,...row})=>({...row,payload:JSON.parse(payload_json||'{}')}))};});
  route('POST','/api/suggestions/:id/resolve',async req=>resolveSuggestion({id:req.params.id,...req.body,actor:'dashboard'}));
+ route('POST','/api/inbox/history/triage',async req=>{
+  if(req.body?.confirmed!==true)throw Error('confirmation_required');
+  return backfillInboxHistory({cursor:req.body?.cursor||'',limit:req.body?.limit});
+ });
  route('POST','/api/messages/:id/feedback',async req=>{
   const result=await setSpamFeedback({messageId:req.params.id,classification:req.body?.classification,actor:'dashboard'});
   if(req.body.classification==='normal')await enqueueJob('inbox.process',{messageId:req.params.id},{idempotencyKey:'feedback:'+req.params.id+':'+Date.now()});return result;
