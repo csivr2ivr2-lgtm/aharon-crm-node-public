@@ -12,12 +12,15 @@ export function publicAiError(error){
 export async function diagnoseAi({run}={}){
  try{
   const check=run||(async()=>{
-   const {Assistant}=await import('./assistant.js');
-   const instance=new Assistant({
-    // The test cannot read, send or modify customer records, even if the model requests tools.
-    engine:{execute:async()=>{throw Error('diagnostic_tools_disabled');}}
-   });
-   return instance.chat({message:'בדיקת מערכת: השב במשפט אחד בעברית שאתה פעיל. אין צורך בכלים.',context:{actor:'diagnostic',source:'chat',permissions:['read'],trustedInput:true}});
+   const {generateText}=await import('./providers.js');
+   const {getSettings}=await import('../platform/settings.js');
+   const settings=await getSettings();
+   // No assistant tool catalog and no CRM records: diagnose ONLY API reachability, key and model.
+   const output=await generateText([
+    {role:'system',content:'בדיקת חיבור בלבד. השב במשפט קצר בעברית. אין כלים ואין נתוני לקוחות.'},
+    {role:'user',content:'שלום, אשר שאתה מסוגל לענות.'}
+   ],{settings:settings.ai});
+   return {ok:true,provider:output.provider,model:output.model};
   });
   const result=await check();
   if(!result?.ok||!result?.provider)throw Error('ai_unexpected_error');
