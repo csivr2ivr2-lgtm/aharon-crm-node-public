@@ -3,6 +3,7 @@ import {getSettings,updateSettings} from './platform/settings.js';
 import {listJobs,retryJob,enqueueJob} from './platform/jobs.js';
 import {audit,listAudit} from './platform/audit.js';
 import {assistant} from './ai/assistant.js';
+import {diagnoseAi} from './ai/diagnostics.js';
 import {actionEngine} from './ai/actions.js';
 import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
 import {crmIntelligence} from './crm-intelligence.js';
@@ -14,6 +15,7 @@ import {listKnowledge,proposeKnowledge,approveKnowledge,updateKnowledge,archiveK
 export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enabled:false,running:false,last_error:null}}){
  const context=()=>({actor:'dashboard',source:'chat',permissions:['read','write','send'],trustedInput:true});
  const scope={internal:true,actor:'dashboard',source:'manual'};
+ let lastAiDiagnostic=0;
  const route=(method,url,handler)=>app.route({method,url,handler:async(req,reply)=>{if(!uiAuth(req,reply))return;return handler(req,reply);}});
  route('GET','/api/background/status',async()=>{const [rows]=await db.execute("SELECT status,COUNT(*) AS n FROM jobs GROUP BY status");const counts=Object.fromEntries(rows.map(r=>[r.status,Number(r.n)]));return {ok:true,...backgroundState,queued:counts.queued||0,failed:counts.failed||0};});
  route('GET','/api/security/status',async()=>({ok:true,failed_attempts:[...loginSecurity.attempts].map(([ip,count])=>({ip,count})),blocked_ips:(await loginSecurity.blacklist()).blocked.map(entry=>entry.ip),locked:await loginSecurity.isLocked()}));
@@ -30,6 +32,11 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  route('POST','/api/jobs/:id/retry',async req=>{const result=await retryJob(req.params.id);await audit({action:'job.retry',actor:'dashboard',entityType:'job',entityId:req.params.id,after:result});return result;});
  route('GET','/api/audit',async()=>({ok:true,items:await listAudit()}));
  route('POST','/api/assistant/chat',async req=>assistant.chat({message:req.body?.message,context:context()}));
+ route('POST','/api/ai/diagnose',async()=>{
+  if(Date.now()-lastAiDiagnostic<30000)return {ok:true,connected:false,error:'ai_diagnostic_throttled'};
+  lastAiDiagnostic=Date.now();
+  return {ok:true,...await diagnoseAi()};
+ });
  route('POST','/api/assistant/actions/:id/confirm',async req=>{
   if(req.body?.confirmed!==true)throw Error('confirmation_required');
   const result=await actionEngine.confirm(req.params.id,req.body.confirmation_token,context());hub.publish('ai.action', {id:req.params.id});return result;

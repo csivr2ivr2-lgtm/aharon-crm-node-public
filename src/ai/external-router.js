@@ -39,6 +39,15 @@ export async function callExternalAi(messages,{routes,fetcher=fetch,timeoutMs=20
     if(status===429){blockedHosts.add(route.host);cooldowns.set('host:'+route.host,now()+60000);cooldowns.set(route.id,now()+60000);lastError=Error('ai_rate_limited');continue;}
     if(retryableCodes.has(status)){cooldowns.set(route.id,now()+15000);lastError=Error('ai_provider_unavailable');continue;}
     if(status===401||status===403){cooldowns.set(route.id,now()+300000);lastError=Error('ai_provider_unauthorized');continue;}
+    if(status===400||status===404||status===422){
+     // Read only safe classification categories; never echo the upstream response or credentials.
+     const payload=await response.json().catch(()=>({}));
+     const code=String(payload?.error?.code||payload?.error?.type||'').slice(0,100);
+     const detail=String(payload?.error?.message||'').slice(0,500);
+     if(/model_(?:not_found|decommissioned|not_available)|model_does_not_exist|invalid_model/i.test(code)||/model.{0,70}(?:does not exist|decommissioned|not found)/i.test(detail))throw Error('ai_model_not_found');
+     if(/context_length_exceeded|tokens.{0,50}(?:exceeds|too large)/i.test(code+' '+detail))throw Error('ai_context_too_large');
+     throw Error('ai_request_rejected');
+    }
     throw Error('ai_provider_rejected_request');
    }
    const body=await response.json();
@@ -46,7 +55,7 @@ export async function callExternalAi(messages,{routes,fetcher=fetch,timeoutMs=20
    if(typeof content!=='string'||!content.trim())throw Error('empty_ai_response');
    return {text:content.trim(),provider:route.id,model:route.model||'default'};
   }catch(error){
-   if(['ai_provider_rejected_request','empty_ai_response'].includes(error?.message))throw error;
+   if(['ai_provider_rejected_request','ai_request_rejected','ai_model_not_found','ai_context_too_large','empty_ai_response'].includes(error?.message))throw error;
    lastError=['ai_rate_limited','ai_provider_unavailable','ai_provider_unauthorized'].includes(error?.message)?error:Error('ai_provider_unavailable');
    cooldowns.set(route.id,now()+15000);
   }
