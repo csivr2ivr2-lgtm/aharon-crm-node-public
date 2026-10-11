@@ -126,6 +126,7 @@ app.patch("/api/conversations/:id",async(req,reply)=>{if(!uiAuth(req,reply))retu
 app.get("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("note.list",req.query||{});});
 app.post("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("note.create",req.body||{});});
 app.post("/api/whatsapp/connect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.start(onWhatsAppEvent);return {ok:true,...whatsapp.status()};});
+app.post("/api/whatsapp/pair",async(req,reply)=>{if(!uiAuth(req,reply))return;return whatsapp.pairWithPhone(req.body?.phone_number,onWhatsAppEvent);});
 app.post("/api/whatsapp/logout",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.logout();return {ok:true};});
 app.post("/api/hostinger/accounts",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.configure(req.body||{});});
 app.post("/api/hostinger/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.disconnect();});
