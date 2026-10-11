@@ -114,7 +114,7 @@ async function loadWa(){
 document.addEventListener('click',async e=>{
  const b=e.target.closest('button');if(!b)return;$('#error').textContent='';
  if(b.dataset.view){location.hash=b.dataset.view;return;}
- const action=b.dataset.action;if(!action)return;b.disabled=true;
+ const action=b.dataset.action;if(!action)return;const id=b.dataset.id;b.disabled=true;
  try{
   if(await intelligenceAction(action,b))return;
   if(action==='close-editor')$('#editor').close();
