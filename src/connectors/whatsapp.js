@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import {mkdir,rm} from "node:fs/promises";
 import {config} from "../config.js";
 import {pairingPhoneNumber} from "./whatsapp-phone.js";
+import {isWhatsAppChannelJid} from "./whatsapp-channel-filter.js";
 
 export function whatsappDestination(value){
  const raw=String(value||"").trim();
@@ -76,7 +77,7 @@ export class WhatsAppConnector{
     if(this.sock!==sock||this.stopped||!Array.isArray(messages))return;
     if(type!=="notify"&&type!=="append")return;
     for(const m of messages){
-     if(!m?.key?.remoteJid||m.key.remoteJid==="status@broadcast")continue;
+     if(!m?.key?.remoteJid||isWhatsAppChannelJid(m.key.remoteJid))continue;
      const body=textFrom(m);if(!body&&!m.message)continue;
      const jid=String(m.key.remoteJid),direction=m.key.fromMe?"out":"in";
      const event={id:"wa:"+this.sessionId+":"+String(m.key.id||Date.now()),type:"message",source:"whatsapp.baileys",channel:"whatsapp",account_id:this.sessionId,
