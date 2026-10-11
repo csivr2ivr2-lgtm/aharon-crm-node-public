@@ -34,7 +34,7 @@ register('list_systems','List systems.',object({client_id:id.optional(),project_
 register('update_system','Update system notes or relationships.',object({did:text(40),notes:optionalText(),client_id:id.optional(),project_id:id.optional(),status:text(40).optional()}),'system.update','write');
 register('list_conversations','List conversations, including unread messages.',object({client_id:id.optional(),unread_only:z.boolean().optional(),limit:z.number().int().min(1).max(50).optional()}),'conversation.list');
 register('get_conversation','Read a conversation and its messages.',object({id}),'conversation.get');
-register('waiting_for_reply','Find conversations whose newest inbound message has no later outgoing reply.',object({}),'waiting_for_reply');
+register('waiting_for_reply','Find conversations whose newest inbound message has no later outgoing reply.',object({limit:z.number().int().min(1).max(50).optional()}),'waiting_for_reply');
 register('recent_activity','Read recent CRM activity.',object({limit:z.number().int().min(1).max(50).optional()}),'activity.list');
 register('list_accounts','List sending accounts; credentials are never returned.',object({}),'account.list');
 for(const name of ['send_email','send_whatsapp'])register(name,'Send exact text to one resolved client; requires preview and confirmation.',object({client_id:id,account_id:id.optional(),body:text(20000),subject:optionalText(500)}),name,'send');
@@ -53,6 +53,7 @@ export function authorizeTool(tool,context={}){
  if(context.source==='chat'&&context.trustedInput!==true)throw Error('untrusted_tool_execution');
 }
 export function needsConfirmation(tool,context={},settings={},args={}){
+ if(context.source==='chat'&&tool.name==='create_task')return true;
  if(tool.permission==='send'&&context.source==='chat'&&context.trustedInput===true&&context.sendIntentVerified===true&&settings.messaging?.policy==='auto_send_trusted'&&settings.messaging.trustedClientIds?.includes(args.client_id))return false;
  if(context.source==='chat'&&context.trustedInput===true&&settings.messaging?.policy==='confirm_sensitive'&&['create_draft','create_task','create_reminder'].includes(tool.name))return false;
  return tool.permission!=='read'&&!(context.source==='background'&&context.automationApproved===true&&context.allowedTools?.includes(tool.name)&&tool.permission!=='send');}
@@ -123,7 +124,7 @@ export class ActionEngine{
   return {to,client,account,provider,externalId};
  }
  async perform(tool,args,actionId,approvedPreview=null){
-  if(tool.op==='waiting_for_reply'){const [items]=await this.database.execute("SELECT c.id,c.title,c.client_id,c.channel,m.sent_at AS waiting_since FROM conversations c JOIN messages m ON m.conversation_id=c.id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN projects p ON p.id=c.project_id WHERE m.direction='in' AND COALESCE(m.spam_disposition,'inbox')<>'spam' AND COALESCE(m.classification,'normal')='normal' AND (cl.id IS NULL OR cl.status='active') AND p.deleted_at IS NULL AND p.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id))) ORDER BY m.sent_at ASC,m.id ASC LIMIT 50");return {ok:true,items};}
+  if(tool.op==='waiting_for_reply'){const [items]=await this.database.execute("SELECT c.id,c.title,c.client_id,c.channel,m.sent_at AS waiting_since,LEFT(COALESCE(m.body,''),900) AS latest_inbound_body FROM conversations c JOIN messages m ON m.conversation_id=c.id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN projects p ON p.id=c.project_id WHERE m.direction='in' AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND COALESCE(m.spam_disposition,'inbox')<>'spam' AND COALESCE(m.classification,'normal')='normal' AND (cl.id IS NULL OR cl.status='active') AND p.deleted_at IS NULL AND p.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id))) ORDER BY m.sent_at DESC,m.id DESC LIMIT "+Math.max(1,Math.min(50,Number(args.limit)||50)));return {ok:true,items};}
   if(tool.permission==='send'){
    const {to,client,account,provider,externalId}=await this.resolveSend(tool.name,args),channel=provider==='google'?'gmail':provider;
    if(approvedPreview&&(approvedPreview.recipient!==to||approvedPreview.account_key!==account.integration_key))throw Error('destination_changed_request_new_confirmation');

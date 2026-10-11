@@ -29,11 +29,26 @@ export async function callExternalAi(messages,{routes,fetcher=fetch,timeoutMs=20
  for(const route of routes){
   if(blockedHosts.has(route.host)||Number(cooldowns.get(route.id)||0)>now()||Number(cooldowns.get('host:'+route.host)||0)>now())continue;
   try{
-   const response=await fetcher(route.base_url+'/chat/completions',{
+   const groqReasoner=route.host==='api.groq.com'&&/^openai\/gpt-oss-(?:20b|120b)$/.test(route.model);
+   const request=limit=>fetcher(route.base_url+'/chat/completions',{
     method:'POST',redirect:'error',signal:AbortSignal.timeout(timeoutMs),
     headers:{'Content-Type':'application/json',Authorization:'Bearer '+route.api_key},
-    body:JSON.stringify({model:route.model||undefined,messages,temperature:Math.min(1,Math.max(0,Number(temperature)||0)),max_tokens:1024})
+    body:JSON.stringify({
+     model:route.model||undefined,messages,temperature:Math.min(1,Math.max(0,Number(temperature)||0)),
+     ...(groqReasoner?{max_completion_tokens:limit,reasoning_effort:'low'}:{max_tokens:1024})
+    })
    });
+   let response=await request(2048);
+   // GPT-OSS can spend its entire initial completion budget on reasoning.
+   // Retry once ONLY if the 200 response ended due to output length with no visible answer.
+   let completed=null;
+   if(groqReasoner&&response.ok){
+    completed=await response.json();
+    const text=completed?.choices?.[0]?.message?.content;
+    if((typeof text!=='string'||!text.trim())&&completed?.choices?.[0]?.finish_reason==='length'){
+     response=await request(4096);completed=response.ok?await response.json():null;
+    }
+   }
    if(!response.ok){
     const status=response.status;
     if(status===429){blockedHosts.add(route.host);cooldowns.set('host:'+route.host,now()+60000);cooldowns.set(route.id,now()+60000);lastError=Error('ai_rate_limited');continue;}
@@ -50,7 +65,7 @@ export async function callExternalAi(messages,{routes,fetcher=fetch,timeoutMs=20
     }
     throw Error('ai_provider_rejected_request');
    }
-   const body=await response.json();
+   const body=completed||await response.json();
    const content=body?.choices?.[0]?.message?.content;
    if(typeof content!=='string'||!content.trim())throw Error('empty_ai_response');
    return {text:content.trim(),provider:route.id,model:route.model||'default'};
