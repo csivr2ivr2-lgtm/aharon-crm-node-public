@@ -10,11 +10,11 @@ let visitRecorded=false;
 let workView='needs_reply',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
 function phoneForDisplay(value){
- const raw=String(value||'').trim().replace(/@s\\.whatsapp\\.net$/i,'');
- if(!/^\\+?[0-9 ()\\-.]{9,24}$/.test(raw))return String(value||'');
- const number=raw.replace(/\\D/g,'');
- if(/^972[2-9]\\d{7,8}$/.test(number))return '0'+number.slice(3);
- if(/^0[2-9]\\d{7,8}$/.test(number))return number;
+ const raw=String(value||'').trim().replace(/@s\.whatsapp\.net$/i,'');
+ if(!/^\+?[0-9 ()\-.]{9,24}$/.test(raw))return String(value||'');
+ const number=raw.replace(/\D/g,'');
+ if(/^972[2-9]\d{7,8}$/.test(number))return '0'+number.slice(3);
+ if(/^0[2-9]\d{7,8}$/.test(number))return number;
  return number.length>=9&&number.length<=15?'+'+number:String(value||'');
 }
 const displayContact=(value,kind)=>kind==='whatsapp'?phoneForDisplay(value):String(value||'');
