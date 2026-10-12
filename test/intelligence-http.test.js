@@ -16,6 +16,31 @@ test('all intelligence mutations and reads require dashboard authentication',asy
   for(const [method,url] of [['POST','/api/inbox/visit'],['GET','/api/inbox/work'],['GET','/api/inbox/work/c'],['PATCH','/api/inbox/work/c'],['POST','/api/inbox/work/c/task'],['POST','/api/inbox/history/triage'],['GET','/api/ai/providers/health'],['POST','/api/assistant/actions/a/dismiss'],['POST','/api/ai/test'],['GET','/api/ai/status'],['GET','/api/followups'],['POST','/api/followups/f/remind'],['GET','/api/knowledge'],['GET','/api/knowledge/candidates'],['POST','/api/knowledge/candidates'],['POST','/api/knowledge/candidates/k/approve'],['PATCH','/api/knowledge/k'],['GET','/api/settings'],['PATCH','/api/settings'],['GET','/api/jobs'],['POST','/api/jobs/j/retry'],['GET','/api/audit'],['POST','/api/assistant/chat'],['POST','/api/assistant/actions/a/confirm'],['GET','/api/suggestions'],['POST','/api/suggestions/s/resolve'],['POST','/api/messages/m/feedback'],['PATCH','/api/drafts/d'],['GET','/api/reminders'],['POST','/api/reminders'],['POST','/api/projects/p/lifecycle'],['GET','/api/systems/s/relations'],['POST','/api/files/text'],['GET','/api/files/f/content'],['PATCH','/api/files/f'],['POST','/api/hostinger/accounts']])assert.equal((await app.inject({method,url})).statusCode,401,method+' '+url);
  }finally{await app.close();}
 });
+test('inbox read errors expose safe identifiers to authenticated owner only',async t=>{
+ const secret='private_customer_message_and_secret';
+ const injected=Object.assign(new Error(secret),{code:'ER_BAD_FIELD_ERROR',sqlState:'42S22',sql:'SELECT '+secret});
+ let observed='';
+ t.mock.method(db,'execute',async sql=>{if(sql.includes('FROM conversations c JOIN messages m'))throw injected;return [[]];});
+ t.mock.method(console,'error',(...args)=>{observed+=args.join(' ');});
+ const app=await buildApp({initializeDatabase:false,startBackground:false});
+ try{
+  const unauthenticated=await app.inject({url:'/api/inbox/work?view=needs_reply'});
+  assert.equal(unauthenticated.statusCode,401);
+  assert.equal(unauthenticated.json().error,'login_required');
+  assert.equal(unauthenticated.json().diagnostic_code,undefined);
+  const cookie=await login(app);
+  const response=await app.inject({url:'/api/inbox/work?view=needs_reply',headers:{cookie}});
+  assert.equal(response.statusCode,400);
+  assert.equal(response.json().error,'request_failed');
+  assert.equal(response.json().diagnostic_category,'Error');
+  assert.equal(response.json().diagnostic_code,'ER_BAD_FIELD_ERROR');
+  assert.equal(response.json().diagnostic_sql_state,'42S22');
+  assert.match(observed,/CRM_INBOX_WORK_DIAGNOSTIC/);
+  assert.doesNotMatch(observed,/private_customer_message_and_secret|SELECT/);
+  assert.doesNotMatch(response.body,/private_customer_message_and_secret|SELECT/);
+ }finally{await app.close();}
+});
+
 test('dashboard intelligence reads expose expected UI shapes',async t=>{
  t.mock.method(db,'execute',async sql=>{
   if(sql.includes('FROM app_settings'))return [[]];

@@ -68,7 +68,19 @@ app.addHook("onRequest",async(req,reply)=>{
   return reply.code(423).send({ok:false,error:"crm_locked"});
  }
 });
-app.setErrorHandler((error,req,reply)=>{app.log.warn({errorName:error.name,code:error.code},"Request failed");reply.code(error.statusCode>=400&&error.statusCode<500?error.statusCode:400).send({ok:false,error:/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"});});
+app.setErrorHandler((error,req,reply)=>{
+ // Hostinger's text-only runtime viewer omits structured logger fields. Emit only allowlisted
+ // diagnostic identifiers for the authenticated inbox read; never include SQL or customer data.
+ const inboxRead=req.method==="GET"&&String(req.url||"").split("?")[0]==="/api/inbox/work";
+ const code=typeof error.code==="string"&&/^(?:ER_[A-Z0-9_]{2,70}|PROTOCOL_[A-Z0-9_]{2,70}|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EPIPE)$/.test(error.code)?error.code:"UNKNOWN";
+ const sqlState=typeof error.sqlState==="string"&&/^[A-Z0-9]{5}$/.test(error.sqlState)?error.sqlState:"NONE";
+ const category=["TypeError","RangeError","ReferenceError","SyntaxError","Error"].includes(error.name)?error.name:"OtherError";
+ app.log.warn({errorName:error.name,code:error.code},"Request failed");
+ if(inboxRead)console.error("[CRM_INBOX_WORK_DIAGNOSTIC] category="+category+" code="+code+" sqlState="+sqlState);
+ const payload={ok:false,error:inboxRead?"request_failed":/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"};
+ if(inboxRead&&logged(req)){payload.diagnostic_category=category;payload.diagnostic_code=code;payload.diagnostic_sql_state=sqlState;}
+ reply.code(error.statusCode>=400&&error.statusCode<500?error.statusCode:400).send(payload);
+});
 app.get("/",async(req,reply)=>reply.type("text/html; charset=utf-8").send(logged(req)?appHtml():loginHtml()));
 app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=normalizeIp(req.ip);if(!equalToken(p,config.dashboardPassword)){const state=await loginSecurity.failed(ip);app.log.warn({remoteAddress:ip,attempt:state.count,locked:state.locked},"Dashboard login failed");if(state.locked)return reply.code(423).type("text/html; charset=utf-8").send(lockedHtml());return reply.code(401).type("text/html; charset=utf-8").send(loginHtml({error:"סיסמה שגויה"}));}loginSecurity.success(ip);reply.setCookie("crm_session",String(Date.now()+14*86400000),{...cookieOpts,signed:true});return reply.redirect("/")});
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
