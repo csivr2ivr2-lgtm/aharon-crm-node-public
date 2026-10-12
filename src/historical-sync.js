@@ -8,7 +8,7 @@ const hash=value=>createHash('sha256').update(String(value)).digest('hex').slice
 const jobKey=(key,cursor)=>'historical:'+hash(key)+':'+hash(cursor||'start');
 export async function migrateHistorySync(database=defaultDb){
  await database.query(`CREATE TABLE IF NOT EXISTS historical_sync_progress (
-  account_key VARCHAR(320) PRIMARY KEY, provider VARCHAR(24) NOT NULL, cursor TEXT,
+  account_key VARCHAR(320) PRIMARY KEY, provider VARCHAR(24) NOT NULL, page_cursor TEXT,
   state VARCHAR(16) NOT NULL DEFAULT 'running', examined INT NOT NULL DEFAULT 0,
   imported INT NOT NULL DEFAULT 0, duplicates INT NOT NULL DEFAULT 0,
   last_error VARCHAR(100), updated_at VARCHAR(40), completed_at VARCHAR(40)
@@ -28,10 +28,10 @@ export async function discoverHistoryAccounts({database=defaultDb,google=googleC
  }
  let scheduled=0;
  for(const account of accounts){
-  await database.execute("INSERT IGNORE INTO historical_sync_progress(account_key,provider,cursor,state,updated_at) VALUES(?,?,'','running',?)",[account.key,account.provider,now()]);
-  const [rows]=await database.execute('SELECT cursor,state FROM historical_sync_progress WHERE account_key=?',[account.key]);
+  await database.execute("INSERT IGNORE INTO historical_sync_progress(account_key,provider,page_cursor,state,updated_at) VALUES(?,?,'','running',?)",[account.key,account.provider,now()]);
+  const [rows]=await database.execute('SELECT page_cursor,state FROM historical_sync_progress WHERE account_key=?',[account.key]);
   if(!rows.length||rows[0].state==='done')continue;
-  await enqueue('history.page',{provider:account.provider,accountId:account.accountId,key:account.key},{idempotencyKey:jobKey(account.key,rows[0].cursor),db:database,maxAttempts:10});
+  await enqueue('history.page',{provider:account.provider,accountId:account.accountId,key:account.key},{idempotencyKey:jobKey(account.key,rows[0].page_cursor),db:database,maxAttempts:10});
   scheduled++;
  }
  return {ok:true,accounts:accounts.length,scheduled};
@@ -40,9 +40,9 @@ export async function historyPageJob(payload,{database=defaultDb,google=googleCo
  if(!ingest)throw Error('history_ingest_required');
  const {provider,accountId,key}=payload||{};
  if(!['google','hostinger'].includes(provider)||typeof accountId!=='string'||!accountId||key!==provider+':'+(provider==='hostinger'?accountId.toLowerCase():accountId))throw Error('invalid_history_account');
- const [records]=await database.execute('SELECT cursor,state FROM historical_sync_progress WHERE account_key=?',[key]);
+ const [records]=await database.execute('SELECT page_cursor,state FROM historical_sync_progress WHERE account_key=?',[key]);
  if(!records.length||records[0].state==='done')return {ok:true,skipped:true};
- const cursor=String(records[0].cursor||'');
+ const cursor=String(records[0].page_cursor||'');
  let page,events;
  if(provider==='google'){
   page=await google.historyPage({account_id:accountId,page_token:cursor,limit:10});
@@ -66,7 +66,7 @@ export async function historyPageJob(payload,{database=defaultDb,google=googleCo
  // Always commit progress after ALL events were ingested, never before.
  const done=page.done===true,nextCursor=done?'':String(page.next_cursor||'');
  if(!done&&(!nextCursor||nextCursor===cursor))throw Error('history_cursor_not_advancing');
- const [update]=await database.execute("UPDATE historical_sync_progress SET cursor=?,state=?,examined=examined+?,imported=imported+?,duplicates=duplicates+?,updated_at=?,completed_at=? WHERE account_key=? AND state='running' AND cursor=?",[nextCursor,done?'done':'running',events.length,imported,duplicates,now(),done?now():null,key,cursor]);
+ const [update]=await database.execute("UPDATE historical_sync_progress SET page_cursor=?,state=?,examined=examined+?,imported=imported+?,duplicates=duplicates+?,updated_at=?,completed_at=? WHERE account_key=? AND state='running' AND page_cursor=?",[nextCursor,done?'done':'running',events.length,imported,duplicates,now(),done?now():null,key,cursor]);
  if(update.affectedRows!==1)throw Error('history_checkpoint_conflict');
  if(!done)await enqueue('history.page',{provider,accountId,key},{idempotencyKey:jobKey(key,nextCursor),db:database,maxAttempts:10,runAfter:new Date(Date.now()+3000).toISOString()});
  return {ok:true,done,examined:events.length,imported,duplicates};

@@ -43,7 +43,7 @@ test('sender-wide feedback pages match canonical identities exactly; no full-tab
 test('historical per-account crawl commits cursor only after ingestion and schedules next page',async()=>{
  const writes=[],scheduled=[],seen=[];
  const database={execute:async(sql,p)=>{
-  if(sql.startsWith('SELECT cursor,state FROM'))return [[{cursor:'',state:'running'}]];
+  if(sql.startsWith('SELECT page_cursor,state FROM'))return [[{page_cursor:'',state:'running'}]];
   if(sql.startsWith('UPDATE historical_sync_progress')){writes.push(p);return [{affectedRows:1}];}
   throw Error('unexpected_sql');
  }};
@@ -60,7 +60,7 @@ test('discovery schedules every connected mail account and preserves completed c
  const scheduled=[];
  const database={execute:async(sql,args)=>{
   if(sql.startsWith('INSERT IGNORE INTO historical_sync_progress'))return [{affectedRows:1}];
-  if(sql.startsWith('SELECT cursor,state FROM'))return [[{cursor:args[0]==='google:finished'?'':'token',state:args[0]==='google:finished'?'done':'running'}]];
+  if(sql.startsWith('SELECT page_cursor,state FROM'))return [[{page_cursor:args[0]==='google:finished'?'':'token',state:args[0]==='google:finished'?'done':'running'}]];
   throw Error('unexpected_sql');
  }};
  const r=await discoverHistoryAccounts({database,google:{accounts:async()=>[{id:'a'},{id:'finished'}]},hostinger:{configured:()=>true,settings:()=>({user:'owner@example.com'})},enqueue:async(...a)=>scheduled.push(a)});
