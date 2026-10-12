@@ -67,3 +67,14 @@ test('discovery schedules every connected mail account and preserves completed c
  assert.equal(r.accounts,3);assert.equal(r.scheduled,2);assert.equal(scheduled.length,2);
  assert.deepEqual(scheduled.map(a=>a[1].key),['google:a','hostinger:owner@example.com']);
 });
+
+test('AliExpress historical sweep changes only branded inbound messages in batches',async()=>{
+ const writes=[],db={execute:async(sql,p)=>{
+  if(sql.startsWith('SELECT id,sender'))return [[{id:'a',sender:'AliExpress <notice@fresh.example>',subject:'Order update',direction:'in'},{id:'b',sender:'customer@example.com',subject:'Quote request',direction:'in'},{id:'c',sender:'AliExpress <out@example.org>',subject:'Order',direction:'out'}]];
+  if(sql.startsWith('UPDATE messages')){writes.push({sql,p});return [{affectedRows:1}];}
+  throw Error('unrecognized SQL');
+ }};
+ const {backfillAliExpressPage}=await import('../src/brand-cleanup.js');
+ const r=await backfillAliExpressPage({}, {db,enqueue:async()=>{throw Error('should not enqueue');}});
+ assert.equal(r.updated,1);assert.deepEqual(writes[0].p,['a']);assert.match(writes[0].sql,/WHERE id IN/);
+});

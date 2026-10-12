@@ -27,6 +27,7 @@ import {loginSecurity,normalizeIp} from "./login-security.js";
 import {migratePlatform} from "./platform/schema.js";
 import {enqueueJob,startJobWorker} from "./platform/jobs.js";
 import {migrateHistorySync,discoverHistoryAccounts,historyPageJob} from './historical-sync.js';
+import {backfillAliExpressPage} from './brand-cleanup.js';
 import {migrateInboxWorkbench} from "./inbox-workbench.js";
 import {migrateIntelligence,applySenderFeedbackPage} from "./ai/intelligence.js";
 import {migrateActions} from "./ai/actions.js";
@@ -168,7 +169,9 @@ if(startBackground)app.addHook("onListen",async()=>{
  handlers["inbox.process"]=async(payload,job)=>{const result=await processInbox(payload,job);hub.publish("ai.inbox",{message_id:payload.messageId});return result;};
  handlers['history.page']=payload=>historyPageJob(payload,{ingest:event=>workspace.call('message.ingest',event)});
  handlers['sender.feedback']=payload=>applySenderFeedbackPage(payload);
+ handlers['brand.cleanup']=payload=>backfillAliExpressPage(payload);
  stopJobs=startJobWorker(handlers,{onError:()=>{backgroundState.last_error="background_processing_failed";app.log.warn("Background processing failed; inspect the queue");}});
+ void enqueueJob('brand.cleanup',{cursor:''},{idempotencyKey:'aliexpress-cleanup-20261012:start',maxAttempts:10}).catch(()=>app.log.warn('AliExpress cleanup scheduling failed'));
  const seedHistory=()=>void discoverHistoryAccounts().catch(()=>app.log.warn("Historical sync scheduling failed"));
  historyDiscoveryTimer=setInterval(seedHistory,300000);historyDiscoveryTimer.unref?.();seedHistory();
  const schedulePeriodic=async()=>{const minute=Math.floor(Date.now()/60000);await enqueueJob("reminders.tick",{},{idempotencyKey:"reminders:"+minute});await enqueueJob("followups.tick",{},{idempotencyKey:"followups:"+Math.floor(minute/15)});};

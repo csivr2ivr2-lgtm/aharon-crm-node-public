@@ -62,6 +62,7 @@ export async function setSpamFeedback({messageId,classification,actor='user'},de
  const [rows]=await database.execute('SELECT * FROM messages WHERE id=?',[messageId]);
  if(!rows[0])throw Error('message_not_found');
  if(rows[0].direction!=='in')throw Error('inbox_feedback_inbound_required');
+ if(classification==='normal'&&nonCustomerSignal(rows[0])?.source==='brand_rule')throw Error('aliexpress_always_spam');
  const identity=senderIdentity(rows[0]);
  if(identity.key)await database.execute('INSERT INTO sender_feedback(identity_key,classification,updated_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE classification=VALUES(classification),updated_at=VALUES(updated_at)',[identity.key,classification,now()]);
  await database.execute('UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE id=?',[classification,'סיווג ידני של המשתמש',classification==='spam'?'spam':'inbox',messageId]);
