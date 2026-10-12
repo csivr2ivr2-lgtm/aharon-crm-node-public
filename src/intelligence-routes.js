@@ -10,6 +10,7 @@ import {diagnoseAi} from './ai/diagnostics.js';
 import {actionEngine} from './ai/actions.js';
 import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
 import {backfillInboxHistory} from './ai/historical-triage.js';
+import {listHistoryProgress,discoverHistoryAccounts} from './historical-sync.js';
 import {crmIntelligence} from './crm-intelligence.js';
 import {fileIntelligence} from './file-intelligence.js';
 import {loginSecurity} from './login-security.js';
@@ -24,8 +25,20 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  const route=(method,url,handler)=>app.route({method,url,handler:async(req,reply)=>{if(!uiAuth(req,reply))return;return handler(req,reply);}});
  route('GET','/api/ai/providers/health',()=>({ok:true,items:externalProviderHealth()}));
  route('POST','/api/inbox/visit',req=>markInboxVisit(String(req.unsignCookie(req.cookies.crm_session).value||'')));
+ route('GET','/api/history-sync/status',()=>listHistoryProgress());
+ route('POST','/api/history-sync/start',()=>discoverHistoryAccounts());
  route('GET','/api/inbox/work',req=>listInboxWork(req.query));
  route('PATCH','/api/inbox/work/:id',req=>updateInboxWork(req.params.id,req.body||{}));
+ route('POST','/api/inbox/work/:id/spam',async req=>{
+  const [inbound]=await db.execute("SELECT id FROM messages WHERE conversation_id=? AND direction='in' ORDER BY sent_at DESC,id DESC LIMIT 1",[req.params.id]);
+  if(!inbound.length)throw Error('conversation_has_no_incoming_message');
+  return setSpamFeedback({messageId:inbound[0].id,classification:'spam',actor:'dashboard'});
+ });
+ route('POST','/api/outgoing/prepare',async req=>{
+  const {client_id,account_id,body,subject='',channel}=req.body||{};
+  if(!['email','whatsapp'].includes(channel))throw Error('invalid_sending_channel');
+  return actionEngine.execute(channel==='email'?'send_email':'send_whatsapp',{client_id,account_id,body,subject},context());
+ });
  route('GET','/api/inbox/work/:id',async req=>{const result=await listInboxWork({conversation_id:req.params.id,view:'all'});if(!result.items[0])throw Error('conversation_not_found');return {ok:true,item:result.items[0]};});
  route('POST','/api/inbox/work/:id/task',async req=>{
   const result=await listInboxWork({conversation_id:req.params.id,view:'all'});const item=result.items[0];if(!item)throw Error('conversation_not_found');

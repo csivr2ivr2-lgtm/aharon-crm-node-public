@@ -9,6 +9,15 @@ let assistantMessages=[], pendingActions=[], showArchived=false, showArchivedFil
 let visitRecorded=false;
 let workView='needs_reply',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
+function phoneForDisplay(value){
+ const raw=String(value||'').trim().replace(/@s\.whatsapp\.net$/i,'');
+ if(!/^\+?[0-9 ()\-.]{9,24}$/.test(raw))return String(value||'');
+ const number=raw.replace(/\D/g,'');
+ if(/^972[2-9]\d{7,8}$/.test(number))return '0'+number.slice(3);
+ if(/^0[2-9]\d{7,8}$/.test(number))return number;
+ return number.length>=9&&number.length<=15?'+'+number:String(value||'');
+}
+const displayContact=(value,kind)=>kind==='whatsapp'?phoneForDisplay(value):String(value||'');
 let assistantSession='',assistantSessions=[];
 let historyTriageCursor=readHistoryCursor(),conversationReplyEligible=true;
 const button=(action,label,id='')=>'<button type="button" class="btn" data-action="'+action+'" data-id="'+esc(id)+'">'+esc(label)+'</button>';
@@ -78,7 +87,7 @@ function renderInboxItems(){
  const root=$('#inboxItems');if(!root)return;
  const q=inboxQuery.trim().toLowerCase();
  const rows=inboxItems.filter(x=>(inboxFilter!=='unread'||Number(x.unread_count||0)>0)&&(!q||[x.title,x.channel,x.integration_key].some(v=>String(v||'').toLowerCase().includes(q))));
- root.innerHTML=rows.map(x=>'<article class="inbox-item"><span class="inbox-avatar">'+esc(String(x.title||'ש').charAt(0))+'</span><div class="inbox-copy"><strong>'+esc(x.title||'שיחה ללא נושא')+'</strong><span class="muted">'+esc(channel(x))+' · '+esc(formatDate(x.last_message_at))+'</span>'+inboxState(x)+'</div>'+(Number(x.unread_count||0)>0?'<span class="unread-count">'+Number(x.unread_count)+'</span>':'')+button('conversation','פתיחה',x.id)+'</article>').join('')||'<div class="empty-state"><i class="bi bi-inbox"></i><p>לא נמצאו שיחות מתאימות</p></div>';
+ root.innerHTML=rows.map(x=>'<article class="inbox-item"><span class="inbox-avatar">'+esc(String(x.title||'ש').charAt(0))+'</span><div class="inbox-copy"><strong>'+esc(displayContact(x.title||x.external_id||'שיחה ללא נושא',x.channel))+'</strong><span class="muted">'+esc(channel(x))+' · '+esc(formatDate(x.last_message_at))+'</span>'+inboxState(x)+'</div>'+(Number(x.unread_count||0)>0?'<span class="unread-count">'+Number(x.unread_count)+'</span>':'')+button('conversation','פתיחה',x.id)+'</article>').join('')||'<div class="empty-state"><i class="bi bi-inbox"></i><p>לא נמצאו שיחות מתאימות</p></div>';
  root.closest('.inbox-hub')?.querySelectorAll('[data-action="inbox-filter"]').forEach(btn=>{btn.classList.toggle('active',btn.dataset.id===inboxFilter);btn.setAttribute('aria-pressed',String(btn.dataset.id===inboxFilter));});
 }
 const syncErrorLabel=code=>({auth_expired:'נדרש חיבור חשבון מחדש',gmail_api_disabled:'Gmail API כבוי בפרויקט Google Cloud – יש להפעילו',gmail_scope_missing:'חסרה הרשאת Gmail – יש לחבר את החשבון מחדש עם הרשאות קריאת דואר',permission_denied:'Google החזיר 403 – יש לבדוק הרשאות, API ומגבלות בפרויקט',rate_limited:'חריגה זמנית ממכסת בקשות',connection_failed:'כשל תקשורת',database_schema_error:'תקלה במבנה מסד הנתונים',db_conflict:'התנגשות בכתיבת הודעה',invalid_message_date:'תאריך הודעה לא תקין',provider_unavailable:'ספק הדואר לא זמין',unknown_error:'שגיאה לא מזוהה – יש לבדוק יומן שרת'})[code]||'שגיאת סנכרון';
@@ -86,6 +95,13 @@ function showSyncReport(d){
  const issues=(d.issues||[]).map(i=>'<div class="sync-issue"><b>'+esc(i.source||'חיבור')+'</b><span>'+esc(i.account_id||'')+'</span><span>'+esc(syncErrorLabel(i.error))+' · '+esc(i.stage||'sync')+'</span></div>').join('');
  $('#syncReport')?.remove();
  $('#notice').insertAdjacentHTML('afterend','<section id="syncReport" class="sync-report" role="status"><b>תוצאות סנכרון</b><p>'+Number(d.imported||0)+' חדשות · '+Number(d.duplicates||0)+' קיימות · '+Number(d.errors||0)+' שגיאות</p>'+(issues?'<details open><summary>פירוט שגיאות לפי חשבון</summary>'+issues+'</details>':'<p class="status-ok">לא דווחו שגיאות.</p>')+'</section>');
+}
+async function showCompose(){
+ const [clients,accounts]=await Promise.all([api('/api/clients'),api('/api/accounts')]);
+ const target=clients.items||[],outbound=(accounts.items||[]).filter(a=>a.status==='active'&&/^(google|hostinger|whatsapp):/.test(a.integration_key||''));
+ if(!target.length||!outbound.length)throw Error('נדרש לקוח עם פרטי קשר וחשבון שליחה מחובר.');
+ $('#content').insertAdjacentHTML('beforeend','<dialog id="outboundDialog"><form id="outboundForm" class="panel"><h2>הודעה חדשה</h2><label>לקוח<select name="client_id" required>'+optionHtml([['','בחירת לקוח'],...target.map(c=>[c.id,c.name])],'')+'</select></label><label>ערוץ<select name="channel" required>'+optionHtml([['email','אימייל'],['whatsapp','WhatsApp']],'email')+'</select></label><label>חשבון שולח<select name="account_id" required>'+optionHtml([['','בחר חשבון'],...outbound.map(a=>[a.id,a.label||a.identifier])],'')+'</select></label><label>נושא (למייל)<input name="subject" maxlength="500"></label><label>תוכן<textarea name="body" maxlength="20000" required rows="6"></textarea></label><button class="btn primary" type="submit">המשך לאישור</button>'+button('compose-close','ביטול')+'</form><p id="composeStatus" role="status"></p></dialog>');
+ $('#outboundDialog').showModal();
 }
 async function openConversation(id){
  const [d,clients,projects,drafts]=await Promise.all([api('/api/conversations/'+encodeURIComponent(id)),api('/api/clients'),api('/api/projects'),api('/api/conversations/'+encodeURIComponent(id)+'/drafts')]);
@@ -95,8 +111,8 @@ async function openConversation(id){
  conversationReplyEligible=!['spam','suspicious','marketing','system','reaction'].includes(conversationWork.message_type);
 
  const options=(items,selected)=>'<option value="">ללא שיוך</option>'+items.map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(x.name)+'</option>').join('');
- const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+String(m.sender||''))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools">'+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
- $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+'<h2>'+esc(d.item.title||'שיחה')+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מקצועית','professional')+button('reply-suggestion','ידידותית','friendly')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
+ const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+displayContact(m.sender,d.item.channel))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools">'+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
+ $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+'<h2>'+esc(displayContact(d.item.title||d.item.external_id||'שיחה',d.item.channel))+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מקצועית','professional')+button('reply-suggestion','ידידותית','friendly')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
  $('.conversation-sidebar').insertAdjacentHTML('beforeend','<div class="workflow-controls"><p>'+esc(workLabels[conversationWork.handling_state]||'דורש בדיקה')+'</p>'+button('work-done','טופל',id)+button('work-waiting','מחכה ללקוח',id)+button('work-noaction','לא דורש תשובה',id)+button('work-auto','איפוס החלטות ידניות',id)+'</div>');
  const draft=(drafts.items||[]).find(x=>x.status==='draft');if(draft){$('#reply').value=draft.body;$('#reply').dataset.draftId=draft.id;}
  await post('/api/conversations/'+encodeURIComponent(id)+'/read');
@@ -120,14 +136,21 @@ document.addEventListener('click',async e=>{
  try{
   if(action.startsWith('work-')){await workAction(action,id);return;}
   if(await intelligenceAction(action,b))return;
-  if(action==='close-editor')$('#editor').close();
+  if(action==='compose-close'){document.querySelector('#outboundDialog')?.remove();return;}
+   if(action==='close-editor')$('#editor').close();
   if(action==='create'||action==='edit')await editRecord(b.dataset.id);
   if(action==='notes')await showNotes(b.dataset.id);
   if(action==='conversation')await openConversation(b.dataset.id);
   if(action==='back-inbox'){location.hash='inbox';await render('inbox');}
   if(action==='inbox-filter'){inboxFilter=b.dataset.id;renderInboxItems();}
   if(action==='assistant-prompt'){const examples={waiting:'מי מהלקוחות מחכה לתשובה ממני?',urgent:'אילו משימות דחופות עדיין פתוחות?',new:'סכם את הפניות החדשות שקיבלתי'};const t=$('#assistantMessage');if(t){t.value=examples[b.dataset.id]||'';t.focus();}}
-  if(action==='historical-triage'){
+  if(action==='compose-new'){await showCompose();return;}
+   if(action==='history-sync'){
+    await post('/api/history-sync/start');
+    const info=await api('/api/history-sync/status');
+    $('#notice').textContent='סנכרון היסטורי מופעל ברקע עבור '+info.items.length+' חשבונות. מצב: '+info.items.map(x=>x.provider+' '+x.state+' ('+x.imported+' יובאו)').join(' · ');return;
+   }
+   if(action==='historical-triage'){
    const preview=await post('/api/inbox/history/triage',{cursor:historyTriageCursor,limit:200,dry_run:true});
    const description=preview.preview.map(x=>x.subject+' → '+statusLabel(x.classification)+' ('+x.reason+')').join('\n');
    if(!confirm('תצוגה מקדימה: '+preview.scanned+' הודעות, '+preview.proposed+' שינויי תיקייה.\n'+description+'\nלהחיל את המנה הזו?'))return;
@@ -320,6 +343,20 @@ async function intelligenceAction(action,b){
 }
 document.addEventListener('input',e=>{if(e.target?.id==='assistantHistorySearch')renderAssistantSessions();if(e.target?.id==='inboxSearch'){inboxQuery=e.target.value;renderInboxItems();}});
 document.addEventListener('keydown',e=>{if(e.target?.id==='assistantMessage'&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&window.innerWidth>800){e.preventDefault();e.target.form?.requestSubmit();}});
+document.addEventListener('submit',async e=>{
+ if(e.target.id!=='outboundForm')return;
+ e.preventDefault();const btn=e.submitter;btn.disabled=true;
+ try{
+  const fields=Object.fromEntries(new FormData(e.target));
+  const prepared=await post('/api/outgoing/prepare',fields);
+  if(prepared.status!=='pending'||!prepared.confirmation_token)throw Error('לא התקבל אישור שליחה תקף.');
+  const details=prepared.preview||{};
+  if(!confirm('לאשר שליחה?\\nלקוח: '+(details.client||'')+'\\nנמען: '+(details.recipient||'')+'\\nחשבון: '+(details.account||'')+'\\nנושא: '+(details.subject||'')+'\\n\\n'+(details.body||'')))return;
+  const sent=await post('/api/assistant/actions/'+encodeURIComponent(prepared.id)+'/confirm',{confirmed:true,confirmation_token:prepared.confirmation_token});
+  if(sent.status!=='completed')throw Error('לא ניתן לוודא שההודעה נשלחה. בדוק פעילות לפני ניסיון נוסף.');
+  document.querySelector('#outboundDialog')?.remove();$('#notice').textContent='ההודעה נשלחה ואומתה בשרת.';
+ }catch(err){document.querySelector('#composeStatus').textContent=err.message;}finally{btn.disabled=false;}
+});
 document.addEventListener('submit',async e=>{if(e.target.id!=='workSearch')return;e.preventDefault();try{workFilters=Object.fromEntries(new FormData(e.target));await renderWorkInbox();}catch(error){$('#error').textContent=error.message;}});
 document.addEventListener('submit',async e=>{
  const form=e.target;if(!['assistantForm','mailSetup','waPairForm','reminderForm','settingsForm','fileSearch','knowledgeForm'].includes(form.id))return;e.preventDefault();const submit=e.submitter;submit.disabled=true;$('#error').textContent='';
@@ -398,12 +435,12 @@ async function renderWorkDashboard(){
  $('#content').innerHTML='<section class="panel"><h2>במה לטפל עכשיו?</h2><p class="muted">לפי הנתונים שסונכרנו · '+(d.complete?'כל השיחות נסרקו':'תצוגה חלקית; בתיבה ניתן להמשיך סריקה')+'</p><div class="grid">'+Object.entries(counts).map(([k,n])=>'<button class="card" data-action="work-view" data-id="'+k+'"><span class="metric">'+n+'</span><br>'+esc(workLabels[k])+'</button>').join('')+'</div>'+button('work-view','פתח תור עבודה','needs_reply')+button('sync','סנכרון הודעות')+'</section><section class="panel"><h3>פניות חשובות בחלון שנסרק</h3>'+d.items.filter(x=>['needs_reply','review'].includes(x.handling_state)).slice(0,5).map(workCard).join('')+'</section>'+((d.themes||[]).length?'<section class="panel"><h3>נושאים שחוזרים בפניות שנסרקו</h3>'+d.themes.map(x=>'<p>'+esc(x.label)+' · '+Number(x.count)+' שיחות</p>').join('')+'</section>':'');
 }
 function workCard(x){
- return '<article class="work-card"><div class="work-card-head"><strong>'+esc(x.contact_name||x.sender||x.title)+'</strong><span class="tag">'+esc(workLabels[x.handling_state]||x.handling_state)+'</span></div><h3>'+esc(x.subject||x.title||'ללא נושא')+'</h3><p class="work-request">'+esc(x.request_summary)+'</p><p class="muted">'+esc(channel(x))+' · '+esc(x.account_label||'')+' · '+esc(formatDate(x.waiting_since))+' · '+(Number(x.unread_count)>0?Number(x.unread_count)+' לא נקראו':'נקרא')+'</p><p>'+esc(x.next_action)+'</p><details><summary>למה הפנייה כאן?</summary><p>'+esc(x.reason)+'</p><p>'+esc(x.priority_reason)+' · ביטחון '+Math.round(x.confidence*100)+'%</p></details><div class="actions">'+button('conversation','פתח שיחה',x.id)+button('work-draft','הצע תשובה',x.id)+button('work-done','טופל',x.id)+'<details><summary>פעולות נוספות</summary>'+button('work-waiting','מחכה ללקוח',x.id)+button('work-progress','בטיפול',x.id)+button('work-noaction','לא דורש תשובה',x.id)+button('work-lead','זה לקוח / ליד',x.id)+button('work-task','צור משימה',x.id)+button('work-snooze','דחה למועד',x.id)+button('work-spam','ספאם',x.id)+button('work-updates','עדכון',x.id)+button('work-auto','איפוס החלטות ידניות',x.id)+'</details></div><div id="workAction-'+esc(x.id)+'" role="status"></div></article>';
+ return '<article class="work-card"><div class="work-card-head"><strong>'+esc(displayContact(x.contact_name||x.sender||x.title,x.channel))+'</strong><span class="tag">'+esc(workLabels[x.handling_state]||x.handling_state)+'</span></div><h3>'+esc(x.subject||x.title||'ללא נושא')+'</h3><p class="work-request">'+esc(x.request_summary)+'</p><p class="muted">'+esc(channel(x))+' · '+esc(x.account_label||'')+' · '+esc(formatDate(x.waiting_since))+' · '+(Number(x.unread_count)>0?Number(x.unread_count)+' לא נקראו':'נקרא')+'</p><p>'+esc(x.next_action)+'</p><details><summary>למה הפנייה כאן?</summary><p>'+esc(x.reason)+'</p><p>'+esc(x.priority_reason)+' · ביטחון '+Math.round(x.confidence*100)+'%</p></details><div class="actions">'+button('conversation','פתח שיחה',x.id)+button('work-draft','הצע תשובה',x.id)+button('work-done','טופל',x.id)+button('work-spam','ספאם',x.id)+'<details><summary>פעולות נוספות</summary>'+button('work-waiting','מחכה ללקוח',x.id)+button('work-progress','בטיפול',x.id)+button('work-noaction','לא דורש תשובה',x.id)+button('work-lead','זה לקוח / ליד',x.id)+button('work-task','צור משימה',x.id)+button('work-snooze','דחה למועד',x.id)+button('work-updates','עדכון',x.id)+button('work-auto','איפוס החלטות ידניות',x.id)+'</details></div><div id="workAction-'+esc(x.id)+'" role="status"></div></article>';
 }
 async function renderWorkInbox(){
  workCursor='';inboxItems=[];
  const [accounts,clients]=await Promise.all([api('/api/accounts'),api('/api/clients')]);
- $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('sync','סנכרון')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['priority','חשיבות עסקית'],['time','זמן']],workFilters.sort||'priority')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
+ $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('sync','סנכרון')+button('compose-new','הודעה חדשה')+button('history-sync','סנכרון היסטוריה ברקע')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['priority','חשיבות עסקית'],['time','זמן']],workFilters.sort||'priority')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
  await loadWorkBatch();
 }
 async function loadWorkBatch(){
@@ -432,6 +469,14 @@ async function workAction(action,id){
   if(action==='work-confirm-task'){const r=await post('/api/assistant/actions/'+encodeURIComponent(a.id)+'/confirm',{confirmed:true,confirmation_token:a.confirmation_token});if(r.status!=='completed')throw Error('לא התקבל אישור ביצוע');}
   else await post('/api/assistant/actions/'+encodeURIComponent(a.id)+'/dismiss');
   workPending.delete(id);$('#workAction-'+id).textContent=action==='work-confirm-task'?'המשימה נוצרה ואומתה בשרת.':'ההצעה בוטלה.';return;
+ }
+ if(action==='work-spam'){
+  if(!confirm('לסמן כספאם את כל ההודעות מהשולח בכל השיחות, כולל הודעות עתידיות?'))return;
+  const result=await post('/api/inbox/work/'+encodeURIComponent(id)+'/spam');
+  const state=await api('/api/inbox/work/'+encodeURIComponent(id));
+  await api('/api/inbox/work/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({message_type:'spam',status:'no_action',revision:state.item.revision})});
+  if(conversation===id)await openConversation(id);else await render(view);
+  $('#notice').textContent='השולח סומן כספאם. הודעות ישנות נוספות יתעדכנו ברקע.';return;
  }
  const fresh=await api('/api/inbox/work/'+encodeURIComponent(id)),x=fresh.item;
  const changes={'work-done':{status:'done'},'work-waiting':{status:'waiting_customer'},'work-progress':{status:'in_progress'},'work-noaction':{status:'no_action'},'work-lead':{caller_type:x.client_id?'customer':'lead',message_type:'business',status:'needs_reply'},'work-spam':{message_type:'spam',status:'no_action'},'work-updates':{message_type:'system',status:'no_action'},'work-auto':{status:'auto',caller_type:'auto',message_type:'auto'}};

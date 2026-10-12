@@ -26,8 +26,10 @@ import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
 import {migratePlatform} from "./platform/schema.js";
 import {enqueueJob,startJobWorker} from "./platform/jobs.js";
+import {migrateHistorySync,discoverHistoryAccounts,historyPageJob} from './historical-sync.js';
+import {backfillAliExpressPage} from './brand-cleanup.js';
 import {migrateInboxWorkbench} from "./inbox-workbench.js";
-import {migrateIntelligence} from "./ai/intelligence.js";
+import {migrateIntelligence,applySenderFeedbackPage} from "./ai/intelligence.js";
 import {migrateActions} from "./ai/actions.js";
 import {migrateAssistantChats} from "./assistant-chat-history.js";
 import {migrateCrmIntelligence} from "./crm-intelligence.js";
@@ -37,7 +39,7 @@ import {migrateKnowledge} from "./ai/knowledge.js";
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateActions();await migrateAssistantChats();await migrateKnowledge();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -158,14 +160,20 @@ app.all("/mcp",handleMcp);
 async function onWhatsAppEvent(event){const r=await workspace.call("message.ingest",event);if(r.inserted)hub.publish("message.new",{conversation_id:r.conversation_id,channel:"whatsapp"});}
 const backgroundState={enabled:startBackground,running:false,last_error:null};
 registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState});
-let stopJobs=async()=>{},reminders;
-app.addHook("onClose",async()=>{clearInterval(reminders);closeLocalAi();scheduler.stop();worker.stop();await stopJobs();backgroundState.running=false;whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
+let stopJobs=async()=>{},reminders,historyDiscoveryTimer;
+app.addHook("onClose",async()=>{clearInterval(reminders);clearInterval(historyDiscoveryTimer);closeLocalAi();scheduler.stop();worker.stop();await stopJobs();backgroundState.running=false;whatsapp.stop();hub.close();if(initializeDatabase)await db.end();});
 if(startBackground)app.addHook("onListen",async()=>{
  scheduler.start();worker.start();backgroundState.running=true;
  const runtime=new BackgroundActionRuntime(),handlers=runtime.queueHandlers();
  const processInbox=handlers["inbox.process"];
  handlers["inbox.process"]=async(payload,job)=>{const result=await processInbox(payload,job);hub.publish("ai.inbox",{message_id:payload.messageId});return result;};
+ handlers['history.page']=payload=>historyPageJob(payload,{ingest:event=>workspace.call('message.ingest',event)});
+ handlers['sender.feedback']=payload=>applySenderFeedbackPage(payload);
+ handlers['brand.cleanup']=payload=>backfillAliExpressPage(payload);
  stopJobs=startJobWorker(handlers,{onError:()=>{backgroundState.last_error="background_processing_failed";app.log.warn("Background processing failed; inspect the queue");}});
+ void enqueueJob('brand.cleanup',{cursor:''},{idempotencyKey:'aliexpress-cleanup-20261012:start',maxAttempts:10}).catch(()=>app.log.warn('AliExpress cleanup scheduling failed'));
+ const seedHistory=()=>void discoverHistoryAccounts().catch(()=>app.log.warn("Historical sync scheduling failed"));
+ historyDiscoveryTimer=setInterval(seedHistory,300000);historyDiscoveryTimer.unref?.();seedHistory();
  const schedulePeriodic=async()=>{const minute=Math.floor(Date.now()/60000);await enqueueJob("reminders.tick",{},{idempotencyKey:"reminders:"+minute});await enqueueJob("followups.tick",{},{idempotencyKey:"followups:"+Math.floor(minute/15)});};
  const tick=()=>{void schedulePeriodic().catch(()=>app.log.warn("Reminder scheduling failed"));};
  reminders=setInterval(tick,60000);reminders.unref();tick();

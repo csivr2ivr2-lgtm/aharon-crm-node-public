@@ -6,6 +6,10 @@ export function nonCustomerSignal(message={}){
  const subject=String(message.subject||'').trim();
  const body=String(message.body||message.latest_inbound_body||'').slice(0,20000);
  const address=(sender.match(/<([^<>]+)>/)?.[1]||sender).toLowerCase();
+ // AliExpress rotates email addresses: match brand-identifying sender or the notification's original subject.
+ const aliSender=/\bali[ -]?express\b/i.test(sender)||/(?:^|\.)aliexpress\.(?:com|ru|net)$/i.test(address.split('@').at(-1)||'');
+ const aliSubject=/\bali[ -]?express\b/i.test(subject)&&!/^(?:re|fw|fwd):/i.test(subject)&&!message.client_id;
+ if(aliSender||aliSubject)return {classification:'spam',confidence:.99,reason:'הודעה של AliExpress (כולל כתובות מתחלפות)',source:'brand_rule'};
  let headers=message.headers||{};try{if(message.headers_json)headers=JSON.parse(message.headers_json);}catch{}
  const header=name=>String(Object.entries(headers).find(([k])=>k.toLowerCase()===name)?.[1]||'');
  if(header('content-type').includes('reaction')||header('content-disposition').includes('reaction')||
