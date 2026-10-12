@@ -30,8 +30,10 @@ export function senderIdentity(message){
 export function classifyMessage(message,{feedback}={}){
  const text=String(message.subject||'')+'\n'+String(message.body||'');
  // Trusted feedback wins over provider predictions, but never authorizes execution.
+ const nonCustomer=nonCustomerSignal(message);
+ if(nonCustomer?.source==='brand_rule')return nonCustomer;
  if(CLASSIFICATIONS.includes(feedback))return {classification:feedback,confidence:1,reason:'סיווג לפי משוב קודם על השולח',source:'feedback'};
- const nonCustomer=nonCustomerSignal(message);if(nonCustomer)return nonCustomer;
+ if(nonCustomer)return nonCustomer;
  if(/ignore (all |previous |your )*instructions|reveal.{0,30}(secret|token)|send me all (client|customer)|התעלם.{0,20}(הוראות|הנחיות)|שלח.{0,20}כל הלקוחות/i.test(text))return {classification:'suspicious',confidence:.98,reason:'ניסיון לשנות הנחיות או לקבל מידע חסוי',source:'rules'};
  if(/(?:password|סיסמ[אה]|verification code|קוד אימות).{0,70}(?:send|reply|שלח|השב)|(?:send|reply|שלח|השב).{0,70}(?:password|סיסמ[אה]|verification code|קוד אימות)/i.test(text))return {classification:'suspicious',confidence:.92,reason:'בקשה למסירת פרטי גישה',source:'rules'};
  if(/you (?:have )?won|lottery winner|claim your prize|זכית בפרס|העברת כספים.{0,20}ירושה/i.test(text))return {classification:'spam',confidence:.96,reason:'תבנית מוכרת של פרס או הונאה',source:'rules'};
@@ -56,9 +58,24 @@ async function notify(database,type,title,entityId){await database.execute('INSE
 export async function setSpamFeedback({messageId,classification,actor='user'},deps={}){
  if(!['normal','spam'].includes(classification))throw Error('invalid_spam_feedback');const database=deps.db||db;
  const [rows]=await database.execute('SELECT * FROM messages WHERE id=?',[messageId]);if(!rows[0])throw Error('message_not_found');const identity=senderIdentity(rows[0]);
+ if(rows[0].direction!=='in')throw Error('inbox_feedback_inbound_required');
  if(identity.key)await database.execute('INSERT INTO sender_feedback(identity_key,classification,updated_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE classification=VALUES(classification),updated_at=VALUES(updated_at)',[identity.key,classification,now()]);
- await database.execute('UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE id=?',[classification,'סיווג ידני של המשתמש',classification==='spam'?'spam':'inbox',messageId]);
- await audit(database,'inbox.feedback',messageId,{actor,ai:false,before:rows[0].classification,after:classification,confidence:1,reason:'user_feedback'});return {ok:true};
+ // Sender-wide feedback covers every existing inbound thread. Only exact email or canonical phone identities match.
+ let affected=0;
+ if(identity.email){
+  const [result]=await database.execute("UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE direction='in' AND (LOWER(sender)=? OR LOCATE(CONCAT('<',?,'>'),LOWER(sender))>0)",[classification,'סיווג ידני לכל הודעות השולח',classification==='spam'?'spam':'inbox',identity.email,identity.email]);
+  affected=Number(result.affectedRows||0);
+ }else if(identity.phone){
+  const local=identity.phone.startsWith('972')?'0'+identity.phone.slice(3):identity.phone;
+  const aliases=[...new Set([rows[0].sender,identity.phone,'+'+identity.phone,local,identity.phone+'@s.whatsapp.net',local+'@s.whatsapp.net'])];
+  const [result]=await database.execute("UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE direction='in' AND sender IN ("+aliases.map(()=>'?').join(',')+")",[classification,'סיווג ידני לכל הודעות השולח',classification==='spam'?'spam':'inbox',...aliases]);
+  affected=Number(result.affectedRows||0);
+ }else{
+  const [result]=await database.execute('UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE id=?',[classification,'סיווג ידני של המשתמש',classification==='spam'?'spam':'inbox',messageId]);
+  affected=Number(result.affectedRows||0);
+ }
+ await audit(database,'inbox.feedback',messageId,{actor,ai:false,before:rows[0].classification,after:classification,confidence:1,reason:identity.key?'sender_wide_feedback':'message_feedback'});
+ return {ok:true,affected_messages:affected,scope:identity.key?'sender':'message'};
 }
 export async function resolveIdentity(database,message,conversation){
  const identity=senderIdentity(message);if(!identity.key)return {...identity,client:null,confidence:0,ambiguous:false};

@@ -13,7 +13,7 @@ export function decideInbox(row={},clock=Date.now()){
  const signal=nonCustomerSignal({...row,body,subject});
  let message_type='unknown',caller_type='unknown',handling_state='review',confidence=.35,reason='אין די מידע כדי לקבוע שנדרש מענה; יש לבדוק את השיחה',priority=40;
  const injection=/ignore (all |previous |your )*instructions|reveal.{0,30}(secret|token)|send me all (client|customer)|התעלם.{0,20}(הוראות|הנחיות)|שלח.{0,20}כל הלקוחות/i.test(fresh);
- const effective=feedback?(row.classification||'normal'):signal?.classification||row.classification;
+ const effective=signal?.source==='brand_rule'?signal.classification:feedback?(row.classification||'normal'):signal?.classification||row.classification;
  if(injection){message_type='suspicious';reason='תוכן חשוד; לבדיקה בלבד';confidence=.99;}
  else if(['system','automated','marketing','spam','suspicious'].includes(effective)){
   message_type=signal?.event_type==='reaction'?'reaction':effective==='automated'?'system':effective;
