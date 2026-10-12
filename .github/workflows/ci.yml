@@ -10,6 +10,8 @@ jobs:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +34,8 @@ jobs:
     name: Database integration (${{ matrix.database.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     strategy:
       fail-fast: false
       matrix:
