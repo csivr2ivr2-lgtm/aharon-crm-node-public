@@ -11,6 +11,21 @@ const {assistant}=await import('../src/ai/assistant.js');
 const {actionEngine}=await import('../src/ai/actions.js');
 test.after(()=>db.end());
 async function login(app){const r=await app.inject({method:'POST',url:'/login',payload:{password:process.env.DASHBOARD_PASSWORD}});return r.headers['set-cookie'].split(';')[0];}
+test('outbound messages require login and server-side approval, never send on prepare',async t=>{
+ const attempts=[];
+ t.mock.method(actionEngine,'execute',async(name,args)=>{attempts.push({name,args});return {ok:true,id:'act_test_confirm_send_01',status:'pending',confirmation_token:'test-only-token',preview:{recipient:'test@example.org',client:'Test',body:args.body}};});
+ const app=await buildApp({initializeDatabase:false,startBackground:false});
+ try{
+  const anon=await app.inject({method:'POST',url:'/api/outgoing/prepare',payload:{channel:'email',client_id:'client',account_id:'acct',body:'hello'}});
+  assert.equal(anon.statusCode,401);assert.equal(attempts.length,0);
+  const cookie=await login(app);
+  const invalid=await app.inject({method:'POST',url:'/api/outgoing/prepare',headers:{cookie},payload:{channel:'sms',client_id:'client',account_id:'acct',body:'hello'}});
+  assert.equal(invalid.statusCode,400);assert.equal(attempts.length,0);
+  const r=await app.inject({method:'POST',url:'/api/outgoing/prepare',headers:{cookie},payload:{channel:'whatsapp',client_id:'client',account_id:'acct',body:'hello'}});
+  assert.equal(r.statusCode,200);assert.equal(r.json().status,'pending');assert.equal(attempts.length,1);assert.equal(attempts[0].name,'send_whatsapp');
+ }finally{await app.close();}
+});
+
 test('all intelligence mutations and reads require dashboard authentication',async()=>{
  const app=await buildApp({initializeDatabase:false,startBackground:false});try{
   for(const [method,url] of [['POST','/api/inbox/visit'],['GET','/api/inbox/work'],['GET','/api/inbox/work/c'],['PATCH','/api/inbox/work/c'],['POST','/api/inbox/work/c/task'],['POST','/api/inbox/history/triage'],['GET','/api/ai/providers/health'],['POST','/api/assistant/actions/a/dismiss'],['POST','/api/ai/test'],['GET','/api/ai/status'],['GET','/api/followups'],['POST','/api/followups/f/remind'],['GET','/api/knowledge'],['GET','/api/knowledge/candidates'],['POST','/api/knowledge/candidates'],['POST','/api/knowledge/candidates/k/approve'],['PATCH','/api/knowledge/k'],['GET','/api/settings'],['PATCH','/api/settings'],['GET','/api/jobs'],['POST','/api/jobs/j/retry'],['GET','/api/audit'],['POST','/api/assistant/chat'],['POST','/api/assistant/actions/a/confirm'],['GET','/api/suggestions'],['POST','/api/suggestions/s/resolve'],['POST','/api/messages/m/feedback'],['PATCH','/api/drafts/d'],['GET','/api/reminders'],['POST','/api/reminders'],['POST','/api/projects/p/lifecycle'],['GET','/api/systems/s/relations'],['POST','/api/files/text'],['GET','/api/files/f/content'],['PATCH','/api/files/f'],['POST','/api/hostinger/accounts']])assert.equal((await app.inject({method,url})).statusCode,401,method+' '+url);
