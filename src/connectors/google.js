@@ -58,6 +58,21 @@ export class GoogleConnector{
   }
   return {ok:true,account:publicAccount(account),messages};
  }
+
+ // History crawl uses page tokens and processes each message once; do not expand entire threads.
+ async historyPage({account_id,page_token='',limit=10}={}){
+  const account=await this.accountRecord(account_id),auth=await this.clientFor(account),gmail=google.gmail({version:'v1',auth});
+  const list=await gmail.users.messages.list({userId:'me',maxResults:Math.max(1,Math.min(20,limit)),includeSpamTrash:true,...(page_token?{pageToken:page_token}:{})});
+  const messages=[];
+  for(const entry of list.data.messages||[]){
+   if(!entry.id)continue;
+   const item=(await gmail.users.messages.get({userId:'me',id:entry.id,format:'raw'})).data;
+   const mail=await simpleParser(Buffer.from(item.raw||'','base64url'),{skipTextToHtml:true});
+   const date=new Date(Number(item.internalDate||Date.now()));
+   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||'',to:mail.to?.text||'',cc:mail.cc?.text||'',subject:mail.subject||'',message_id:mail.messageId||'',references:Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[],body:String(mail.text||''),unread:(item.labelIds||[]).includes('UNREAD'),sent_at:date.toISOString()});
+  }
+  return {account:publicAccount(account),messages,next_cursor:list.data.nextPageToken||'',done:!list.data.nextPageToken};
+ }
  async calendarUpcoming({account_id="",max_results=20}={}){
   const account=await this.accountRecord(account_id),auth=await this.clientFor(account),calendar=google.calendar({version:"v3",auth});
   const r=await calendar.events.list({calendarId:"primary",timeMin:new Date().toISOString(),singleEvents:true,orderBy:"startTime",maxResults:Math.min(50,Math.max(1,Number(max_results||20)))});

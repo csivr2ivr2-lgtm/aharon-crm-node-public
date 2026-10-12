@@ -66,6 +66,45 @@ export class HostingerMailConnector{
   return events;
  }
 
+
+ // Crawl every accessible IMAP folder in bounded UID pages. No delete/flag mutation.
+ async historyPage({cursor='',limit=10}={}){
+  if(!this.configured())throw Error('hostinger_account_not_connected');
+  const settings=this.settings(),c=this.client(settings);
+  const size=Math.max(1,Math.min(15,Math.trunc(Number(limit)||10)));
+  const position=cursor?JSON.parse(cursor):{folder:0,before_uid:0};
+  if(!Number.isInteger(position.folder)||position.folder<0||!Number.isInteger(position.before_uid)||position.before_uid<0)throw Error('invalid_mail_history_cursor');
+  await c.connect();
+  try{
+   const folders=(await c.list()).filter(f=>!f.flags?.has('\\Noselect')&&!f.flags?.has('\\NonExistent')).map(f=>f.path);
+   folders.sort((a,b)=>Number(b.toUpperCase()==='INBOX')-Number(a.toUpperCase()==='INBOX')||a.localeCompare(b));
+   for(let folder=position.folder;folder<folders.length;folder++){
+    const lock=await c.getMailboxLock(folders[folder]);
+    try{
+     const uids=((await c.search({all:true},{uid:true}))||[]).map(Number).filter(Number.isSafeInteger).sort((a,b)=>b-a);
+     const before=folder===position.folder?position.before_uid:0;
+     const pending=uids.filter(n=>!before||n<before);
+     if(!pending.length)continue;
+     const selected=pending.slice(0,size),events=[];
+     for(const uid of selected){
+      const {content}=await c.download(uid,undefined,{uid:true});
+      const mail=await simpleParser(content,{skipHtmlToText:false,skipTextToHtml:true,maxHtmlLengthToParse:1024*1024});
+      const meta=await c.fetchOne(uid,{flags:true},{uid:true});
+      const messageId=String(mail.messageId||'uid-'+String(c.mailbox.uidValidity)+'-'+uid+'-'+folders[folder]);
+      const refs=Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[];
+      const from=addresses(mail.from),to=addresses(mail.to),cc=addresses(mail.cc);
+      const fromSelf=emailOf(from)===String(settings.user).toLowerCase();
+      events.push({id:'hostinger:'+messageId,type:'message',source:'hostinger.imap',channel:'email',account_id:settings.user,account:{provider:'hostinger',type:'email',identifier:settings.user,label:'Hostinger · '+settings.user},conversation_external_id:'email:'+String(refs[0]||mail.inReplyTo||messageId),headers:inboxHeaders(mail.headers),external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?'out':'in',sender:from,recipient:to,cc,subject:String(mail.subject||''),body:String(mail.text||''),is_read:Boolean(meta?.flags?.has('\\Seen')),sent_at:(mail.date||new Date()).toISOString()});
+     }
+     const more=pending.length>selected.length;
+     const next=more?{folder,before_uid:selected.at(-1)}:{folder:folder+1,before_uid:0};
+     const done=!more&&folder+1>=folders.length;
+     return {messages:events,next_cursor:done?'':JSON.stringify(next),done};
+    }finally{lock.release();}
+   }
+   return {messages:[],next_cursor:'',done:true};
+  }finally{await c.logout().catch(()=>{});}
+ }
  async send({account_id="",to,subject="",body="",cc="",replyTo="",in_reply_to="",references=[]}){
   if(!Array.isArray(references))throw Error("invalid_mail_references");
   [to,subject,cc,replyTo,in_reply_to]=[to,subject,cc,replyTo,in_reply_to].map(safeHeader);references=references.map(safeHeader);
