@@ -38,21 +38,23 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
  // Cursor is the stable conversation primary key, not an OFFSET into a changing inbox.
  for(let batch=0;batch<Math.max(1,Math.min(50,maxBatches));batch++){
   const where=['c.id>?'],params=[next];
-  const meaningful=" AND (COALESCE(m.inbox_event_type,'')<>'reaction' OR NOT EXISTS(SELECT 1 FROM messages substance WHERE substance.conversation_id=c.id AND COALESCE(substance.inbox_event_type,'')<>'reaction'))";
+  // Legacy deployments may have different utf8mb4 collations on tables created at different times.
+ // Normalize only cross-table comparisons and mixed-source contact names; never rewrite production tables.
+ const meaningful=" AND (COALESCE(m.inbox_event_type,'')<>'reaction' OR NOT EXISTS(SELECT 1 FROM messages substance WHERE substance.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci AND COALESCE(substance.inbox_event_type,'')<>'reaction'))";
   const meaningfulNewer=" AND (COALESCE(newer.inbox_event_type,'')<>'reaction' OR COALESCE(m.inbox_event_type,'')='reaction')";
   for(const [field,value] of [['c.id',conversation_id],['c.account_id',account_id],['c.client_id',client_id],['c.channel',channel]])if(value){where.push(field+'=?');params.push(value);}
   if(from){where.push('m.sent_at>=?');params.push(new Date(from).toISOString());}if(to){where.push('m.sent_at<=?');params.push(new Date(to).toISOString());}
   if(q){where.push("(c.title LIKE ? OR m.sender LIKE ? OR cl.name LIKE ? OR EXISTS(SELECT 1 FROM messages searched WHERE searched.conversation_id=c.id AND searched.body LIKE ?))");params.push(...Array(4).fill('%'+q+'%'));}
   const [rows]=await database.execute(`SELECT c.id,c.title,c.client_id,c.channel,c.account_id,c.external_id AS conversation_external_id,c.unread_count,c.last_message_at,
-   a.label AS account_label,a.integration_key,COALESCE(NULLIF(TRIM(cl.name),''),NULLIF(TRIM(m.sender),''),c.title) AS contact_name,m.sender,m.subject,
+   a.label AS account_label,a.integration_key,COALESCE(NULLIF(TRIM(cl.name) COLLATE utf8mb4_unicode_ci,''),NULLIF(TRIM(m.sender) COLLATE utf8mb4_unicode_ci,''),c.title COLLATE utf8mb4_unicode_ci) AS contact_name,m.sender,m.subject,
    m.id AS message_id,m.direction,m.sent_at AS waiting_since,m.rfc_message_id,m.classification,m.classification_score,m.headers_json,m.classification_reason,m.spam_disposition,LEFT(COALESCE(m.body,''),20000) AS body,
    w.manual_status,w.manual_caller_type,w.manual_message_type,w.snoozed_until,w.updated_at AS workflow_updated_at,COALESCE(w.revision,0) AS revision,
-   EXISTS(SELECT 1 FROM messages reply JOIN conversations reply_conversation ON reply_conversation.id=reply.conversation_id JOIN accounts own_account ON own_account.id=COALESCE(NULLIF(reply.account_id,''),reply_conversation.account_id)
+   EXISTS(SELECT 1 FROM messages reply JOIN conversations reply_conversation ON reply_conversation.id COLLATE utf8mb4_unicode_ci=reply.conversation_id COLLATE utf8mb4_unicode_ci JOIN accounts own_account ON own_account.id COLLATE utf8mb4_unicode_ci=COALESCE(NULLIF(reply.account_id COLLATE utf8mb4_unicode_ci,''),reply_conversation.account_id COLLATE utf8mb4_unicode_ci)
     WHERE m.direction='in' AND m.rfc_message_id<>'' AND reply.direction='out' AND reply.sent_at>=m.sent_at AND reply.id<>m.id
     AND (CASE WHEN JSON_VALID(reply.references_json)=1 THEN JSON_CONTAINS(reply.references_json,JSON_QUOTE(m.rfc_message_id)) ELSE 0 END)=1) AS replied_elsewhere
-   FROM conversations c JOIN messages m ON m.conversation_id=c.id
-   LEFT JOIN accounts a ON a.id=c.account_id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN conversation_workflow w ON w.conversation_id=c.id
-   WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))
+   FROM conversations c JOIN messages m ON m.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci
+   LEFT JOIN accounts a ON a.id COLLATE utf8mb4_unicode_ci=c.account_id COLLATE utf8mb4_unicode_ci LEFT JOIN clients cl ON cl.id COLLATE utf8mb4_unicode_ci=c.client_id COLLATE utf8mb4_unicode_ci LEFT JOIN conversation_workflow w ON w.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci
+   WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))
    ORDER BY c.id ASC LIMIT ?`,[...params,batchSize]);
   if(!Array.isArray(rows))throw Error('inbox_read_unavailable');
   scanned+=rows.length;
