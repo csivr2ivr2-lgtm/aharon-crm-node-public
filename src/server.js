@@ -28,7 +28,7 @@ import {migratePlatform} from "./platform/schema.js";
 import {enqueueJob,startJobWorker} from "./platform/jobs.js";
 import {migrateHistorySync,discoverHistoryAccounts,historyPageJob} from './historical-sync.js';
 import {migrateInboxWorkbench} from "./inbox-workbench.js";
-import {migrateIntelligence} from "./ai/intelligence.js";
+import {migrateIntelligence,applySenderFeedbackPage} from "./ai/intelligence.js";
 import {migrateActions} from "./ai/actions.js";
 import {migrateAssistantChats} from "./assistant-chat-history.js";
 import {migrateCrmIntelligence} from "./crm-intelligence.js";
@@ -167,6 +167,7 @@ if(startBackground)app.addHook("onListen",async()=>{
  const processInbox=handlers["inbox.process"];
  handlers["inbox.process"]=async(payload,job)=>{const result=await processInbox(payload,job);hub.publish("ai.inbox",{message_id:payload.messageId});return result;};
  handlers['history.page']=payload=>historyPageJob(payload,{ingest:event=>workspace.call('message.ingest',event)});
+ handlers['sender.feedback']=payload=>applySenderFeedbackPage(payload);
  stopJobs=startJobWorker(handlers,{onError:()=>{backgroundState.last_error="background_processing_failed";app.log.warn("Background processing failed; inspect the queue");}});
  const seedHistory=()=>void discoverHistoryAccounts().catch(()=>app.log.warn("Historical sync scheduling failed"));
  historyDiscoveryTimer=setInterval(seedHistory,300000);historyDiscoveryTimer.unref?.();seedHistory();

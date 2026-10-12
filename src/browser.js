@@ -476,7 +476,7 @@ async function workAction(action,id){
   const state=await api('/api/inbox/work/'+encodeURIComponent(id));
   await api('/api/inbox/work/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({message_type:'spam',status:'no_action',revision:state.item.revision})});
   if(conversation===id)await openConversation(id);else await render(view);
-  $('#notice').textContent='סומנו '+Number(result.affected_messages||0)+' הודעות מהשולח כספאם.';return;
+  $('#notice').textContent='השולח סומן כספאם. הודעות ישנות נוספות יתעדכנו ברקע.';return;
  }
  const fresh=await api('/api/inbox/work/'+encodeURIComponent(id)),x=fresh.item;
  const changes={'work-done':{status:'done'},'work-waiting':{status:'waiting_customer'},'work-progress':{status:'in_progress'},'work-noaction':{status:'no_action'},'work-lead':{caller_type:x.client_id?'customer':'lead',message_type:'business',status:'needs_reply'},'work-spam':{message_type:'spam',status:'no_action'},'work-updates':{message_type:'system',status:'no_action'},'work-auto':{status:'auto',caller_type:'auto',message_type:'auto'}};

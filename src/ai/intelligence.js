@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import {createHash} from 'node:crypto';
 import {db,now,ensureColumn} from '../db.js';
+import {enqueueJob} from '../platform/jobs.js';
 import {emailOf,phoneOf,extractDeterministicEntities} from '../message-format.js';
 import {generateText as generate,generateStructured,externalAvailable} from './providers.js';
 import {buildCrmContext} from './context.js';
@@ -56,26 +57,35 @@ export async function classifyWithAi(message,initial,generateFn=generateStructur
 async function audit(database,event,entityId,details){await platformAudit({action:event,entityType:'message',entityId,actor:details.actor||'worker',source:'inbox_ai',mode:details.ai===false?'manual':'ai',reason:details.reason,confidence:details.confidence,before:details.before,after:details.after,confirmation:details.confirmation_state},{db:database});}
 async function notify(database,type,title,entityId){await database.execute('INSERT IGNORE INTO notifications(id,type,title,entity_type,entity_id,created_at) VALUES(?,?,?,?,?,?)',[stableId('notice',type+entityId),type,title,'conversation',entityId,now()]);}
 export async function setSpamFeedback({messageId,classification,actor='user'},deps={}){
- if(!['normal','spam'].includes(classification))throw Error('invalid_spam_feedback');const database=deps.db||db;
- const [rows]=await database.execute('SELECT * FROM messages WHERE id=?',[messageId]);if(!rows[0])throw Error('message_not_found');const identity=senderIdentity(rows[0]);
+ if(!['normal','spam'].includes(classification))throw Error('invalid_spam_feedback');
+ const database=deps.db||db,enqueue=deps.enqueue||enqueueJob;
+ const [rows]=await database.execute('SELECT * FROM messages WHERE id=?',[messageId]);
+ if(!rows[0])throw Error('message_not_found');
  if(rows[0].direction!=='in')throw Error('inbox_feedback_inbound_required');
+ const identity=senderIdentity(rows[0]);
  if(identity.key)await database.execute('INSERT INTO sender_feedback(identity_key,classification,updated_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE classification=VALUES(classification),updated_at=VALUES(updated_at)',[identity.key,classification,now()]);
- // Sender-wide feedback covers every existing inbound thread. Only exact email or canonical phone identities match.
- let affected=0;
- if(identity.email){
-  const [result]=await database.execute("UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE direction='in' AND (LOWER(sender)=? OR LOCATE(CONCAT('<',?,'>'),LOWER(sender))>0)",[classification,'סיווג ידני לכל הודעות השולח',classification==='spam'?'spam':'inbox',identity.email,identity.email]);
-  affected=Number(result.affectedRows||0);
- }else if(identity.phone){
-  const local=identity.phone.startsWith('972')?'0'+identity.phone.slice(3):identity.phone;
-  const aliases=[...new Set([rows[0].sender,identity.phone,'+'+identity.phone,local,identity.phone+'@s.whatsapp.net',local+'@s.whatsapp.net'])];
-  const [result]=await database.execute("UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE direction='in' AND sender IN ("+aliases.map(()=>'?').join(',')+")",[classification,'סיווג ידני לכל הודעות השולח',classification==='spam'?'spam':'inbox',...aliases]);
-  affected=Number(result.affectedRows||0);
- }else{
-  const [result]=await database.execute('UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE id=?',[classification,'סיווג ידני של המשתמש',classification==='spam'?'spam':'inbox',messageId]);
-  affected=Number(result.affectedRows||0);
+ await database.execute('UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE id=?',[classification,'סיווג ידני של המשתמש',classification==='spam'?'spam':'inbox',messageId]);
+ if(identity.key){
+  const runId='feedback:'+createHash('sha256').update(identity.key+':'+messageId+':'+classification+':'+Date.now()).digest('hex').slice(0,40);
+  await enqueue('sender.feedback',{identityKey:identity.key,classification,runId,cursor:''},{idempotencyKey:runId+':start',db:database,maxAttempts:10});
  }
  await audit(database,'inbox.feedback',messageId,{actor,ai:false,before:rows[0].classification,after:classification,confidence:1,reason:identity.key?'sender_wide_feedback':'message_feedback'});
- return {ok:true,affected_messages:affected,scope:identity.key?'sender':'message'};
+ return {ok:true,affected_messages:1,scope:identity.key?'sender':'message',background_sync:!!identity.key};
+}
+export async function applySenderFeedbackPage({identityKey,classification,runId,cursor=''}={},deps={}){
+ if(typeof identityKey!=='string'||!/^((email|phone):).{3,320}$/.test(identityKey)||!['normal','spam'].includes(classification)||!/^feedback:[a-f0-9]{40}$/.test(runId)||typeof cursor!=='string'||cursor.length>128)throw Error('invalid_sender_feedback_job');
+ const database=deps.db||db,enqueue=deps.enqueue||enqueueJob;
+ const [feedback]=await database.execute('SELECT classification FROM sender_feedback WHERE identity_key=?',[identityKey]);
+ if(feedback[0]?.classification!==classification)return {ok:true,superseded:true};
+ const [rows]=await database.execute('SELECT id,sender,direction FROM messages WHERE id>? ORDER BY id ASC LIMIT 150',[cursor]);
+ const matching=rows.filter(row=>row.direction==='in'&&senderIdentity(row).key===identityKey).map(row=>row.id);
+ if(matching.length)await database.execute('UPDATE messages SET classification=?,classification_score=1,classification_reason=?,spam_disposition=? WHERE id IN ('+matching.map(()=>'?').join(',')+')',[classification,'סיווג ידני לכל הודעות השולח',classification==='spam'?'spam':'inbox',...matching]);
+ if(rows.length===150){
+  const next=String(rows.at(-1).id);
+  if(next<=cursor)throw Error('sender_feedback_cursor_not_advancing');
+  await enqueue('sender.feedback',{identityKey,classification,runId,cursor:next},{idempotencyKey:runId+':'+createHash('sha256').update(next).digest('hex').slice(0,16),db:database,maxAttempts:10});
+ }
+ return {ok:true,scanned:rows.length,updated:matching.length,done:rows.length<150};
 }
 export async function resolveIdentity(database,message,conversation){
  const identity=senderIdentity(message);if(!identity.key)return {...identity,client:null,confidence:0,ambiguous:false};
