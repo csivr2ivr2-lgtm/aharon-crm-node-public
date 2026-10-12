@@ -33,16 +33,16 @@ const run=async()=>{
  }
  console.log('PASS: columns, tables, index');
 
- const [jsonRows]=await db.execute("SELECT JSON_VALID(?) AS valid,JSON_CONTAINS(IF(JSON_VALID(?),?,'[]'),JSON_QUOTE(?)) AS matched",['["<request>"]','["<request>"]','["<request>"]','<request>']);
+ const [jsonRows]=await db.execute("SELECT JSON_VALID(?) AS valid,CASE WHEN JSON_VALID(?)=1 THEN JSON_CONTAINS(?,JSON_QUOTE(?)) ELSE 0 END AS matched",['["<request>"]','["<request>"]','["<request>"]','<request>']);
  assert.equal(Number(jsonRows[0].valid),1);
  assert.equal(Number(jsonRows[0].matched),1);
- const [invalidRows]=await db.execute("SELECT JSON_CONTAINS(IF(JSON_VALID(?),?,'[]'),JSON_QUOTE(?)) AS matched",['invalid-json','invalid-json','<request>']);
+ const [invalidRows]=await db.execute("SELECT CASE WHEN JSON_VALID(?)=1 THEN JSON_CONTAINS(?,JSON_QUOTE(?)) ELSE 0 END AS matched",['invalid-json','invalid-json','<request>']);
  assert.equal(Number(invalidRows[0].matched),0);
  console.log('PASS: JSON_VALID/JSON_CONTAINS with valid and invalid JSON');
 
  await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key) VALUES('ci-a','email','CI account','ci@example.test','ci:a'),('ci-b','email','CI other','ci2@example.test','ci:b')");
  const conv=async(id,account='ci-a')=>db.execute('INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES(?,?,?,?,?,?)',[id,'email',account,id,'CI conversation','']);
- for(const id of ['ci-01','ci-02','ci-03','ci-04','ci-05'])await conv(id,id==='ci-04'?'ci-b':'ci-a');
+ for(const id of ['ci-01','ci-02','ci-03','ci-04','ci-05','ci-06'])await conv(id,id==='ci-04'?'ci-b':'ci-a');
  const insert=async(id,cid,direction,body,when,rfc='',refs='[]',classification='normal')=>{
   await db.execute('INSERT INTO messages(id,conversation_id,external_id,direction,sender,subject,body,sent_at,rfc_message_id,references_json,classification) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[id,cid,id,direction,'customer@example.test','CI inquiry',body,when,rfc,refs,classification]);
  };
@@ -52,6 +52,7 @@ const run=async()=>{
  await insert('ci-m3','ci-03','in','אני צריך שירות',old,'<request>');
  await insert('ci-m4','ci-04','out','תשובה מחשבון אחר',recent,'<reply>','["<request>"]');
  await insert('ci-m5','ci-05','in','אני רוצה הצעת מחיר חדשה',recent,'<renewal>');
+ await insert('ci-m6','ci-06','out','תשובה ישנה עם כותרות הפניה פגומות',recent,'<invalid-ref>','not-json');
  await db.execute("INSERT INTO conversation_workflow(conversation_id,manual_status,revision,updated_at) VALUES('ci-05','done',1,?)",[old]);
  const captured=[];
  const recording={execute:async(sql,params)=>{if(sql.includes('FROM conversations c JOIN messages m'))captured.push([sql,params]);return db.execute(sql,params);}};
@@ -70,7 +71,7 @@ const run=async()=>{
  assert.ok(captured.length,'queue query not captured');
  const [plan]=await db.execute('EXPLAIN '+captured[0][0],captured[0][1]);
  assert.ok(plan.length,'missing EXPLAIN rows for full work queue query');
- const [refPlan]=await db.execute("EXPLAIN SELECT id FROM messages WHERE JSON_CONTAINS(IF(JSON_VALID(references_json),references_json,'[]'),JSON_QUOTE(?))=1",['<request>']);
+ const [refPlan]=await db.execute("EXPLAIN SELECT id FROM messages WHERE (CASE WHEN JSON_VALID(references_json)=1 THEN JSON_CONTAINS(references_json,JSON_QUOTE(?)) ELSE 0 END)=1",['<request>']);
  assert.ok(refPlan.length,'missing JSON EXPLAIN');
  console.log('PASS: actual EXPLAIN for production-style inbox queue and JSON reference query');
  console.log('EXPLAIN operators:',JSON.stringify(plan.map(x=>({table:x.table,type:x.type,key:x.key,rows:x.rows}))));

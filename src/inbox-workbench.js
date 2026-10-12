@@ -49,7 +49,7 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
    w.manual_status,w.manual_caller_type,w.manual_message_type,w.snoozed_until,w.updated_at AS workflow_updated_at,COALESCE(w.revision,0) AS revision,
    EXISTS(SELECT 1 FROM messages reply JOIN conversations reply_conversation ON reply_conversation.id=reply.conversation_id JOIN accounts own_account ON own_account.id=COALESCE(NULLIF(reply.account_id,''),reply_conversation.account_id)
     WHERE m.direction='in' AND m.rfc_message_id<>'' AND reply.direction='out' AND reply.sent_at>=m.sent_at AND reply.id<>m.id
-    AND JSON_CONTAINS(IF(JSON_VALID(reply.references_json),reply.references_json,'[]'),JSON_QUOTE(m.rfc_message_id))=1) AS replied_elsewhere
+    AND (CASE WHEN JSON_VALID(reply.references_json)=1 THEN JSON_CONTAINS(reply.references_json,JSON_QUOTE(m.rfc_message_id)) ELSE 0 END)=1) AS replied_elsewhere
    FROM conversations c JOIN messages m ON m.conversation_id=c.id
    LEFT JOIN accounts a ON a.id=c.account_id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN conversation_workflow w ON w.conversation_id=c.id
    WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))
