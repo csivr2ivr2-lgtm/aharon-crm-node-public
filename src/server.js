@@ -26,6 +26,7 @@ import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
 import {migratePlatform} from "./platform/schema.js";
 import {enqueueJob,startJobWorker} from "./platform/jobs.js";
+import {migrateInboxWorkbench} from "./inbox-workbench.js";
 import {migrateIntelligence} from "./ai/intelligence.js";
 import {migrateActions} from "./ai/actions.js";
 import {migrateAssistantChats} from "./assistant-chat-history.js";
@@ -36,7 +37,7 @@ import {migrateKnowledge} from "./ai/knowledge.js";
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateActions();await migrateAssistantChats();await migrateKnowledge();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateActions();await migrateAssistantChats();await migrateKnowledge();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -164,3 +165,4 @@ export async function start(){
  const app=await buildApp();await app.listen({host:config.host,port:config.port});
  let closing=false;const stop=async()=>{if(closing)return;closing=true;await app.close();};process.once("SIGTERM",stop);process.once("SIGINT",stop);return app;
 }
+

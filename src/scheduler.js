@@ -1,3 +1,4 @@
+import {recordInboxSync} from './inbox-sync-state.js';
 import {config} from "./config.js";
 import {syncIssue,issueSummary} from "./sync-diagnostics.js";
 export class SyncScheduler{
@@ -13,9 +14,10 @@ export class SyncScheduler{
     try{if(event.type==="message"){const r=await this.workspace.call("message.ingest",event);if(r?.inserted)imported++;else duplicates++}else await this.workspace.call("activity.add",{event:"external."+String(event.type||"event"),entity_type:"integration",entity_id:String(event.account_id||""),title:String(event.title||event.type||"Event"),metadata:event});this.hub?.publish?.("external.event",{type:event.type,source:event.source,account_id:event.account_id})}
     catch(err){errors++;const issue=syncIssue(event.source||"workspace","ingest",err,event.account?.identifier||event.account_id);issues.push(issue);this.logger?.warn?.({source:issue.source,error:issue.error,stage:issue.stage},"Connector ingestion failed")}
    }
-   const result={ok:true,events:events.length,imported,duplicates,errors,issues:issueSummary(issues),checked_at:new Date().toISOString()};this.lastReport=result;return result;
-  }finally{this.running=false}
+   const result={ok:true,events:events.length,imported,duplicates,errors,issues:issueSummary(issues),checked_at:new Date().toISOString()};this.lastReport=result;recordInboxSync(result);return result;
+  }catch(error){recordInboxSync({ok:false,errors:1});throw error;}finally{this.running=false}
  }
  start(){if(!config.syncEnabled)return;const run=()=>this.runOnce().catch(err=>this.logger.error({err},"Connector sync failed"));this.timer=setInterval(run,config.syncIntervalSeconds*1000);this.timer.unref?.();this.initial=setTimeout(run,1500);this.initial.unref?.()}
  stop(){if(this.timer)clearInterval(this.timer);clearTimeout(this.initial)}
 }
+

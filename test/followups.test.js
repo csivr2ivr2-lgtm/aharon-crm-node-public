@@ -5,7 +5,7 @@ import {getFollowupCandidates,processFollowups,scheduleFollowup} from '../src/fo
 const clock=()=>new Date('2026-09-28T12:00:00Z');
 const settings={automation:{followups:'automatic'},followups:{waitingHours:48,overdueHours:24,mode:'draft_follow_up'}};
 const task={id:'t1',title:'Call customer',status:'open',due_date:'2026-09-25',client_id:'client1',project_id:'p1'};
-const inbound={id:'in1',conversation_id:'c1',title:'Need help',direction:'in',sent_at:'2026-09-25T10:00:00Z',project_id:'',client_id:'client1'};
+const inbound={id:'in1',conversation_id:'c1',title:'Need help',body:'Can you help with my service?',direction:'in',sent_at:'2026-09-25T10:00:00Z',project_id:'',client_id:'client1'};
 const outbound={id:'out1',conversation_id:'c2',title:'Quote sent',direction:'out',sent_at:'2026-09-24T10:00:00Z'};
 function fixture({tasks=[task],messages=[inbound,outbound],handled=[]}={}){
  const calls=[],reminders=new Map(),created=[];
@@ -48,3 +48,4 @@ test('source keys change with rescheduled task or new latest message, not wall c
  const changed=fixture({tasks:[{...task,due_date:'2026-09-24'}],messages:[{...inbound,id:'in2'}]});const second=(await getFollowupCandidates(changed)).items;
  assert.ok(second.every(x=>!first.some(old=>old.id===x.id)));
 });
+

@@ -1,0 +1,78 @@
+name: CRM validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  node:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Syntax validation
+        run: npm run check
+      - name: Unit, HTTP and regression tests
+        run: npm test
+      - name: Dependency vulnerability audit (high+)
+        run: npm audit --omit=dev --audit-level=high
+  mysql-integration:
+    name: Database integration (${{ matrix.database.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        database:
+          - { name: 'MySQL 8.0', image: 'mysql:8.0' }
+          - { name: 'MariaDB 10.11', image: 'mariadb:10.11' }
+    services:
+      mysql:
+        image: ${{ matrix.database.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-secret
+          MYSQL_DATABASE: crm_ci
+          MARIADB_ROOT_PASSWORD: test-only-secret
+          MARIADB_DATABASE: crm_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_NAME: crm_ci
+      DB_USER: root
+      DB_PASSWORD: test-only-secret
+      SYNC_ENABLED: 'false'
+      TASK_WORKER_ENABLED: 'false'
+      LOCAL_AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify real database migrations, JSON, queue, and EXPLAIN
+        run: node scripts/check-inbox-sql.mjs

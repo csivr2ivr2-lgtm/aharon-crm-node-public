@@ -93,8 +93,9 @@ test('non-Groq models never retry invisible outputs without evidence of truncati
  await assert.rejects(()=>callExternalAi([{role:'user',content:'hello'}],{routes,fetcher:async()=>{calls++;return {ok:true,status:200,json:async()=>({choices:[{finish_reason:'length',message:{content:null}}]})};}}),/empty_ai_response/);
  assert.equal(calls,1);
 });
-test('SQL query orders waiting replies newest first, excludes channel posts',async()=>{
- const source=await readFile(new URL('../src/ai/actions.js',import.meta.url),'utf8');
- assert.ok(source.includes("ORDER BY m.sent_at DESC,m.id DESC LIMIT "));
+test('workbench query pages a stable cursor and excludes channel posts',async()=>{
+ const source=await readFile(new URL('../src/inbox-workbench.js',import.meta.url),'utf8');
+ assert.ok(source.includes('ORDER BY c.id ASC LIMIT ?'));
  assert.ok(source.includes("c.external_id LIKE '%@newsletter'"));
+ assert.ok(source.includes('newer.id>m.id'));
 });

@@ -4,6 +4,27 @@ export function nonCustomerSignal(message={}){
  const sender=String(message.sender||'').trim();
  const peer=String(message.conversation_external_id||'').trim();
  const subject=String(message.subject||'').trim();
+ const body=String(message.body||message.latest_inbound_body||'').slice(0,20000);
+ const address=(sender.match(/<([^<>]+)>/)?.[1]||sender).toLowerCase();
+ let headers=message.headers||{};try{if(message.headers_json)headers=JSON.parse(message.headers_json);}catch{}
+ const header=name=>String(Object.entries(headers).find(([k])=>k.toLowerCase()===name)?.[1]||'');
+ if(header('content-type').includes('reaction')||header('content-disposition').includes('reaction')||
+    /^(?:.+ )?(?:reacted with|הגיב[ה]? באמצעות|הגיב[ה]? עם|תגובה באמצעות אימוג)/iu.test(subject)||
+    /^(?:.+ )?reacted .{1,20} to (?:your|a) message[.!]?$/iu.test(body.trim()))
+  return {classification:'automated',event_type:'reaction',confidence:.99,reason:'אירוע תגובה להודעה; אינו פנייה חדשה',source:'routing'};
+ if(address==='notifications@github.com'&&/workflow|github actions|run (?:failed|completed|cancelled)|\[(?:[^\]]+)\].*(?:failure|success)/i.test(subject+' '+body.slice(0,1200)))
+  return {classification:'system',confidence:.99,reason:'התראת הרצת GitHub Actions',source:'routing'};
+ if(/^(?:reminders|pageupdates|notification|notifications)@facebookmail\.com$/.test(address)&&/facebook|פייסבוק|notification|התרא|עדכון|עדכונ|פוסט|posted|post|remind/i.test(subject+' '+body.slice(0,1200)))
+  return {classification:'system',confidence:.99,reason:'עדכון רשת חברתית Facebook',source:'routing'};
+ const opening=body.split(/\n(?:On .+wrote:|בתאריך .+כתב|[- ]*Original Message[- ]*)/i)[0].slice(0,1500);
+ if(/(?:we|i) (?:offer|provide|speciali[sz]e in|can (?:build|develop|help))|(?:אנחנו|אנו) (?:מציעים|מתמחים|מספקים)|מציע לך/i.test(opening)&&
+    /(?:app|website|software|development|seo|marketing|פיתוח|אפליקצי|אתרים|שיווק)/i.test(opening)&&
+    !/^(?:re:|fw:|fwd:)/i.test(subject)&&!message.client_id)
+  return {classification:'marketing',confidence:.94,reason:'הצעת שירות נכנסת מספק; לא בקשת רכישה ממך',source:'routing'};
+ if(header('list-id')&&/bulk|list/i.test(header('precedence')))
+  return {classification:'marketing',confidence:.97,reason:'הודעת רשימת תפוצה לפי Headers',source:'routing'};
+
+ if(/(?:^|[<\s])(?:no-?reply|donotreply|mailer-daemon)@/i.test(sender)&&/update|notification|alert|digest|weekly|עדכון|התרא/i.test(subject+' '+body.slice(0,150)))return {classification:'automated',confidence:.95,reason:'הודעת עדכון אוטומטית',source:'routing'};
  if(/@newsletter$/i.test(sender)||/@newsletter$/i.test(peer))
   return {classification:'automated',confidence:1,reason:'ערוץ עדכונים של WhatsApp; לא פנייה מלקוח',source:'routing'};
  // Avoid inferring a business lead or an actionable task from security notifications.
@@ -17,3 +38,4 @@ export function nonCustomerSignal(message={}){
   return {classification:'marketing',confidence:.94,reason:'עדכון שיווקי/רשימת תפוצה; לא פנייה ישירה',source:'routing'};
  return null;
 }
+

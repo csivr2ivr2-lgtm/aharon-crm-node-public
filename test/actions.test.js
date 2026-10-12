@@ -6,6 +6,7 @@ const context={actor:'owner',source:'chat',permissions:['read','write','send'],t
 function fixture(){
  const rows=new Map(),sends=new Map(),calls=[];let phone='972501234567',clock=Date.now();
  const database={async execute(sql,p=[]){
+  if(sql.startsWith('SELECT c.id,c.title'))return [[]];
   if(sql.startsWith('INSERT IGNORE INTO ai_actions')){if(rows.has(p[0]))return [{affectedRows:0}];rows.set(p[0],{id:p[0],actor:p[1],source:p[2],tool:p[3],args_json:p[4],state:p[5],token_hash:p[6],expires_at:p[7],preview_json:p[10]});return [{affectedRows:1}];}
   if(sql.startsWith('SELECT * FROM ai_actions'))return [[rows.get(p[0])].filter(Boolean)];
   if(sql.startsWith("UPDATE ai_actions SET state='executing'")){const row=rows.get(p[1]);if(row.state!==p[2])return [{affectedRows:0}];row.state='executing';return [{affectedRows:1}];}
@@ -107,5 +108,8 @@ test('assistant derives trusted-send intent only from original explicit quoted r
  const f=fixture();f.engine.settings=async()=>({messaging:{policy:'auto_send_trusted',trustedClientIds:['client_david']}});
  const assistant=new Assistant({engine:f.engine,settings:async()=>({ai:{}}),generate:async()=>({text:JSON.stringify({reply:'',tool_calls:[{name:'send_whatsapp',arguments:{client_id:'client_david',account_id:'account_whatsapp',body:'private retrieved records'}}]})})});
  const answer=await assistant.chat({message:'מי מחכה לתשובה שלי?',context:{...context,sendIntent:{tool:'send_whatsapp',recipient:'דוד',body:'private retrieved records'}}});
- assert.equal(answer.actions[0].status,'pending');assert.equal(f.sendCount(),0);
+ assert.deepEqual(answer.actions,[]);assert.equal(f.sendCount(),0);
+ const modelAnswer=await assistant.chat({message:'סכם את הפעילות העסקית',context:{...context,sendIntent:{tool:'send_whatsapp',recipient:'דוד',body:'private retrieved records'}}});
+ assert.equal(modelAnswer.actions[0].status,'pending');assert.equal(f.sendCount(),0);
 });
+

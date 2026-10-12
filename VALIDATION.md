@@ -1,3 +1,15 @@
+# Inbox workbench — 2026-10-12
+
+Base: `c7f4a1d6bf7c009a32df1755f5afb52f68a8b1f2`.
+
+- 301/301 automated tests passed; source check: 107 files, zero failures.
+- 40 Chromium/Playwright assertions passed at 360/390/768/1440px against intercepted synthetic HTTP fixtures. Includes XSS escaping, overflow, task confirmation, manual handling, chat refresh and source navigation.
+- Secret scanner exits 1 with the same three baseline placeholder/test-key findings, no new findings. See detailed report.
+- No live MySQL migration/query execution, production synchronization, paid/external model calls or hosting deployment was validated. Staging with real MySQL is required before release.
+- [Full change report, file list, limits, backup/rollback and manual acceptance scenarios](docs/inbox-intelligence.md).
+
+Earlier validation records follow.
+
 # Supra tokenizer/model split — 2026-09-28
 
 Starting GitHub HEAD: `df8222ee34f41f99a5d2243063c164171411e997`.

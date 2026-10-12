@@ -1,3 +1,5 @@
+> תיבת עבודה ועוזר עסקי (אוקטובר 2026): [שינויים, בדיקות, מגבלות, staging ו־rollback](docs/inbox-intelligence.md).
+
 # Aharon CRM — Pure Node.js CRM
 
 מערכת CRM עצמאית ב־Node.js וב־Fastify, עם MySQL/MariaDB ישיר, ממשק בעברית ותיבת הודעות מאוחדת. הקוד ממשיך את המימוש הקיים במאגר.

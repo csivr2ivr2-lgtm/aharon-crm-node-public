@@ -1,6 +1,9 @@
 // External-only AI routing. Credentials remain in server-side environment variables.
 // This module deliberately never exposes configured tokens in errors or return values.
 const cooldowns=new Map();
+const health=new Map();
+function failed(route,code){const old=health.get(route.id)||{failures:0};health.set(route.id,{failures:old.failures+1,last_error:code,checked_at:new Date().toISOString()});}
+export function externalProviderHealth(){return [...health].map(([id,state])=>({id,...state,cooldown_until:Number(cooldowns.get(id)||0)}));}
 const retryableCodes=new Set([408,425,429,500,502,503,504]);
 const validId=x=>typeof x==='string'&&/^[a-z0-9_-]{1,40}$/i.test(x);
 
@@ -51,9 +54,9 @@ export async function callExternalAi(messages,{routes,fetcher=fetch,timeoutMs=20
    }
    if(!response.ok){
     const status=response.status;
-    if(status===429){blockedHosts.add(route.host);cooldowns.set('host:'+route.host,now()+60000);cooldowns.set(route.id,now()+60000);lastError=Error('ai_rate_limited');continue;}
-    if(retryableCodes.has(status)){cooldowns.set(route.id,now()+15000);lastError=Error('ai_provider_unavailable');continue;}
-    if(status===401||status===403){cooldowns.set(route.id,now()+300000);lastError=Error('ai_provider_unauthorized');continue;}
+    if(status===429){blockedHosts.add(route.host);cooldowns.set('host:'+route.host,now()+60000);cooldowns.set(route.id,now()+60000);lastError=Error('ai_rate_limited');failed(route,lastError.message);continue;}
+    if(retryableCodes.has(status)){cooldowns.set(route.id,now()+15000);lastError=Error('ai_provider_unavailable');failed(route,lastError.message);continue;}
+    if(status===401||status===403){cooldowns.set(route.id,now()+300000);lastError=Error('ai_provider_unauthorized');failed(route,lastError.message);continue;}
     if(status===400||status===404||status===422){
      // Read only safe classification categories; never echo the upstream response or credentials.
      const payload=await response.json().catch(()=>({}));
@@ -68,8 +71,10 @@ export async function callExternalAi(messages,{routes,fetcher=fetch,timeoutMs=20
    const body=completed||await response.json();
    const content=body?.choices?.[0]?.message?.content;
    if(typeof content!=='string'||!content.trim())throw Error('empty_ai_response');
+   health.set(route.id,{failures:health.get(route.id)?.failures||0,last_error:null,checked_at:new Date().toISOString()});
    return {text:content.trim(),provider:route.id,model:route.model||'default'};
   }catch(error){
+   failed(route,['ai_model_not_found','ai_context_too_large','empty_ai_response','ai_request_rejected'].includes(error?.message)?error.message:'ai_provider_unavailable');
    if(['ai_provider_rejected_request','ai_request_rejected','ai_model_not_found','ai_context_too_large','empty_ai_response'].includes(error?.message))throw error;
    lastError=['ai_rate_limited','ai_provider_unavailable','ai_provider_unauthorized'].includes(error?.message)?error:Error('ai_provider_unavailable');
    cooldowns.set(route.id,now()+15000);
@@ -77,3 +82,4 @@ export async function callExternalAi(messages,{routes,fetcher=fetch,timeoutMs=20
  }
  throw lastError;
 }
+

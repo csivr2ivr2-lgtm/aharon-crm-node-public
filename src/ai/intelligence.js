@@ -119,10 +119,12 @@ export async function processIncomingMessage({messageId},deps={}){
  const [conversations]=await database.execute('SELECT * FROM conversations WHERE id=?',[message.conversation_id]);const conversation=conversations[0];if(!conversation)throw Error('conversation_not_found');
  const identity=senderIdentity(message);let feedback;
  if(identity.key){const [rows]=await database.execute('SELECT classification FROM sender_feedback WHERE identity_key=?',[identity.key]);feedback=rows[0]?.classification;}
- let classification=classifyMessage(message,{feedback});
+ const manual=/סיווג ידני/.test(String(message.classification_reason||''));
+ let classification=manual?{classification:message.classification,confidence:1,reason:message.classification_reason,source:'feedback'}:classifyMessage({...message,client_id:conversation.client_id},{feedback});
  if(automation.classification!=='off'&&settings.ai?.enabled!==false)classification=await classifyWithAi(message,classification,tinyFn,settings.ai);
- if(automation.spam!=='off'){
-  await database.execute('UPDATE messages SET classification=?,classification_score=?,classification_reason=?,spam_disposition=? WHERE id=?',[classification.classification,classification.confidence,classification.reason,classification.classification==='spam'?(automation.spam==='suggest'||classification.review_required?'review':'spam'):classification.classification==='suspicious'?'review':['marketing','system','automated'].includes(classification.classification)?'updates':'inbox',messageId]);
+ if(automation.spam!=='off'&&!manual){
+  const [classificationUpdate]=await database.execute("UPDATE messages SET classification=?,classification_score=?,classification_reason=?,spam_disposition=? WHERE id=? AND COALESCE(classification_reason,'') NOT LIKE '%סיווג ידני%'",[classification.classification,classification.confidence,classification.reason,classification.classification==='spam'?(automation.spam==='suggest'||classification.review_required?'review':'spam'):classification.classification==='suspicious'?'review':['marketing','system','automated'].includes(classification.classification)?'updates':'inbox',messageId]);
+  if(!classificationUpdate.affectedRows)return {classification,skipped_automation:true,manual_change_detected:true};
   if(message.classification!==classification.classification)await audit(database,'inbox.classified',messageId,{before:message.classification,after:classification.classification,confidence:classification.confidence,reason:classification.reason});
  }
  if(classification.review_required)return {classification,skipped_automation:true,review_required:true};
@@ -276,3 +278,4 @@ export function reminderTime(date){
  const offset=Number(zone.match(/GMT\+([0-9]+)/)?.[1]||2);
  return new Date(date+`T${String(9-offset).padStart(2,'0')}:00:00Z`).toISOString();
 }
+

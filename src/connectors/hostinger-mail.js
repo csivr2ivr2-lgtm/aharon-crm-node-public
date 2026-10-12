@@ -1,3 +1,4 @@
+import {inboxHeaders} from '../ai/inbox-headers.js';
 import {ImapFlow} from "imapflow";
 import {syncIssue} from "../sync-diagnostics.js";
 import nodemailer from "nodemailer";
@@ -56,7 +57,7 @@ export class HostingerMailConnector{
       account_id:settings.user,
       account:{provider:"hostinger",type:"email",identifier:settings.user,label:"Hostinger · "+settings.user},
       conversation_external_id:"email:"+String(refs[0]||mail.inReplyTo||messageId),
-      external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?"out":"in",sender:from,recipient:to,cc,subject:String(mail.subject||""),
+      headers:inboxHeaders(mail.headers),external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?"out":"in",sender:from,recipient:to,cc,subject:String(mail.subject||""),
       body:String(mail.text||""),is_read:Boolean(meta?.flags?.has("\\Seen")),sent_at:(mail.date||new Date()).toISOString()
      });
     }catch(error){events.push({...syncIssue("hostinger.imap","parse",error,settings.user),message_index:String(uid).slice(0,30)});}
@@ -78,4 +79,5 @@ export class HostingerMailConnector{
  }
 }
 export const hostingerMail=new HostingerMailConnector();
+
 

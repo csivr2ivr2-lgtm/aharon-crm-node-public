@@ -34,8 +34,11 @@ export function waitingRequestLimit(message){
 }
 export function extractWaitingItems(toolResponse,limit=10){
  const rows=toolResponse?.result?.items;
- if(!toolResponse?.ok||toolResponse.status!=='completed'||!Array.isArray(rows))throw Error('assistant_read_unavailable');
+ if(!toolResponse?.ok||toolResponse.status!=='completed'||toolResponse.result?.ok===false||!Array.isArray(rows)||(!rows.length&&(toolResponse.result?.complete===false||toolResponse.result?.sync?.state==='failed')))throw Error('assistant_read_unavailable');
  return rows.slice(0,limit).filter(x=>x&&typeof x==='object').map(x=>({
+  id:String(x.id||'').slice(0,128),
+  source_url:x.id?'/#conversation='+encodeURIComponent(String(x.id)):'',
+  reason:String(x.reason||'בקשה ללא תשובה מאוחרת בשיחה').slice(0,250),
   contact_name:String(x.contact_name||x.sender||x.title||'פונה לא מזוהה').slice(0,180),
   title:String(x.title||'שיחה ללא כותרת').slice(0,180),
   channel:String(x.channel||'').slice(0,24),
@@ -45,6 +48,18 @@ export function extractWaitingItems(toolResponse,limit=10){
 }
 export function waitingExcerpt(items){
  if(!items.length)return 'לפי הנתונים המסוננים של ה־CRM, לא נמצאו שיחות שממתינות לתשובה. ייתכן שקיימות פניות שעדיין לא סווגו או סונכרנו.';
- return 'פניות שממתינות לתשובה שלך — לפי ההודעה האחרונה בכל שיחה (גם ללא כרטיס לקוח):\n'
-  +items.map((x,i)=>(i+1)+'. '+x.contact_name+' ('+(x.channel==='whatsapp'?'WhatsApp':x.channel==='email'?'דוא״ל':x.channel||'ערוץ לא ידוע')+') — '+(x.latest_inbound_body||x.title||'אין טקסט זמין').replace(/\s+/g,' ').slice(0,300)).join('\n');
+ return 'פניות שממתינות לתשובה שלך — לפי הבקשות והסטטוסים בנתונים שסונכרנו (תקינות הסנכרון החי לא נבדקה):\n'
+  +items.map((x,i)=>(i+1)+'. '+x.contact_name+' ('+(x.channel==='whatsapp'?'WhatsApp':x.channel==='email'?'דוא״ל':x.channel||'ערוץ לא ידוע')+') — '+(x.latest_inbound_body||x.title||'אין טקסט זמין').replace(/\s+/g,' ').slice(0,300)+' — '+(x.reason||'')+(x.source_url?'\nמקור: '+x.source_url:'')).join('\n');
+}
+
+
+export function businessReadRequest(message){
+ const m=String(message||'').trim();
+ if(explicitMutationRequest(m))return null;
+ if(/(?:חמש|חמישה|5).{0,25}פניות.{0,20}חשוב/.test(m))return {view:'needs_reply',limit:5};
+ if(/(?:מי|איזה|אילו).{0,35}(?:ביקש|רצ[וה]).{0,25}(?:מחיר|הצעה)/.test(m))return {view:'needs_reply',message_type:'quote',limit:10};
+ if(/(?:איזה|אילו|מי).{0,40}(?:רצ[וה]|ביקש|מתעניין).{0,25}מספרים/.test(m))return {view:'all',q:'מספר',limit:20};
+ if(/מה השתנה/.test(m))return {view:'all',since_visit:true,limit:30};
+ if(/(?:תקציר|סיכום).{0,12}(?:יומי|היום)/.test(m))return {view:'all',from:new Date(Date.now()-24*3600000).toISOString(),limit:30};
+ return null;
 }

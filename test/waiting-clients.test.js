@@ -48,15 +48,9 @@ test('high-confidence historic automated notices do not take customer slots',()=
  assert.equal(selectWaitingCustomerRows(rows,1).length,1);
 });
 
-test('server query fetches historical candidate window, sender and optional client name',async()=>{
- const actions=await readFile(new URL('../src/ai/actions.js',import.meta.url),'utf8');
- const assistant=await readFile(new URL('../src/ai/assistant.js',import.meta.url),'utf8');
- assert.ok(actions.includes('AS contact_name,m.sender,m.subject'));
- assert.ok(actions.includes('selectWaitingCustomerRows(candidates,requested)'));
- assert.ok(actions.includes("m.direction='in'"));
- assert.ok(actions.includes('ORDER BY m.sent_at DESC,m.id DESC'));
- assert.ok(assistant.includes("if(!rows.length||!waitingNeedsSummary(message))"));
- assert.ok(assistant.includes('const listing=await this.engine.execute('));
+test('assistant delegates to the shared paginated source-backed workbench',async()=>{
+ const source=await readFile(new URL('../src/ai/actions.js',import.meta.url),'utf8');
+ assert.ok(source.includes("listInboxWork({limit:args.limit||10,view:'needs_reply'},this.database)"));
 });
 
 
@@ -91,3 +85,4 @@ test('real assistant responds to "מי מהלקוחות מחכה לתשובה מ
  assert.match(result.reply,/עשרה מספרים/);
  assert.equal(result.actions.length,0);
 });
+
