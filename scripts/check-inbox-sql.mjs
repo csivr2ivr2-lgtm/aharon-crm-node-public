@@ -89,6 +89,9 @@ const run=async()=>{
  console.log('PASS: business lead, waiting customer, cross-account RFC reference, historical done preserved');
 
  assert.ok(captured.length,'queue query not captured');
+ assert.match(captured[0][0],/m\.conversation_id=c\.id COLLATE/,'indexed message key must remain unmodified');
+ assert.match(captured[0][0],/newer\.conversation_id=m\.conversation_id/,'same-table newest-message check must remain indexable');
+ assert.doesNotMatch(captured[0][0],/m\.conversation_id COLLATE/,'do not collate indexed message key');
  const [plan]=await db.execute('EXPLAIN '+captured[0][0],captured[0][1]);
  assert.ok(plan.length,'missing EXPLAIN rows for full work queue query');
  const [refPlan]=await db.execute("EXPLAIN SELECT id FROM messages WHERE (CASE WHEN JSON_VALID(references_json)=1 THEN JSON_CONTAINS(references_json,JSON_QUOTE(?)) ELSE 0 END)=1",['<request>']);

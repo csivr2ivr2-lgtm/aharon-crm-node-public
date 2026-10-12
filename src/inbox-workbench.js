@@ -18,6 +18,15 @@ export async function migrateInboxWorkbench(database=defaultDb){
 }
 const scalar=(x,n=128)=>{if(x===undefined||x===null)return '';if(typeof x!=='string'||x.length>n)throw Error('invalid_inbox_filter');return x;};
 const folders=['all','needs_reply','waiting_customer','lead','in_progress','done','updates','spam','review','snoozed'];
+// Apply COLLATE only to the outer lookup value, preserving the indexed column's
+// native collation and ref index lookups across upgraded production schemas.
+async function inboxJoinCollations(database){
+ const [cols]=await database.query("SELECT TABLE_NAME,COLUMN_NAME,COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND ((TABLE_NAME='messages' AND COLUMN_NAME='conversation_id') OR (TABLE_NAME='conversations' AND COLUMN_NAME='id') OR (TABLE_NAME='accounts' AND COLUMN_NAME='id') OR (TABLE_NAME='clients' AND COLUMN_NAME='id') OR (TABLE_NAME='conversation_workflow' AND COLUMN_NAME='conversation_id'))");
+ const byName=new Map(cols.map(c=>[c.TABLE_NAME+'.'+c.COLUMN_NAME,c.COLLATION_NAME]));
+ const name=key=>{const value=byName.get(key);if(typeof value!=='string'||!/^utf8mb4_[a-z0-9_]{2,70}$/.test(value))throw Error('inbox_unsupported_collation');return value;};
+ return {message:name('messages.conversation_id'),conversation:name('conversations.id'),account:name('accounts.id'),client:name('clients.id'),workflow:name('conversation_workflow.conversation_id')};
+}
+
 export function matchesInbox(row,view){
  if(view==='all')return true;
  if(view==='lead')return row.caller_type==='lead'&&!['done','no_action'].includes(row.handling_state);
@@ -35,26 +44,32 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
  for(const date of [from,to])if(date&&!Number.isFinite(Date.parse(date)))throw Error('invalid_inbox_date');
  const count=Math.max(1,Math.min(100,Math.trunc(Number(limit)||50))),batchSize=200;
  const items=[],seen=new Set();let scanned=0,done=false,next=cursor;
- // Cursor is the stable conversation primary key, not an OFFSET into a changing inbox.
+ // Query the actual indexed-key collations rather than applying a forced collation
+ // to both join operands, which caused a full scan and timeouts in Hostinger.
+ const col=await inboxJoinCollations(database.query?database:defaultDb);
+ // Page primary keys before evaluating JSON reply checks and newest-message lookups.
  for(let batch=0;batch<Math.max(1,Math.min(50,maxBatches));batch++){
-  const where=['c.id>?'],params=[next];
-  // Legacy deployments may have different utf8mb4 collations on tables created at different times.
- // Normalize only cross-table comparisons and mixed-source contact names; never rewrite production tables.
- const meaningful=" AND (COALESCE(m.inbox_event_type,'')<>'reaction' OR NOT EXISTS(SELECT 1 FROM messages substance WHERE substance.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci AND COALESCE(substance.inbox_event_type,'')<>'reaction'))";
+  const candidateWhere=['id>?'],candidateParams=[next];
+  for(const [field,value] of [['id',conversation_id],['account_id',account_id],['client_id',client_id],['channel',channel]])if(value){candidateWhere.push(field+'=?');candidateParams.push(value);}
+  const [candidates]=await database.execute('SELECT id FROM conversations WHERE '+candidateWhere.join(' AND ')+' ORDER BY id ASC LIMIT ?',[...candidateParams,batchSize]);
+  if(!Array.isArray(candidates))throw Error('inbox_read_unavailable');
+  if(!candidates.length){done=true;break;}
+  const ids=candidates.map(c=>c.id);
+  const where=['c.id IN ('+ids.map(()=>'?').join(',')+')'],params=[...ids];
+  const meaningful=" AND (COALESCE(m.inbox_event_type,'')<>'reaction' OR NOT EXISTS(SELECT 1 FROM messages substance WHERE substance.conversation_id=m.conversation_id AND COALESCE(substance.inbox_event_type,'')<>'reaction'))";
   const meaningfulNewer=" AND (COALESCE(newer.inbox_event_type,'')<>'reaction' OR COALESCE(m.inbox_event_type,'')='reaction')";
-  for(const [field,value] of [['c.id',conversation_id],['c.account_id',account_id],['c.client_id',client_id],['c.channel',channel]])if(value){where.push(field+'=?');params.push(value);}
   if(from){where.push('m.sent_at>=?');params.push(new Date(from).toISOString());}if(to){where.push('m.sent_at<=?');params.push(new Date(to).toISOString());}
-  if(q){where.push("(c.title LIKE ? OR m.sender LIKE ? OR cl.name LIKE ? OR EXISTS(SELECT 1 FROM messages searched WHERE searched.conversation_id=c.id AND searched.body LIKE ?))");params.push(...Array(4).fill('%'+q+'%'));}
+  if(q){where.push("(c.title LIKE ? OR m.sender LIKE ? OR cl.name LIKE ? OR EXISTS(SELECT 1 FROM messages searched WHERE searched.conversation_id=m.conversation_id AND searched.body LIKE ?))");params.push(...Array(4).fill('%'+q+'%'));}
   const [rows]=await database.execute(`SELECT c.id,c.title,c.client_id,c.channel,c.account_id,c.external_id AS conversation_external_id,c.unread_count,c.last_message_at,
    a.label AS account_label,a.integration_key,COALESCE(NULLIF(TRIM(cl.name) COLLATE utf8mb4_unicode_ci,''),NULLIF(TRIM(m.sender) COLLATE utf8mb4_unicode_ci,''),c.title COLLATE utf8mb4_unicode_ci) AS contact_name,m.sender,m.subject,
    m.id AS message_id,m.direction,m.sent_at AS waiting_since,m.rfc_message_id,m.classification,m.classification_score,m.headers_json,m.classification_reason,m.spam_disposition,LEFT(COALESCE(m.body,''),20000) AS body,
    w.manual_status,w.manual_caller_type,w.manual_message_type,w.snoozed_until,w.updated_at AS workflow_updated_at,COALESCE(w.revision,0) AS revision,
-   EXISTS(SELECT 1 FROM messages reply JOIN conversations reply_conversation ON reply_conversation.id COLLATE utf8mb4_unicode_ci=reply.conversation_id COLLATE utf8mb4_unicode_ci JOIN accounts own_account ON own_account.id COLLATE utf8mb4_unicode_ci=COALESCE(NULLIF(reply.account_id COLLATE utf8mb4_unicode_ci,''),reply_conversation.account_id COLLATE utf8mb4_unicode_ci)
+   EXISTS(SELECT 1 FROM messages reply JOIN conversations reply_conversation ON reply_conversation.id=reply.conversation_id COLLATE ${col.conversation} JOIN accounts own_account ON own_account.id=COALESCE(NULLIF(reply.account_id COLLATE ${col.account},''),reply_conversation.account_id COLLATE ${col.account})
     WHERE m.direction='in' AND m.rfc_message_id<>'' AND reply.direction='out' AND reply.sent_at>=m.sent_at AND reply.id<>m.id
     AND (CASE WHEN JSON_VALID(reply.references_json)=1 THEN JSON_CONTAINS(reply.references_json,JSON_QUOTE(m.rfc_message_id)) ELSE 0 END)=1) AS replied_elsewhere
-   FROM conversations c JOIN messages m ON m.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci
-   LEFT JOIN accounts a ON a.id COLLATE utf8mb4_unicode_ci=c.account_id COLLATE utf8mb4_unicode_ci LEFT JOIN clients cl ON cl.id COLLATE utf8mb4_unicode_ci=c.client_id COLLATE utf8mb4_unicode_ci LEFT JOIN conversation_workflow w ON w.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci
-   WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id COLLATE utf8mb4_unicode_ci=c.id COLLATE utf8mb4_unicode_ci ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))
+   FROM conversations c JOIN messages m ON m.conversation_id=c.id COLLATE ${col.message}
+   LEFT JOIN accounts a ON a.id=c.account_id COLLATE ${col.account} LEFT JOIN clients cl ON cl.id=c.client_id COLLATE ${col.client} LEFT JOIN conversation_workflow w ON w.conversation_id=c.id COLLATE ${col.workflow}
+   WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=m.conversation_id ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))
    ORDER BY c.id ASC LIMIT ?`,[...params,batchSize]);
   if(!Array.isArray(rows))throw Error('inbox_read_unavailable');
   scanned+=rows.length;
@@ -64,8 +79,8 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
    const key=row.rfc_message_id?row.rfc_message_id+'|'+String(row.sender).toLowerCase():row.id;
    if(seen.has(key))continue;seen.add(key);items.push(item);
   }
-  const last=rows.at(-1)?.id;if(last&&last<=next)throw Error('inbox_cursor_not_advancing');next=last||next;
-  if(rows.length<batchSize){done=true;break;}
+  const last=ids.at(-1);if(last<=next)throw Error('inbox_cursor_not_advancing');next=last;
+  if(candidates.length<batchSize){done=true;break;}
   // Return every match from the final batch; no matched rows are lost behind the cursor.
   if(items.length>=count)break;
  }

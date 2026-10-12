@@ -20,7 +20,15 @@ test('inbox read errors expose safe identifiers to authenticated owner only',asy
  const secret='private_customer_message_and_secret';
  const injected=Object.assign(new Error(secret),{code:'ER_BAD_FIELD_ERROR',sqlState:'42S22',sql:'SELECT '+secret});
  let observed='';
- t.mock.method(db,'execute',async sql=>{if(sql.includes('FROM conversations c JOIN messages m'))throw injected;return [[]];});
+ t.mock.method(db,'query',async sql=>{
+  if(!sql.includes('information_schema.COLUMNS'))throw Error('unexpected_query');
+  return [[['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']].map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME,COLLATION_NAME:'utf8mb4_unicode_ci'}))];
+ });
+ t.mock.method(db,'execute',async sql=>{
+  if(sql.startsWith('SELECT id FROM conversations WHERE'))return [[{id:'diagnostic-test-conversation'}]];
+  if(sql.includes('FROM conversations c JOIN messages m'))throw injected;
+  return [[]];
+ });
  t.mock.method(console,'error',(...args)=>{observed+=args.join(' ');});
  const app=await buildApp({initializeDatabase:false,startBackground:false});
  try{
