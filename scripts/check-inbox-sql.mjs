@@ -33,6 +33,20 @@ const run=async()=>{
  }
  console.log('PASS: columns, tables, index');
 
+ // Simulate an upgraded production database where legacy tables kept different utf8mb4 collations.
+ // Both collations are supported on MySQL 8 and MariaDB 10.11. Run only against isolated crm_ci.
+ for(const [table,collation] of [
+  ['conversations','utf8mb4_general_ci'],
+  ['messages','utf8mb4_unicode_ci'],
+  ['accounts','utf8mb4_general_ci'],
+  ['clients','utf8mb4_general_ci'],
+  ['conversation_workflow','utf8mb4_unicode_ci']
+ ])await db.query('ALTER TABLE '+table+' CONVERT TO CHARACTER SET utf8mb4 COLLATE '+collation);
+ const [columnCollations]=await db.query("SELECT TABLE_NAME,COLUMN_NAME,COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND (TABLE_NAME='conversations' AND COLUMN_NAME='id' OR TABLE_NAME='messages' AND COLUMN_NAME='conversation_id' OR TABLE_NAME='conversation_workflow' AND COLUMN_NAME='conversation_id')");
+ assert.equal(new Set(columnCollations.map(c=>c.COLLATION_NAME)).size,2,'test fixture needs genuinely mixed collations');
+ console.log('PASS: mixed legacy table collations fixture is active');
+
+
  // Do not bind invalid JSON as an argument of JSON_CONTAINS in a prepared statement.
  // MySQL 8 can cast such a parameter before evaluating the CASE guard.
  const [jsonRows]=await db.execute("SELECT JSON_VALID(?) AS valid,JSON_CONTAINS('[\"<request>\"]',JSON_QUOTE(?)) AS matched",['["<request>"]','<request>']);
