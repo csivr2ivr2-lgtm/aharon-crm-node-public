@@ -34,6 +34,15 @@ export function decideInbox(row={},clock=Date.now()){
  if(row.replied_elsewhere){handling_state='waiting_customer';reason='נמצאה תשובה מחשבון מחובר עם הפניה למזהה ההודעה המקורית';confidence=.99;}
  if(HANDLING_STATES.includes(row.manual_status)&&row.manual_status!=='auto'){
   handling_state=row.manual_status;reason='מצב טיפול שנקבע ידנית';confidence=1;
+  // Preserve the operator's historical "done" decision, but surface a newer
+  // substantive inbound business request for re-review.
+  const handledAt=Date.parse(row.workflow_updated_at||'');
+  const latestAt=Date.parse(row.waiting_since||row.sent_at||'');
+  if(handling_state==='done'&&row.direction==='in'&&
+     ['business','quote','support'].includes(message_type)&&
+     Number.isFinite(handledAt)&&Number.isFinite(latestAt)&&latestAt>handledAt){
+    handling_state='needs_reply';reason='פנייה עסקית חדשה מאז הסימון הידני כטופל; החלטת הטיפול ההיסטורית נשמרה';confidence=1;
+  }
   if(handling_state==='snoozed'&&Date.parse(row.snoozed_until)<=clock){handling_state='review';reason='מועד הדחייה הסתיים; יש לבדוק את הפנייה';}
  }
  return {message_type,caller_type,handling_state,confidence,reason,priority,priority_reason:priority>=80?'בקשת מחיר או היקף עסקי משמעותי':priority>=60?'בקשה עסקית פעילה':'בדיקה לפי ההקשר',engine_version:INBOX_ENGINE_VERSION,review_required:handling_state==='review',request_summary:body.replace(/\s+/g,' ').slice(0,220)||subject,next_action:handling_state==='needs_reply'?'בדוק את הבקשה והכן תשובה':handling_state==='waiting_customer'?'בדוק אם נדרש מעקב':handling_state==='review'?'בדוק את ההקשר וסמן מצב טיפול':'אין פעולה אוטומטית'};

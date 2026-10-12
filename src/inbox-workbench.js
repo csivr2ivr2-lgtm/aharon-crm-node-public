@@ -46,7 +46,7 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
   const [rows]=await database.execute(`SELECT c.id,c.title,c.client_id,c.channel,c.account_id,c.external_id AS conversation_external_id,c.unread_count,c.last_message_at,
    a.label AS account_label,a.integration_key,COALESCE(NULLIF(TRIM(cl.name),''),NULLIF(TRIM(m.sender),''),c.title) AS contact_name,m.sender,m.subject,
    m.id AS message_id,m.direction,m.sent_at AS waiting_since,m.rfc_message_id,m.classification,m.classification_score,m.headers_json,m.classification_reason,m.spam_disposition,LEFT(COALESCE(m.body,''),20000) AS body,
-   w.manual_status,w.manual_caller_type,w.manual_message_type,w.snoozed_until,COALESCE(w.revision,0) AS revision,
+   w.manual_status,w.manual_caller_type,w.manual_message_type,w.snoozed_until,w.updated_at AS workflow_updated_at,COALESCE(w.revision,0) AS revision,
    EXISTS(SELECT 1 FROM messages reply JOIN accounts own_account ON own_account.id=reply.account_id
     WHERE m.direction='in' AND m.rfc_message_id<>'' AND reply.direction='out' AND reply.sent_at>=m.sent_at AND reply.id<>m.id
     AND JSON_CONTAINS(IF(JSON_VALID(reply.references_json),reply.references_json,'[]'),JSON_QUOTE(m.rfc_message_id))=1) AS replied_elsewhere
