@@ -14,7 +14,7 @@ test('phone resolution canonicalizes local and WhatsApp phones without suffix gu
 });
 test('AI cannot override deterministic warning or trusted feedback',async()=>{
  const response=async()=>({text:JSON.stringify({classification:'normal',confidence:1,reason:'clean'}),provider:'mock'});
- const warning=classifyMessage({sender:'a@example.test',body:'להסרה'});assert.equal((await classifyWithAi({},warning,response)).classification,'marketing');
+ const warning=classifyMessage({sender:'a@example.test',subject:'ניוזלטר להסרה',body:'להסרה'});assert.equal((await classifyWithAi({},warning,response)).classification,'marketing');
  assert.equal((await classifyWithAi({},classifyMessage({}, {feedback:'spam'}),response)).classification,'spam');
  const initial=classifyMessage({});assert.deepEqual(await classifyWithAi({},initial,async()=>({text:'not json'})),initial);
 });
@@ -122,3 +122,4 @@ test('manual spam feedback during generation suppresses the draft at commit',asy
  deps.db.execute=async(sql,args)=>generated&&sql.includes('SELECT classification FROM sender_feedback')?[[{classification:'spam'}]]:old(sql,args);
  assert.equal((await processIncomingMessage({messageId:'m1'},deps)).superseded,true);
 });
+

@@ -1,3 +1,5 @@
+import {createRequestCache} from './request-cache.js';
+const textCache=createRequestCache();
 import {config} from '../config.js';
 import {resolveLocalModel} from './local-model.js';
 import {parseAiProviders,callExternalAi} from './external-router.js';
@@ -22,7 +24,8 @@ function validateMessages(messages){if(!Array.isArray(messages)||messages.some(m
 export async function generateText(messages,{settings={},providers,fetcher=fetch,routes}={}){
  validateMessages(messages);
  if(providers){if(!providers.external)throw Error('external_ai_required');return {text:String(await providers.external(messages)),provider:'external',model:externalModel(settings)||'test'};}
- return external(messages,{settings,fetcher,routes});
+ const key=JSON.stringify({messages,settings,routes:routes||configuredRoutes()});
+ return textCache(key,()=>external(messages,{settings,fetcher,routes}));
 }
 export const generate=generateText; // Compatibility entry point remains external-only.
 export async function generateLabel(input,{workload,settings={},providers,fetcher=fetch}={}){
@@ -61,3 +64,4 @@ export async function generateStructured(messages,{settings={},workload,schema,p
  // Free extraction and multi-field suggestions require an external provider.
  const result=await generateText(messages,{settings,providers,fetcher});const data=parseStructured(result.text,schema);return {...result,data,text:JSON.stringify(data)};
 }
+

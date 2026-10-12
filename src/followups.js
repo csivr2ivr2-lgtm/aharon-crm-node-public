@@ -1,3 +1,4 @@
+import {decideInbox} from './ai/inbox-decision.js';
 import {createHash} from 'node:crypto';
 import {db as defaultDb} from './db.js';
 import {getSettings} from './platform/settings.js';
@@ -28,7 +29,7 @@ export async function getFollowupCandidates({db=defaultDb,settings,clock,limit=1
  ${candidateId?"AND SHA2(CONCAT('followup:overdue_task:',t.id,':',t.due_date),256)=?":''}
  ${includeHandled?'':"AND NOT EXISTS (SELECT 1 FROM reminders handled WHERE handled.source_key=SHA2(CONCAT('followup:overdue_task:',t.id,':',t.due_date),256))"}
  ORDER BY t.due_date ASC,t.id ASC LIMIT ${size}`,candidateId?[overdueBefore,candidateId]:[overdueBefore]);
- const [messages]=await db.execute(`SELECT m.*,c.title,c.client_id,c.project_id FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN projects p ON p.id=c.project_id
+ const [messages]=await db.execute(`SELECT m.*,c.title,c.client_id,c.project_id,w.manual_status,w.manual_message_type,w.manual_caller_type,w.snoozed_until FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN projects p ON p.id=c.project_id LEFT JOIN conversation_workflow w ON w.conversation_id=c.id
  WHERE m.direction IN ('in','out') AND m.sent_at<=? AND m.sent_at<>''
  AND (NULLIF(c.project_id,'') IS NULL OR (p.id IS NOT NULL AND p.deleted_at IS NULL AND p.archived_at IS NULL AND p.status IN ('active','waiting')))
  AND COALESCE(m.classification,'unknown') NOT IN ('spam','suspicious','marketing','automated','system') AND COALESCE(m.spam_disposition,'inbox')='inbox'
@@ -37,7 +38,7 @@ export async function getFollowupCandidates({db=defaultDb,settings,clock,limit=1
  ${includeHandled?'':"AND NOT EXISTS (SELECT 1 FROM reminders handled WHERE handled.source_key=SHA2(CONCAT('followup:',IF(m.direction='in','waiting_reply','waiting_customer'),':',m.conversation_id,':',m.id),256))"}
  ORDER BY m.sent_at ASC,m.id ASC LIMIT ${size}`,candidateId?[waitingBefore,candidateId]:[waitingBefore]);
  let items=[...tasks.filter(r=>Number.isFinite(taskDue(r.due_date).getTime())&&taskDue(r.due_date).getTime()<=Date.parse(overdueBefore)).map(r=>candidate('overdue_task',r,taskDue(r.due_date).toISOString())),
- ...messages.filter(r=>Number.isFinite(Date.parse(r.sent_at))&&Date.parse(r.sent_at)<=Date.parse(waitingBefore)).map(r=>candidate(r.direction==='in'?'waiting_reply':'waiting_customer',r,new Date(r.sent_at).toISOString()))]
+ ...messages.filter(r=>['needs_reply','waiting_customer'].includes(decideInbox(r,now.getTime()).handling_state)&&Number.isFinite(Date.parse(r.sent_at))&&Date.parse(r.sent_at)<=Date.parse(waitingBefore)).map(r=>candidate(r.direction==='in'?'waiting_reply':'waiting_customer',r,new Date(r.sent_at).toISOString()))]
  .sort((a,b)=>a.anchor_at.localeCompare(b.anchor_at)||a.id.localeCompare(b.id)).slice(0,size);
  if(items.length&&!includeHandled){
   const [handled]=await db.execute(`SELECT source_key FROM reminders WHERE source_key IN (${items.map(()=>'?').join(',')})`,items.map(item=>hash(item.source_key)));
@@ -72,3 +73,4 @@ export function createFollowups(deps={}){return {
  processFollowups:options=>processFollowups({...deps,...options}),
  scheduleFollowup:(id,input)=>scheduleFollowup(id,input,deps)
 };}
+

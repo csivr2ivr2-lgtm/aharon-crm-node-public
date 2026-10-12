@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 import {appHtml} from '../src/ui.js';
-const source=(await readFile(new URL('../src/browser.js',import.meta.url),'utf8')).replace(/void render\(location\.hash\.slice\(1\)\|\|'home'\)\.catch\(e=>\$\('#error'\)\.textContent=e\.message\);void realtime\(\);/,'');
+const source=(await readFile(new URL('../src/browser.js',import.meta.url),'utf8')).replace(/void render\(location\.hash\.slice\(1\)\|\|'home'\)\.catch\(e=>\$\('#error'\)\.textContent=e\.message\);void realtime\(\);/,'').replace("void navigateHash().catch(e=>$('#error').textContent=e.message);void realtime();",'');
 function harness(responses={}){
  const elements=new Map(),calls=[],listeners={};
  const element=key=>{if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',value:'',dataset:{},classList:{toggle(){}},scrollHeight:10,reset(){},insertAdjacentHTML(_position,html){this.innerHTML+=html;} ,closest(){return {querySelectorAll:()=>[]}}});return elements.get(key);};
- const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,console,setTimeout:()=>0,clearTimeout(){},confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??{ok:true,items:[]};return {ok:true,status:200,json:async()=>value};}});
+ const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,URLSearchParams,console,setTimeout:()=>0,clearTimeout(){},confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??(url.startsWith('/api/inbox/work/')?{ok:true,item:{handling_state:'review',message_type:'unknown',revision:0}}:{ok:true,items:[]});return {ok:true,status:200,json:async()=>value};}});
  vm.runInContext(source,context);return {run:code=>vm.runInContext(code,context),element,calls,context,listeners};
 }
 test('Hebrew RTL navigation reaches all intelligence and CRM screens',()=>{const html=appHtml();assert.match(html,/lang="he" dir="rtl"/);for(const page of ['assistant','spam','suggestions','reminders','notifications','settings','files','followups','knowledge'])assert.ok(html.includes('data-view="'+page+'"'));assert.match(html,/bi bi-/);});
@@ -60,9 +60,10 @@ test('archived file search remains available after restore and uses lifecycle fl
  await h.run(`intelligenceAction('file-restore',{dataset:{id:'f/1'}})`);
  const call=h.calls.find(x=>x.url==='/api/files/f%2F1/lifecycle');assert.deepEqual(JSON.parse(call.body),{action:'restore',confirmed:true});assert.equal(h.calls.filter(x=>x.url===url).length,2);
 });
-test('read messages may still wait for a reply and outgoing unread messages do not wait for us',async()=>{
- const h=harness({'/api/inbox':{items:[{id:'c1',title:'read incoming',unread_count:0,last_message_direction:'in'},{id:'c2',title:'unread outgoing',unread_count:2,last_message_direction:'out'}]}});await h.run(`render('inbox')`);
- const html=h.element('#inboxItems').innerHTML;assert.match(html,/נקרא/);assert.match(html,/2 לא נקראו/);assert.equal((html.match(/ממתין לתשובה שלך/g)||[]).length,1);assert.equal((html.match(/ממתין לתשובת הצד השני/g)||[]).length,1);
+test('read state is independent of explicit handling state',async()=>{
+ const h=harness();const html=h.run("inboxState({unread_count:0,handling_state:'needs_reply'})+inboxState({unread_count:2,handling_state:'waiting_customer'})");
+ assert.match(html,/נקרא/);assert.match(html,/2 לא נקראו/);assert.match(html,/דורש טיפול/);assert.match(html,/ממתין ללקוח/);
+ assert.doesNotMatch(h.run("inboxState({last_message_direction:'in'})"),/ממתין לתשובה שלך/);
 });
 test('settings renders real processing and login security status and escapes errors',async()=>{
  const h=harness({'/api/settings':{settings:{ai:{},automation:{},messaging:{trustedClientIds:[]}}},'/api/background/status':{enabled:true,running:false,queued:4,failed:2,last_error:'<script>bad()</script>'},'/api/security/status':{failed_attempts:3,blocked_ips:['192.0.2.1'],locked:false}});
@@ -138,16 +139,17 @@ test('previous assistant session loads actions in-place and confirms via session
  assert.ok(html.indexOf('הושלם')<html.indexOf('מה עם הלקוח?'));
 });
 test('historical inbox triage respects explicit consent and never deletes anything',async()=>{
- const h=harness({'/api/inbox/history/triage':{ok:true,scanned:2,updated:1,next_cursor:'m2',done:true},'/api/inbox':{items:[]}});
+ const h=harness({'/api/inbox/history/triage':{ok:true,scanned:2,updated:1,proposed:1,preview:[],next_cursor:'m2',done:true},'/api/inbox':{items:[]}});
  h.run("view='inbox'");
  h.context.confirm=()=>false;
  await h.listeners.click({target:{closest:()=>({dataset:{action:'historical-triage',id:''}})}});
- assert.equal(h.calls.length,0);
- h.context.confirm=()=>true;
+ assert.equal(h.calls.filter(x=>JSON.parse(x.body||'{}').dry_run===false).length,0);
+ h.calls.length=0;h.context.confirm=()=>true;
  await h.listeners.click({target:{closest:()=>({dataset:{action:'historical-triage',id:''}})}});
  const requests=h.calls.filter(x=>x.url==='/api/inbox/history/triage');
- assert.equal(requests.length,1);
- assert.equal(JSON.parse(requests[0].body).confirmed,true);
+ assert.equal(requests.length,2);
+ assert.equal(JSON.parse(requests[0].body).dry_run,true);
+ assert.equal(JSON.parse(requests[1].body).confirmed,true);
  assert.ok(!h.calls.some(x=>/DELETE|\/delete/.test(x.method||'')||/\/delete/.test(x.url)));
 });
 test('reply variants use existing CRM-grounded draft route and never send',async()=>{
@@ -164,3 +166,4 @@ test('reply variants use existing CRM-grounded draft route and never send',async
  assert.equal(h.element('#reply').value,'שלום, אשמח לשלוח הצעת מחיר.');
  assert.ok(!h.calls.some(x=>x.url.endsWith('/send')));
 });
+

@@ -71,6 +71,7 @@ test('history classifier updates only high confidence old marketing/system/spam 
  const changed=[];
  const database={execute:async(sql,p)=>{
   if(sql.startsWith('SELECT m.id'))return [initial.filter(m=>m.id>p[0])];
+  if(sql.startsWith('INSERT INTO message_intelligence'))return [{affectedRows:1}];
   if(sql.startsWith('UPDATE messages SET')){changed.push({id:p[4],classification:p[0],folder:p[3]});return [{affectedRows:1}];}
   throw Error(sql);
  }};
@@ -82,7 +83,7 @@ test('history classifier updates only high confidence old marketing/system/spam 
 });
 
 test('UI keeps approvals by the original assistant turn, not the bottom',async()=>{
- const source=(await readFile(new URL('../src/browser.js',import.meta.url),'utf8')).replace(/void render\(location\.hash\.slice\(1\)\|\|'home'\)\.catch\(e=>\$\('#error'\)\.textContent=e\.message\);void realtime\(\);/,'');
+ const source=(await readFile(new URL('../src/browser.js',import.meta.url),'utf8')).replace(/void render\(location\.hash\.slice\(1\)\|\|'home'\)\.catch\(e=>\$\('#error'\)\.textContent=e\.message\);void realtime\(\);/,'').replace("void navigateHash().catch(e=>$('#error').textContent=e.message);void realtime();",'');
  const elements=new Map();
  const el=key=>{if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',scrollTop:0,scrollHeight:100,dataset:{},classList:{toggle(){}},insertAdjacentHTML(){}});return elements.get(key)};
  const context=vm.createContext({document:{querySelector:el,querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener(){}},location:{hash:''},crypto:{randomUUID:()=> 'request-uuid'},URL,console,FormData:class{},fetch:async()=>({ok:true,status:200,json:async()=>({ok:true})})});
@@ -93,3 +94,4 @@ test('UI keeps approvals by the original assistant turn, not the bottom',async()
  assert.ok(html.indexOf('data-action="assistant-confirm"')<html.indexOf('מה התאריך?'));
  assert.ok(!html.includes('SECRET'));
 });
+

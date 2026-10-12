@@ -1,3 +1,5 @@
+import {externalProviderHealth} from './ai/external-router.js';
+import {listInboxWork,updateInboxWork,markInboxVisit} from './inbox-workbench.js';
 import {db,now} from './db.js';
 import {getSettings,updateSettings} from './platform/settings.js';
 import {listJobs,retryJob,enqueueJob} from './platform/jobs.js';
@@ -20,6 +22,16 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  const scope={internal:true,actor:'dashboard',source:'manual'};
  let lastAiDiagnostic=0;
  const route=(method,url,handler)=>app.route({method,url,handler:async(req,reply)=>{if(!uiAuth(req,reply))return;return handler(req,reply);}});
+ route('GET','/api/ai/providers/health',()=>({ok:true,items:externalProviderHealth()}));
+ route('POST','/api/inbox/visit',req=>markInboxVisit(String(req.unsignCookie(req.cookies.crm_session).value||'')));
+ route('GET','/api/inbox/work',req=>listInboxWork(req.query));
+ route('PATCH','/api/inbox/work/:id',req=>updateInboxWork(req.params.id,req.body||{}));
+ route('GET','/api/inbox/work/:id',async req=>{const result=await listInboxWork({conversation_id:req.params.id,view:'all'});if(!result.items[0])throw Error('conversation_not_found');return {ok:true,item:result.items[0]};});
+ route('POST','/api/inbox/work/:id/task',async req=>{
+  const result=await listInboxWork({conversation_id:req.params.id,view:'all'});const item=result.items[0];if(!item)throw Error('conversation_not_found');
+  return actionEngine.execute('create_task',{title:'מעקב: '+String(item.title||item.contact_name).slice(0,450),source_message_id:item.message_id,...(item.client_id?{client_id:item.client_id}:{})},context(),{requestId:req.body?.request_id});
+ });
+
  route('GET','/api/background/status',async()=>{const [rows]=await db.execute("SELECT status,COUNT(*) AS n FROM jobs GROUP BY status");const counts=Object.fromEntries(rows.map(r=>[r.status,Number(r.n)]));return {ok:true,...backgroundState,queued:counts.queued||0,failed:counts.failed||0};});
  route('GET','/api/security/status',async()=>({ok:true,failed_attempts:[...loginSecurity.attempts].map(([ip,count])=>({ip,count})),blocked_ips:(await loginSecurity.blacklist()).blocked.map(entry=>entry.ip),locked:await loginSecurity.isLocked()}));
  route('GET','/api/followups',()=>getFollowupCandidates());
@@ -48,6 +60,7 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
   return result;
  });
  route('POST','/api/assistant/sessions/:id/actions/:actionId/dismiss',req=>chatHistory.dismiss(req.params.id,req.params.actionId,context().actor));
+ route('POST','/api/assistant/actions/:id/dismiss',req=>actionEngine.dismissPending(req.params.id,context()));
  // Legacy read-only client support; new dashboard always uses persisted session endpoints.
  route('POST','/api/assistant/chat',async req=>assistant.chat({message:req.body?.message,context:context()}));
  route('POST','/api/ai/diagnose',async()=>{
@@ -64,8 +77,9 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  route('GET','/api/suggestions',async()=>{const [rows]=await db.execute('SELECT * FROM ai_suggestions ORDER BY created_at DESC LIMIT 200');return {ok:true,items:rows.map(({payload_json,...row})=>({...row,payload:JSON.parse(payload_json||'{}')}))};});
  route('POST','/api/suggestions/:id/resolve',async req=>resolveSuggestion({id:req.params.id,...req.body,actor:'dashboard'}));
  route('POST','/api/inbox/history/triage',async req=>{
-  if(req.body?.confirmed!==true)throw Error('confirmation_required');
-  return backfillInboxHistory({cursor:req.body?.cursor||'',limit:req.body?.limit});
+  const dry_run=req.body?.dry_run!==false;
+  if(!dry_run&&req.body?.confirmed!==true)throw Error('confirmation_required');
+  return backfillInboxHistory({cursor:req.body?.cursor||'',limit:req.body?.limit,dry_run});
  });
  route('POST','/api/messages/:id/feedback',async req=>{
   const result=await setSpamFeedback({messageId:req.params.id,classification:req.body?.classification,actor:'dashboard'});
@@ -93,3 +107,4 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  route('PATCH','/api/files/:id',req=>fileIntelligence.updateFile(req.params.id,req.body||{},scope));
  route('POST','/api/files/:id/lifecycle',req=>fileIntelligence.updateFile(req.params.id,req.body||{},scope));
 }
+

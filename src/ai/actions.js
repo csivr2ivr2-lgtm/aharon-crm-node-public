@@ -5,7 +5,7 @@ import {WorkspaceService} from '../workspace-service.js';
 import {audit as writeAudit} from '../platform/audit.js';
 import {getSettings} from '../platform/settings.js';
 import {emailOf,phoneOf} from '../message-format.js';
-import {selectWaitingCustomerRows} from './waiting-customer-rows.js';
+import {listInboxWork} from '../inbox-workbench.js';
 
 const text=(max=500)=>z.string().trim().min(1).max(max);
 const id=text(128),optionalText=(max=20000)=>z.string().max(max).optional();
@@ -36,6 +36,7 @@ register('update_system','Update system notes or relationships.',object({did:tex
 register('list_conversations','List conversations, including unread messages.',object({client_id:id.optional(),unread_only:z.boolean().optional(),limit:z.number().int().min(1).max(50).optional()}),'conversation.list');
 register('get_conversation','Read a conversation and its messages.',object({id}),'conversation.get');
 register('waiting_for_reply','Find conversations whose newest inbound message has no later outgoing reply.',object({limit:z.number().int().min(1).max(50).optional()}),'waiting_for_reply');
+register('business_inbox','Read verified business inbox work and source links.',object({view:z.enum(['all','needs_reply','waiting_customer','review']).optional(),since_visit:z.boolean().optional(),message_type:z.enum(['quote','support','business']).optional(),q:optionalText(300),from:optionalText(40),limit:z.number().int().min(1).max(50).optional()}),'business_inbox');
 register('recent_activity','Read recent CRM activity.',object({limit:z.number().int().min(1).max(50).optional()}),'activity.list');
 register('list_accounts','List sending accounts; credentials are never returned.',object({}),'account.list');
 for(const name of ['send_email','send_whatsapp'])register(name,'Send exact text to one resolved client; requires preview and confirmation.',object({client_id:id,account_id:id.optional(),body:text(20000),subject:optionalText(500)}),name,'send');
@@ -141,11 +142,10 @@ export class ActionEngine{
   return {to,client,account,provider,externalId};
  }
  async perform(tool,args,actionId,approvedPreview=null){
+  if(tool.op==='business_inbox')return listInboxWork(args,this.database);
   if(tool.op==='waiting_for_reply'){
-    const requested=Math.max(1,Math.min(50,Number(args.limit)||10));
-    const [candidates]=await this.database.execute("SELECT c.id,c.title,c.client_id,c.channel,c.external_id AS conversation_external_id,COALESCE(NULLIF(TRIM(cl.name),''),NULLIF(TRIM(m.sender),''),NULLIF(TRIM(c.title),''),'פונה לא מזוהה') AS contact_name,m.sender,m.subject,m.classification_reason,m.sent_at AS waiting_since,LEFT(COALESCE(m.body,''),900) AS latest_inbound_body FROM conversations c JOIN messages m ON m.conversation_id=c.id LEFT JOIN clients cl ON cl.id=c.client_id LEFT JOIN projects p ON p.id=c.project_id WHERE m.direction='in' AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND COALESCE(m.spam_disposition,'inbox') NOT IN ('spam','updates','review') AND COALESCE(m.classification,'normal') NOT IN ('spam','marketing','system','automated','suspicious') AND LOWER(COALESCE(m.subject,'')) NOT REGEXP '^(welcome to supabase|your temporary (chatgpt )?login code|new login from |new sign-in to |summary of failures for google apps script|oauth application approval)' AND (cl.id IS NULL OR cl.status='active') AND p.deleted_at IS NULL AND p.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM messages newer WHERE newer.conversation_id=c.id AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id))) ORDER BY m.sent_at DESC,m.id DESC LIMIT "+Math.min(300,Math.max(75,requested*6)));
-    const items=selectWaitingCustomerRows(candidates,requested);
-    return {ok:true,items};
+    const result=await listInboxWork({limit:args.limit||10,view:'needs_reply'},this.database);
+    return {...result,items:result.items.slice(0,args.limit||10)};
    }
   if(tool.permission==='send'){
    const {to,client,account,provider,externalId}=await this.resolveSend(tool.name,args),channel=provider==='google'?'gmail':provider;
@@ -191,3 +191,4 @@ export async function migrateActions(database=db){await database.query(`CREATE T
  error VARCHAR(200),created_at VARCHAR(40),updated_at VARCHAR(40),INDEX(actor,state)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);}
 export const actionEngine=new ActionEngine();
+

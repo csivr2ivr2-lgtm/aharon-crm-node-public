@@ -39,7 +39,7 @@ test('Tiny refuses tool planning, full history and oversized input without loadi
  await assert.rejects(generateStructured([{role:'system',content:'short'},{role:'user',content:'x'.repeat(5000)}],options),/tiny_context_too_large/);
 });
 test('deterministic feedback, unsubscribe, no-reply and known spam skip AI',async()=>{
- for(const message of [{body:'unsubscribe'},{sender:'no-reply@example.test'},{body:'זכית בפרס'},{body:'mail delivery failed'}]){
+ for(const message of [{subject:'unsubscribe'},{sender:'no-reply@example.test'},{body:'זכית בפרס'},{body:'mail delivery failed'}]){
   const initial=classifyMessage(message);let calls=0;assert.equal(await classifyWithAi(message,initial,()=>{calls++;throw Error('must_not_run');}),initial);assert.equal(calls,0);
  }
  const initial=classifyMessage({body:'hello'},{feedback:'normal'});let calls=0;await classifyWithAi({},initial,()=>{calls++;});assert.equal(calls,0);
@@ -76,3 +76,4 @@ test('spam workload scores only yes/no; external fallback receives allowed label
  assert.equal(r.data.classification,'spam');assert.match(calls[0],/Is this message spam/);
  const fallback=await generateLabel('hello',{workload:'intent',providers:{local:()=>({label:'uncertain',score:-1,margin:0}),external:messages=>{assert.match(messages[0].content,/support, sales, follow_up, other/);return 'support';}}});assert.equal(fallback.provider,'external');
 });
+
