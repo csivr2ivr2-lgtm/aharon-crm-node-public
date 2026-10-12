@@ -8,6 +8,18 @@ import {extractWaitingItems,businessReadRequest} from '../src/ai/assistant-inten
 import {inboxHeaders} from '../src/ai/inbox-headers.js';
 import {createRequestCache} from '../src/ai/request-cache.js';
 const fixtures=JSON.parse(await readFile(new URL('./fixtures/inbox-work.json',import.meta.url),'utf8'));
+const testCollations=[
+ ['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']
+].map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME,COLLATION_NAME:'utf8mb4_unicode_ci'}));
+function inboxFixtureDb(rows,{capture=[],previousSeen=null}={}){
+ return {query:async()=>[testCollations],execute:async(sql,p=[])=>{
+  if(sql.startsWith('SELECT previous_seen'))return [[{previous_seen:previousSeen}]];
+  if(sql.startsWith('SELECT id FROM conversations WHERE'))return [rows.filter(x=>x.id>p[0]).slice(0,p.at(-1)).map(x=>({id:x.id}))];
+  if(sql.startsWith('SELECT c.id')){capture.push({sql,p});return [rows.filter(x=>p.includes(x.id)).slice(0,p.at(-1))];}
+  throw Error('Unexpected fake database query');
+ }};
+}
+
 for(const f of fixtures)test('acceptance: '+f.name,()=>{const d=decideInbox(f);assert.equal(d.handling_state,f.expected);assert.equal(d.message_type,f.type);assert.equal(d.engine_version,INBOX_ENGINE_VERSION);});
 test('manual dimensions remain separate, override automatic noise, and read does not complete',()=>{
  const f=fixtures[0];assert.equal(decideInbox({...f,manual_message_type:'business',manual_caller_type:'customer',manual_status:'needs_reply'}).handling_state,'needs_reply');
@@ -24,26 +36,31 @@ test('identity is not inferred from a display name, and quoted prompts never exe
 });
 test('pagination passes 600 alerts to find a true lead; bound parameters and source link',async()=>{
  const data=Array.from({length:600},(_,i)=>({...fixtures[0],id:'c'+String(i).padStart(4,'0'),direction:'in'}));data.push({...fixtures[5],id:'c0600',message_id:'m600',direction:'in'});
- const calls=[];const db={execute:async(sql,p)=>{calls.push({sql,p});return [data.filter(x=>x.id>p[0]).slice(0,p.at(-1))];}};
+ const calls=[];const db=inboxFixtureDb(data,{capture:calls});
  const r=await listInboxWork({limit:10},db);assert.equal(calls.length,4);assert.equal(r.scanned,601);assert.equal(r.complete,true);assert.deepEqual(r.items.map(x=>x.id),['c0600']);assert.equal(r.items[0].source_url,'/#conversation=c0600');
  assert.ok(calls.every(x=>x.sql.includes('newer.id>m.id')&&x.sql.includes('JSON_CONTAINS')&&x.sql.includes('LEFT JOIN conversation_workflow')));
  assert.equal(r.items[0].priority,95);
 });
 test('bounded incomplete scans cannot masquerade as a verified empty answer',async()=>{
- const db={execute:async()=>[Array.from({length:200},(_,i)=>({...fixtures[0],id:'c'+String(i).padStart(4,'0')}))]};
+ const db=inboxFixtureDb(Array.from({length:200},(_,i)=>({...fixtures[0],id:'c'+String(i).padStart(4,'0')})));
  const r=await listInboxWork({maxBatches:1},db);assert.equal(r.complete,false);assert.equal(r.items.length,0);
  assert.throws(()=>extractWaitingItems({ok:true,status:'completed',result:r}),/assistant_read_unavailable/);
- await assert.rejects(listInboxWork({}, {execute:async()=>{throw Error('database_down');}}),/database_down/);
+ await assert.rejects(listInboxWork({}, {query:async()=>[testCollations],execute:async()=>{throw Error('database_down');}}),/database_down/);
  await assert.rejects(listInboxWork({cursor:[]},db),/invalid_inbox_filter/);
 });
 test('deduplicates the same RFC message in two accounts; same sender with different threads survives',async()=>{
  const rows=[{...fixtures[5],id:'a',rfc_message_id:'<same>'},{...fixtures[5],id:'b',rfc_message_id:'<same>'},{...fixtures[5],id:'c',rfc_message_id:'<different>'}];
- const r=await listInboxWork({}, {execute:async()=>[rows]});assert.deepEqual(r.items.map(x=>x.id),['a','c']);
+ const r=await listInboxWork({},inboxFixtureDb(rows));assert.deepEqual(r.items.map(x=>x.id),['a','c']);
 });
 test('SQL filters keep user strings out of executable query text',async()=>{
- const q="' OR 1=1 --";let sql,args;
- await listInboxWork({q,account_id:'account-1',client_id:'client-1',channel:'email'}, {execute:async(s,p)=>{sql=s;args=p;return [[]];}});
- assert.ok(!sql.includes(q));assert.ok(args.includes('%'+q+'%'));assert.ok(args.includes('account-1'));assert.ok(args.includes('client-1'));
+ const q="' OR 1=1 --";const seen=[];
+ const fake=inboxFixtureDb([{...fixtures[5],id:'candidate'}],{capture:seen});
+ const db={query:fake.query,execute:async(sql,p=[])=>{
+  if(sql.startsWith('SELECT id FROM conversations WHERE')){seen.push({sql,p});return [[{id:'candidate'}]];}
+  return fake.execute(sql,p);
+ }};
+ await listInboxWork({q,account_id:'account-1',client_id:'client-1',channel:'email'},db);
+ assert.ok(seen.every(x=>!x.sql.includes(q)));assert.ok(seen.some(x=>x.p.includes('%'+q+'%')));assert.ok(seen.some(x=>x.p.includes('account-1')));assert.ok(seen.some(x=>x.p.includes('client-1')));
 });
 test('manual handling locks, revision conflict, audit, and explicit reset',async()=>{
  let current=null,commits=0,rollbacks=0;const auditRows=[];
@@ -74,8 +91,8 @@ test('common business read intents need no model',()=>{assert.equal(businessRead
 
 test('previous login bounds the changed-since-visit query and first login declares fallback',async()=>{
  for(const previous of ['2026-10-01T10:00:00.000Z',null]){
-  let args;const result=await listInboxWork({since_visit:true},{execute:async(sql,p)=>{if(sql.startsWith('SELECT previous_seen'))return [[{previous_seen:previous}]];args=p;return [[]];}});
-  assert.equal(result.visit_known,Boolean(previous));assert.ok(args.includes(result.since));if(previous)assert.equal(result.since,previous);
+  const capture=[];const result=await listInboxWork({since_visit:true},inboxFixtureDb([{...fixtures[5],id:'changed'}],{capture,previousSeen:previous}));
+  assert.equal(result.visit_known,Boolean(previous));assert.ok(capture[0].p.includes(result.since));if(previous)assert.equal(result.since,previous);
  }
  let parameters;await markInboxVisit('signed-session-cookie',{execute:async(sql,p)=>{parameters=p;return [{}];}});
  assert.match(parameters[0],/^[a-f0-9]{64}$/);assert.ok(!parameters.includes('signed-session-cookie'));
@@ -83,8 +100,8 @@ test('previous login bounds the changed-since-visit query and first login declar
 });
 test('priority filters preserve only eligible leads and themes reference their evidence',async()=>{
  const rows=[{...fixtures[5],id:'a'},{...fixtures[5],id:'b'}];
- const high=await listInboxWork({priority:'high'},{execute:async()=>[rows]});assert.equal(high.items.length,2);
- const normal=await listInboxWork({priority:'normal'},{execute:async()=>[rows]});assert.equal(normal.items.length,0);
+ const high=await listInboxWork({priority:'high'},inboxFixtureDb(rows));assert.equal(high.items.length,2);
+ const normal=await listInboxWork({priority:'normal'},inboxFixtureDb(rows));assert.equal(normal.items.length,0);
  const themes=inboxThemes(high.items);assert.ok(themes.length);assert.deepEqual(themes[0].conversation_ids,['a','b']);
  assert.deepEqual(inboxThemes([{id:'spam',message_type:'spam',request_summary:'SMS numbers'}]),[]);
 });
