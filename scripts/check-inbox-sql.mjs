@@ -5,6 +5,7 @@ import {migrateExtras} from '../src/extra-schema.js';
 import {migratePlatform} from '../src/platform/schema.js';
 import {migrateIntelligence} from '../src/ai/intelligence.js';
 import {migrateInboxWorkbench,listInboxWork,markInboxVisit} from '../src/inbox-workbench.js';
+import {migrateHistorySync} from '../src/historical-sync.js';
 
 assert.equal(process.env.NODE_ENV,'test','Only run with NODE_ENV=test');
 assert.equal(process.env.DB_NAME,'crm_ci','Only run against isolated crm_ci database');
@@ -20,6 +21,11 @@ const run=async()=>{
  await migrateIntelligence();
  await migrateInboxWorkbench();
  await migrateInboxWorkbench(); // Must remain safe if startup is repeated.
+ await migrateHistorySync(db);
+ await migrateHistorySync(db);
+ const [historyTable]=await db.query("SHOW TABLES LIKE 'historical_sync_progress'");
+ assert.equal(historyTable.length,1,'historical sync progress must be restart-safe');
+
  console.log('PASS: additive inbox migration applied twice');
 
  const [columns]=await db.query('SHOW COLUMNS FROM messages');
