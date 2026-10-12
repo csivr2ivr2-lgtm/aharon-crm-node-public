@@ -10,6 +10,7 @@ import {diagnoseAi} from './ai/diagnostics.js';
 import {actionEngine} from './ai/actions.js';
 import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
 import {backfillInboxHistory} from './ai/historical-triage.js';
+import {listHistoryProgress,discoverHistoryAccounts} from './historical-sync.js';
 import {crmIntelligence} from './crm-intelligence.js';
 import {fileIntelligence} from './file-intelligence.js';
 import {loginSecurity} from './login-security.js';
@@ -24,6 +25,8 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  const route=(method,url,handler)=>app.route({method,url,handler:async(req,reply)=>{if(!uiAuth(req,reply))return;return handler(req,reply);}});
  route('GET','/api/ai/providers/health',()=>({ok:true,items:externalProviderHealth()}));
  route('POST','/api/inbox/visit',req=>markInboxVisit(String(req.unsignCookie(req.cookies.crm_session).value||'')));
+ route('GET','/api/history-sync/status',()=>listHistoryProgress());
+ route('POST','/api/history-sync/start',()=>discoverHistoryAccounts());
  route('GET','/api/inbox/work',req=>listInboxWork(req.query));
  route('PATCH','/api/inbox/work/:id',req=>updateInboxWork(req.params.id,req.body||{}));
  route('POST','/api/inbox/work/:id/spam',async req=>{
