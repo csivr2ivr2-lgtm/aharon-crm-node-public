@@ -33,12 +33,12 @@ const run=async()=>{
  }
  console.log('PASS: columns, tables, index');
 
- const [jsonRows]=await db.execute("SELECT JSON_VALID(?) AS valid,CASE WHEN JSON_VALID(?)=1 THEN JSON_CONTAINS(?,JSON_QUOTE(?)) ELSE 0 END AS matched",['["<request>"]','["<request>"]','["<request>"]','<request>']);
+ // Do not bind invalid JSON as an argument of JSON_CONTAINS in a prepared statement.
+ // MySQL 8 can cast such a parameter before evaluating the CASE guard.
+ const [jsonRows]=await db.execute("SELECT JSON_VALID(?) AS valid,JSON_CONTAINS('[\"<request>\"]',JSON_QUOTE(?)) AS matched",['["<request>"]','<request>']);
  assert.equal(Number(jsonRows[0].valid),1);
  assert.equal(Number(jsonRows[0].matched),1);
- const [invalidRows]=await db.execute("SELECT CASE WHEN JSON_VALID(?)=1 THEN JSON_CONTAINS(?,JSON_QUOTE(?)) ELSE 0 END AS matched",['invalid-json','invalid-json','<request>']);
- assert.equal(Number(invalidRows[0].matched),0);
- console.log('PASS: JSON_VALID/JSON_CONTAINS with valid and invalid JSON');
+ console.log('PASS: valid JSON functions with MySQL prepared parameters');
 
  await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key) VALUES('ci-a','email','CI account','ci@example.test','ci:a'),('ci-b','email','CI other','ci2@example.test','ci:b')");
  const conv=async(id,account='ci-a')=>db.execute('INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES(?,?,?,?,?,?)',[id,'email',account,id,'CI conversation','']);
@@ -53,6 +53,12 @@ const run=async()=>{
  await insert('ci-m4','ci-04','out','תשובה מחשבון אחר',recent,'<reply>','["<request>"]');
  await insert('ci-m5','ci-05','in','אני רוצה הצעת מחיר חדשה',recent,'<renewal>');
  await insert('ci-m6','ci-06','out','תשובה ישנה עם כותרות הפניה פגומות',recent,'<invalid-ref>','not-json');
+ // This tests the exact safe production pattern against an actual LONGTEXT database field,
+ // not against a raw invalid prepared parameter that MySQL 8 casts prematurely.
+ const [invalidRows]=await db.execute("SELECT CASE WHEN JSON_VALID(references_json)=1 THEN JSON_CONTAINS(references_json,JSON_QUOTE(?)) ELSE 0 END AS matched FROM messages WHERE id=?",['<request>','ci-m6']);
+ assert.equal(Number(invalidRows[0].matched),0,'malformed persisted RFC references must not crash inbox queries');
+ console.log('PASS: invalid persisted JSON safely excluded by guarded JSON_CONTAINS');
+
  await db.execute("INSERT INTO conversation_workflow(conversation_id,manual_status,revision,updated_at) VALUES('ci-05','done',1,?)",[old]);
  const captured=[];
  const recording={execute:async(sql,params)=>{if(sql.includes('FROM conversations c JOIN messages m'))captured.push([sql,params]);return db.execute(sql,params);}};
