@@ -77,7 +77,7 @@ app.setErrorHandler((error,req,reply)=>{
  const category=["TypeError","RangeError","ReferenceError","SyntaxError","Error"].includes(error.name)?error.name:"OtherError";
  app.log.warn({errorName:error.name,code:error.code},"Request failed");
  if(inboxRead)console.error("[CRM_INBOX_WORK_DIAGNOSTIC] category="+category+" code="+code+" sqlState="+sqlState);
- const payload={ok:false,error:/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"};
+ const payload={ok:false,error:inboxRead?"request_failed":/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"};
  if(inboxRead&&logged(req)){payload.diagnostic_category=category;payload.diagnostic_code=code;payload.diagnostic_sql_state=sqlState;}
  reply.code(error.statusCode>=400&&error.statusCode<500?error.statusCode:400).send(payload);
 });
