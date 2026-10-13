@@ -97,11 +97,34 @@ function showSyncReport(d){
  $('#notice').insertAdjacentHTML('afterend','<section id="syncReport" class="sync-report" role="status"><b>תוצאות סנכרון</b><p>'+Number(d.imported||0)+' חדשות · '+Number(d.duplicates||0)+' קיימות · '+Number(d.errors||0)+' שגיאות</p>'+(issues?'<details open><summary>פירוט שגיאות לפי חשבון</summary>'+issues+'</details>':'<p class="status-ok">לא דווחו שגיאות.</p>')+'</section>');
 }
 async function showCompose(){
- const [clients,accounts]=await Promise.all([api('/api/clients'),api('/api/accounts')]);
- const target=clients.items||[],outbound=(accounts.items||[]).filter(a=>a.status==='active'&&/^(google|hostinger|whatsapp):/.test(a.integration_key||''));
- if(!target.length||!outbound.length)throw Error('נדרש לקוח עם פרטי קשר וחשבון שליחה מחובר.');
- $('#content').insertAdjacentHTML('beforeend','<dialog id="outboundDialog"><form id="outboundForm" class="panel"><h2>הודעה חדשה</h2><label>לקוח<select name="client_id" required>'+optionHtml([['','בחירת לקוח'],...target.map(c=>[c.id,c.name])],'')+'</select></label><label>ערוץ<select name="channel" required>'+optionHtml([['email','אימייל'],['whatsapp','WhatsApp']],'email')+'</select></label><label>חשבון שולח<select name="account_id" required>'+optionHtml([['','בחר חשבון'],...outbound.map(a=>[a.id,a.label||a.identifier])],'')+'</select></label><label>נושא (למייל)<input name="subject" maxlength="500"></label><label>תוכן<textarea name="body" maxlength="20000" required rows="6"></textarea></label><button class="btn primary" type="submit">המשך לאישור</button>'+button('compose-close','ביטול')+'</form><p id="composeStatus" role="status"></p></dialog>');
- $('#outboundDialog').showModal();
+ document.querySelector('#outboundDialog')?.remove();
+ const accounts=await api('/api/accounts');
+ const available=(accounts.items||[]).filter(a=>a.status==='active'&&/^(google|hostinger|whatsapp):/.test(String(a.integration_key||'')));
+ // The dialog must open even if there are no CRM clients or connected sending accounts.
+ const chooser=optionHtml([['','בחר חשבון שולח'],...available.map(a=>[a.id,(a.label||a.identifier)+' · '+a.identifier])],'');
+ const html='<style>#outboundDialog{width:min(94vw,570px);max-height:90vh;overflow:auto;padding:24px;border:1px solid #ccc;border-radius:16px;box-shadow:0 18px 65px #0004;background:var(--panel,#fff);color:var(--text,#222)}#outboundDialog::backdrop{background:#0b1629aa;backdrop-filter:blur(3px)}#outboundDialog form{display:grid;gap:12px}#outboundDialog input,#outboundDialog select,#outboundDialog textarea{display:block;width:100%;padding:10px;border-radius:8px}#outboundDialog .composer-actions{display:flex;flex-wrap:wrap;gap:8px}</style>'+
+ '<dialog id="outboundDialog" aria-labelledby="composeTitle"><form id="outboundForm"><h2 id="composeTitle">הודעה חדשה</h2>'+
+ '<label>ערוץ<select name="channel" id="composeChannel"><option value="email">דוא״ל</option><option value="whatsapp">WhatsApp</option></select></label>'+
+ '<label>חשבון שולח<select name="account_id" id="composeAccount" required>'+chooser+'</select></label>'+
+ '<label id="composeRecipientLabel">כתובת דוא״ל של הנמען<input name="recipient" type="email" maxlength="255" autocomplete="off" placeholder="name@example.com" required></label>'+
+ '<label id="composeSubjectLabel">נושא<input name="subject" maxlength="500" required></label>'+
+ '<label>תוכן ההודעה<textarea name="body" maxlength="20000" rows="7" required></textarea></label>'+
+ '<p class="muted">שום הודעה לא תישלח לפני הצגת הנמען, החשבון והתוכן ואישור מפורש שלך.</p>'+
+ '<div class="composer-actions"><button type="submit" class="btn primary">בדיקה והמשך לאישור</button>'+button('compose-close','ביטול')+'</div><p id="composeStatus" role="status"></p></form></dialog>';
+ $('#content').insertAdjacentHTML('beforeend',html);
+ const dialog=$('#outboundDialog');dialog.dataset.accounts=JSON.stringify(available.map(a=>({id:a.id,kind:String(a.integration_key||'').split(':')[0],label:a.label||a.identifier})));
+ dialog.showModal();refreshCompose();
+}
+function refreshCompose(){
+ const dialog=$('#outboundDialog');if(!dialog)return;
+ const channel=dialog.querySelector('#composeChannel').value,account=dialog.querySelector('#composeAccount');
+ const available=JSON.parse(dialog.dataset.accounts||'[]').filter(a=>channel==='email'?['google','hostinger'].includes(a.kind):a.kind==='whatsapp');
+ const previous=account.value;
+ account.innerHTML=optionHtml([['','בחר חשבון שולח'],...available.map(a=>[a.id,a.label])],previous);
+ const recipient=dialog.querySelector('[name="recipient"]'),subject=dialog.querySelector('#composeSubjectLabel');
+ dialog.querySelector('#composeRecipientLabel').firstChild.textContent=channel==='email'?'כתובת דוא״ל של הנמען':'מספר WhatsApp של הנמען';
+ recipient.type=channel==='email'?'email':'tel';recipient.placeholder=channel==='email'?'name@example.com':'0501234567 או +972501234567';
+ subject.hidden=channel!=='email';subject.querySelector('input').required=channel==='email';
 }
 async function openConversation(id){
  const [d,clients,projects,drafts]=await Promise.all([api('/api/conversations/'+encodeURIComponent(id)),api('/api/clients'),api('/api/projects'),api('/api/conversations/'+encodeURIComponent(id)+'/drafts')]);
@@ -343,6 +366,7 @@ async function intelligenceAction(action,b){
 }
 document.addEventListener('input',e=>{if(e.target?.id==='assistantHistorySearch')renderAssistantSessions();if(e.target?.id==='inboxSearch'){inboxQuery=e.target.value;renderInboxItems();}});
 document.addEventListener('keydown',e=>{if(e.target?.id==='assistantMessage'&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&window.innerWidth>800){e.preventDefault();e.target.form?.requestSubmit();}});
+document.addEventListener('change',e=>{if(e.target?.id==='composeChannel')refreshCompose();});
 document.addEventListener('submit',async e=>{
  if(e.target.id!=='outboundForm')return;
  e.preventDefault();const btn=e.submitter;btn.disabled=true;
@@ -351,7 +375,7 @@ document.addEventListener('submit',async e=>{
   const prepared=await post('/api/outgoing/prepare',fields);
   if(prepared.status!=='pending'||!prepared.confirmation_token)throw Error('לא התקבל אישור שליחה תקף.');
   const details=prepared.preview||{};
-  if(!confirm('לאשר שליחה?\\nלקוח: '+(details.client||'')+'\\nנמען: '+(details.recipient||'')+'\\nחשבון: '+(details.account||'')+'\\nנושא: '+(details.subject||'')+'\\n\\n'+(details.body||'')))return;
+  if(!confirm('לאשר שליחה?\\nנמען: '+(details.recipient||'')+'\\nחשבון: '+(details.account||'')+'\\nנושא: '+(details.subject||'')+'\\n\\n'+(details.body||'')))return;
   const sent=await post('/api/assistant/actions/'+encodeURIComponent(prepared.id)+'/confirm',{confirmed:true,confirmation_token:prepared.confirmation_token});
   if(sent.status!=='completed')throw Error('לא ניתן לוודא שההודעה נשלחה. בדוק פעילות לפני ניסיון נוסף.');
   document.querySelector('#outboundDialog')?.remove();$('#notice').textContent='ההודעה נשלחה ואומתה בשרת.';
