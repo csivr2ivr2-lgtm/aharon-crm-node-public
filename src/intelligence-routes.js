@@ -1,5 +1,6 @@
 import {externalProviderHealth} from './ai/external-router.js';
 import {listInboxWork,updateInboxWork,markInboxVisit} from './inbox-workbench.js';
+import {listRecentConversations} from './recent-conversations.js';
 import {db,now} from './db.js';
 import {getSettings,updateSettings} from './platform/settings.js';
 import {listJobs,retryJob,enqueueJob} from './platform/jobs.js';
@@ -28,6 +29,7 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
  route('POST','/api/inbox/visit',req=>markInboxVisit(String(req.unsignCookie(req.cookies.crm_session).value||'')));
  route('GET','/api/history-sync/status',()=>listHistoryProgress());
  route('POST','/api/history-sync/start',()=>discoverHistoryAccounts());
+ route('GET','/api/inbox/recent',req=>listRecentConversations(req.query||{}));
  route('GET','/api/inbox/work',req=>listInboxWork(req.query));
  route('PATCH','/api/inbox/work/:id',req=>updateInboxWork(req.params.id,req.body||{}));
  route('POST','/api/inbox/work/:id/spam',async req=>{
