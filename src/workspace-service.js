@@ -62,6 +62,7 @@ export async function ingestMessage(p){
    const [linked]=await c.execute(`SELECT m.conversation_id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id WHERE cv.account_id=? AND m.rfc_message_id IN (${marks}) ORDER BY m.sent_at ASC LIMIT 1`,[localAccountId,...refs]);
    if(linked[0])convId=linked[0].conversation_id;
   }
+  const [redirect]=await c.execute('SELECT target_id FROM conversation_redirects WHERE source_id=? LIMIT 1',[convId]);if(redirect.length)convId=redirect[0].target_id;
   const [exists]=await c.execute("SELECT m.id,m.conversation_id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id WHERE m.id=? OR (cv.account_id=? AND m.external_id=?) LIMIT 1",[msgId,localAccountId,ev]);
   if(exists.length){await c.commit();return {inserted:false,conversation_id:exists[0].conversation_id,message_id:exists[0].id,account_id:localAccountId};}
   await c.execute(`INSERT INTO conversations(id,channel,account_id,external_id,title,client_id,project_id,unread_count,last_message_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)`,[convId,p.channel||"email",localAccountId,ext,String(p.subject||(direction==='out'?p.recipient:p.sender)||ext).slice(0,500),String(p.client_id||""),String(p.project_id||""),0,ts,now(),now()]);

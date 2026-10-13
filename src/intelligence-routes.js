@@ -11,6 +11,7 @@ import {actionEngine} from './ai/actions.js';
 import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
 import {backfillInboxHistory} from './ai/historical-triage.js';
 import {listHistoryProgress,discoverHistoryAccounts} from './historical-sync.js';
+import {mergeConversations,splitConversation} from './conversation-threading.js';
 import {crmIntelligence} from './crm-intelligence.js';
 import {fileIntelligence} from './file-intelligence.js';
 import {loginSecurity} from './login-security.js';
@@ -34,6 +35,8 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
   if(!inbound.length)throw Error('conversation_has_no_incoming_message');
   return setSpamFeedback({messageId:inbound[0].id,classification:'spam',actor:'dashboard'});
  });
+ route('POST','/api/conversations/merge',req=>mergeConversations(req.body||{}));
+ route('POST','/api/conversations/split',req=>splitConversation(req.body||{}));
  route('POST','/api/outgoing/prepare',async req=>{
   const {recipient,account_id,body,subject='',channel}=req.body||{};
   if(!['email','whatsapp'].includes(channel))throw Error('invalid_sending_channel');
