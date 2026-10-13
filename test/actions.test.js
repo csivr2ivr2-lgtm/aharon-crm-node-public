@@ -119,3 +119,13 @@ test('assistant derives trusted-send intent only from original explicit quoted r
  assert.equal(modelAnswer.actions[0].status,'pending');assert.equal(f.sendCount(),0);
 });
 
+
+test('manual recipient requires dashboard composer and explicit confirmation; CRM clients are optional',async()=>{
+ const f=fixture(),args={recipient:'0501234567',account_id:'account_whatsapp',body:'hello'};
+ await assert.rejects(f.engine.execute('send_whatsapp',args,context),/manual_recipient_not_permitted/);
+ await assert.rejects(f.engine.execute('send_whatsapp',{...args,client_id:'client_david'},{...context,manualCompose:true}),/manual_recipient_not_permitted/);
+ const prepared=await f.engine.execute('send_whatsapp',args,{...context,actor:'dashboard',manualCompose:true});
+ assert.equal(prepared.status,'pending');assert.equal(prepared.preview.recipient,'972501234567');assert.equal(f.sendCount(),0);
+ const approved=await f.engine.confirm(prepared.id,prepared.confirmation_token,{...context,actor:'dashboard'});
+ assert.equal(approved.status,'completed');assert.equal(f.sendCount(),1);
+});
