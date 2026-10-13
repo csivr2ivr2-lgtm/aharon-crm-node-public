@@ -126,6 +126,15 @@ function refreshCompose(){
  recipient.type=channel==='email'?'email':'tel';recipient.placeholder=channel==='email'?'name@example.com':'0501234567 או +972501234567';
  subject.hidden=channel!=='email';subject.querySelector('input').required=channel==='email';
 }
+async function showMergeDialog(){
+ const current=await api('/api/conversations/'+encodeURIComponent(conversation)),available=await api('/api/conversations?limit=200');
+ const choices=(available.items||[]).filter(x=>x.id!==conversation&&x.account_id===current.item.account_id&&x.channel===current.item.channel);
+ if(!choices.length)throw Error('אין שיחות נוספות באותו חשבון ובאותו ערוץ.');
+ document.querySelector('#threadMergeDialog')?.remove();
+ const options=optionHtml([['','בחר שיחה יעד'],...choices.map(x=>[x.id,(x.title||x.external_id||x.id)+' · '+formatDate(x.last_message_at)])],'');
+ $('#content').insertAdjacentHTML('beforeend','<dialog id="threadMergeDialog"><form id="threadMergeForm" class="panel"><h3>איחוד שיחות</h3><p>כל ההודעות יעברו לשיחה הנבחרת. ניתן לאחד רק מאותו חשבון וערוץ.</p><label>שיחת יעד<select name="target_id" required>'+options+'</select></label><button type="submit" class="btn primary">איחוד לאחר אישור</button>'+button('thread-close','ביטול')+'<p id="threadMergeStatus" role="status"></p></form></dialog>');
+ $('#threadMergeDialog').showModal();
+}
 async function openConversation(id){
  const [d,clients,projects,drafts]=await Promise.all([api('/api/conversations/'+encodeURIComponent(id)),api('/api/clients'),api('/api/projects'),api('/api/conversations/'+encodeURIComponent(id)+'/drafts')]);
  conversationWork=(await api('/api/inbox/work/'+encodeURIComponent(id))).item;
@@ -134,8 +143,8 @@ async function openConversation(id){
  conversationReplyEligible=!['spam','suspicious','marketing','system','reaction'].includes(conversationWork.message_type);
 
  const options=(items,selected)=>'<option value="">ללא שיוך</option>'+items.map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(x.name)+'</option>').join('');
- const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+displayContact(m.sender,d.item.channel))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools">'+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
- $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+'<h2>'+esc(displayContact(d.item.title||d.item.external_id||'שיחה',d.item.channel))+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מקצועית','professional')+button('reply-suggestion','ידידותית','friendly')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
+ const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+displayContact(m.sender,d.item.channel))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools"><label><input type="checkbox" class="thread-pick" value="'+esc(m.id)+'">בחר להפרדה</label>'+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
+ $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+button('thread-merge','אחד עם שיחה אחרת')+button('thread-split','הפרד הודעות מסומנות')+'<h2>'+esc(displayContact(d.item.title||d.item.external_id||'שיחה',d.item.channel))+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מקצועית','professional')+button('reply-suggestion','ידידותית','friendly')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
  $('.conversation-sidebar').insertAdjacentHTML('beforeend','<div class="workflow-controls"><p>'+esc(workLabels[conversationWork.handling_state]||'דורש בדיקה')+'</p>'+button('work-done','טופל',id)+button('work-waiting','מחכה ללקוח',id)+button('work-noaction','לא דורש תשובה',id)+button('work-auto','איפוס החלטות ידניות',id)+'</div>');
  const draft=(drafts.items||[]).find(x=>x.status==='draft');if(draft){$('#reply').value=draft.body;$('#reply').dataset.draftId=draft.id;}
  await post('/api/conversations/'+encodeURIComponent(id)+'/read');
@@ -160,6 +169,15 @@ document.addEventListener('click',async e=>{
   if(action.startsWith('work-')){await workAction(action,id);return;}
   if(await intelligenceAction(action,b))return;
   if(action==='compose-close'){document.querySelector('#outboundDialog')?.remove();return;}
+  if(action==='thread-close'){document.querySelector('#threadMergeDialog')?.remove();return;}
+  if(action==='thread-merge'){await showMergeDialog();return;}
+  if(action==='thread-split'){
+   const selected=[...document.querySelectorAll('.thread-pick:checked')].map(x=>x.value);
+   if(!selected.length)throw Error('בחר הודעה אחת או יותר להפרדה.');
+   if(!confirm('להפריד '+selected.length+' הודעות לשיחה חדשה? הפעולה לא מוחקת הודעות.'))return;
+   const r=await post('/api/conversations/split',{conversation_id:conversation,message_ids:selected});
+   await openConversation(r.conversation_id);$('#notice').textContent='נוצרה שיחה נפרדת עם '+r.moved+' הודעות.';return;
+  }
    if(action==='close-editor')$('#editor').close();
   if(action==='create'||action==='edit')await editRecord(b.dataset.id);
   if(action==='notes')await showNotes(b.dataset.id);
@@ -367,6 +385,17 @@ async function intelligenceAction(action,b){
 document.addEventListener('input',e=>{if(e.target?.id==='assistantHistorySearch')renderAssistantSessions();if(e.target?.id==='inboxSearch'){inboxQuery=e.target.value;renderInboxItems();}});
 document.addEventListener('keydown',e=>{if(e.target?.id==='assistantMessage'&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&window.innerWidth>800){e.preventDefault();e.target.form?.requestSubmit();}});
 document.addEventListener('change',e=>{if(e.target?.id==='composeChannel')refreshCompose();});
+document.addEventListener('submit',async e=>{
+ if(e.target.id!=='threadMergeForm')return;
+ e.preventDefault();const btn=e.submitter;btn.disabled=true;
+ try{
+  const target_id=new FormData(e.target).get('target_id');
+  if(!target_id||!confirm('לאחד את כל הודעות השיחה הנוכחית עם שיחת היעד?'))return;
+  const result=await post('/api/conversations/merge',{source_id:conversation,target_id});
+  document.querySelector('#threadMergeDialog')?.remove();await openConversation(result.conversation_id);
+  $('#notice').textContent='אוחדו '+result.moved+' הודעות לאותה שיחה.';
+ }catch(error){document.querySelector('#threadMergeStatus').textContent=error.message;}finally{btn.disabled=false;}
+});
 document.addEventListener('submit',async e=>{
  if(e.target.id!=='outboundForm')return;
  e.preventDefault();const btn=e.submitter;btn.disabled=true;
