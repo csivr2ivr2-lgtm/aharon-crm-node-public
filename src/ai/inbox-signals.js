@@ -16,9 +16,9 @@ export function nonCustomerSignal(message={}){
  // even if their copy uses questions such as "Need help?".
  const reply=/^(?:re|fw|fwd):/i.test(subject);
  const ads=/(?:\(פרסומת\)|^פרסומת\s*[|:]|\[ad\]|מבצע(?:ים)?|הנחה|משלוח חינם|last chance|limited[- ]time|\b(?:sale|special offer|free trial|promo(?:tion)?|discount|[0-9]+% off)\b)/i.test(subject);
- if(!reply&&ads&&/(?:פרסומת|\[ad\]|משלוח חינם|last chance|[0-9]+% off|special offer)/i.test(subject))
+ if(!reply&&ads&&/(?:פרסומת|\[ad\]|משלוח חינם|last chance|special offer)/i.test(subject))
   return {classification:'spam',confidence:.98,reason:'פרסומת מפורשת ולא פנייה אישית',source:'routing'};
- const mailingSender=/(?:^|[\s<])(?:newsletter|marketing|promotions|no-?reply)@|@(?:updates\.hostinger\.com|email\.grok\.com|ubersuggest\.com|marketing\.mcdonalds\.co\.il|priority\.instagram\.com|mail\.instagram\.com|mailer\.capital\.com|newsletter\.artlist\.io)>?$/i.test(sender);
+ const mailingSender=/(?:^|[\s<])(?:newsletter|marketing|promotions)@|@(?:updates\.hostinger\.com|email\.grok\.com|ubersuggest\.com|marketing\.mcdonalds\.co\.il|priority\.instagram\.com|mail\.instagram\.com|mailer\.capital\.com|newsletter\.artlist\.io)>?$/i.test(sender);
  const newsletterSubject=/(?:newsletter|weekly (?:digest|roundup)|what.s new|free trial|offer|upgrade|your weekly|try .* free|הכירו את|פרסומת|הישארו מעודכנים|עדכונים חדשים|ניהול הוצאות|הצטרפו|מתנה|מבצע)/i.test(subject);
  if(!reply&&(mailingSender||(newsletterSubject&&/^(?:.*<)?(?:info@make\.com|team@emails\.hostinger\.com|support@mailer\.capital\.com|support@unipile\.com|neil@ubersuggest\.com)>?$/i.test(sender))))
   return {classification:'marketing',confidence:.97,reason:'ניוזלטר או עדכון שיווקי; לא בקשת לקוח',source:'routing'};
