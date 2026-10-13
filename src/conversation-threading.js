@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {db as defaultDb,now} from './db.js';
 
-const conversationId=value=>{const s=String(value||'');if(!/^[a-zA-Z0-9_-]{8,96}$/.test(s))throw Error('invalid_conversation_id');return s;};
+const conversationId=value=>{const s=String(value||'');if(!/^[a-zA-Z0-9_-]{1,96}$/.test(s))throw Error('invalid_conversation_id');return s;};
 export async function migrateThreading(database=defaultDb){
  await database.query("CREATE TABLE IF NOT EXISTS conversation_redirects (source_id VARCHAR(96) PRIMARY KEY,target_id VARCHAR(96) NOT NULL,created_at VARCHAR(40) NOT NULL,INDEX(target_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
@@ -34,7 +34,7 @@ export async function mergeConversations({source_id,target_id},database=defaultD
 }
 export async function splitConversation({conversation_id,message_ids},database=defaultDb){
  const source=conversationId(conversation_id);
- if(!Array.isArray(message_ids)||!message_ids.length||message_ids.length>200||message_ids.some(id=>typeof id!=='string'||!/^[a-zA-Z0-9_-]{8,128}$/.test(id))||new Set(message_ids).size!==message_ids.length)throw Error('invalid_split_selection');
+ if(!Array.isArray(message_ids)||!message_ids.length||message_ids.length>200||message_ids.some(id=>typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(id))||new Set(message_ids).size!==message_ids.length)throw Error('invalid_split_selection');
  const c=await database.getConnection(),target='conv_split_'+randomUUID().replaceAll('-','');
  try{
   await c.beginTransaction();

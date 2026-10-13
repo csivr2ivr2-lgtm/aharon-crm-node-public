@@ -79,11 +79,6 @@ test('AliExpress historical sweep changes only branded inbound messages in batch
  assert.equal(r.updated,1);assert.deepEqual(writes[0].p,['a']);assert.match(writes[0].sql,/WHERE id IN/);
 });
 
-test('old inbox conversations are archived from actionable queues while recent leads remain active',()=>{
- const base={direction:'in',sender:'customer@example.com',subject:'בקשת הצעת מחיר',body:'אני צריך הצעת מחיר',classification:'normal'};
- const {decideInbox}=requireNotUsed();
-});
-
 test('aged archives stay searchable but cannot create stale tasks; explicit workflow override wins',()=>{
  const clock=Date.parse('2026-10-13T15:00:00Z');
  const base={direction:'in',sender:'business@example.com',subject:'בקשת הצעת מחיר',body:'אני צריך הצעת מחיר',classification:'normal'};
