@@ -21,8 +21,8 @@ test('outbound messages require login and server-side approval, never send on pr
   const cookie=await login(app);
   const invalid=await app.inject({method:'POST',url:'/api/outgoing/prepare',headers:{cookie},payload:{channel:'sms',client_id:'client',account_id:'acct',body:'hello'}});
   assert.equal(invalid.statusCode,400);assert.equal(attempts.length,0);
-  const r=await app.inject({method:'POST',url:'/api/outgoing/prepare',headers:{cookie},payload:{channel:'whatsapp',client_id:'client',account_id:'acct',body:'hello'}});
-  assert.equal(r.statusCode,200);assert.equal(r.json().status,'pending');assert.equal(attempts.length,1);assert.equal(attempts[0].name,'send_whatsapp');
+  const r=await app.inject({method:'POST',url:'/api/outgoing/prepare',headers:{cookie},payload:{channel:'whatsapp',recipient:'0501234567',account_id:'acct',body:'hello'}});
+  assert.equal(r.statusCode,200);assert.equal(r.json().status,'pending');assert.equal(attempts.length,1);assert.equal(attempts[0].name,'send_whatsapp');assert.equal(attempts[0].args.recipient,'0501234567');assert.equal(attempts[0].args.client_id,undefined);
  }finally{await app.close();}
 });
 

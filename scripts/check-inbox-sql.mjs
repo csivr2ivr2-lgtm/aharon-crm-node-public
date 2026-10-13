@@ -6,6 +6,7 @@ import {migratePlatform} from '../src/platform/schema.js';
 import {migrateIntelligence} from '../src/ai/intelligence.js';
 import {migrateInboxWorkbench,listInboxWork,markInboxVisit} from '../src/inbox-workbench.js';
 import {migrateHistorySync} from '../src/historical-sync.js';
+import {migrateThreading,mergeConversations,splitConversation} from '../src/conversation-threading.js';
 
 assert.equal(process.env.NODE_ENV,'test','Only run with NODE_ENV=test');
 assert.equal(process.env.DB_NAME,'crm_ci','Only run against isolated crm_ci database');
@@ -23,6 +24,8 @@ const run=async()=>{
  await migrateInboxWorkbench(); // Must remain safe if startup is repeated.
  await migrateHistorySync(db);
  await migrateHistorySync(db);
+ await migrateThreading(db);
+ await migrateThreading(db);
  const [historyTable]=await db.query("SHOW TABLES LIKE 'historical_sync_progress'");
  assert.equal(historyTable.length,1,'historical sync progress must be restart-safe');
 
@@ -108,5 +111,18 @@ const run=async()=>{
  const [visit]=await db.query("SELECT COUNT(*) AS n FROM inbox_visits WHERE actor='dashboard'");
  assert.equal(Number(visit[0].n),1);
  console.log('PASS: session visit persisted');
+ const merged=await mergeConversations({source_id:'ci-05',target_id:'ci-01'},db);
+ assert.equal(merged.moved,1);
+ const [[mergedCount]]=await db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id='ci-01'");
+ assert.equal(Number(mergedCount.n),2,'merged target retains both original messages');
+ const [[redirect]]=await db.execute("SELECT target_id FROM conversation_redirects WHERE source_id='ci-05'");
+ assert.equal(redirect.target_id,'ci-01');
+ const split=await splitConversation({conversation_id:'ci-01',message_ids:['ci-m5']},db);
+ assert.equal(split.moved,1);
+ const [[left]]=await db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id='ci-01'");
+ const [[separated]]=await db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id=?",[split.conversation_id]);
+ assert.equal(Number(left.n),1);assert.equal(Number(separated.n),1);
+ await assert.rejects(mergeConversations({source_id:'ci-04',target_id:'ci-01'},db),/conversation_account_channel_mismatch/);
+ console.log('PASS: transactionally merge/split and cross-account isolation without deleting messages');
 };
 try{await run()}catch(e){console.error('REAL SQL INTEGRATION FAILED:',e);process.exitCode=1}finally{await db.end()}

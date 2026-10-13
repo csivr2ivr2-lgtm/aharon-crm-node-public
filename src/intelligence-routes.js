@@ -11,6 +11,7 @@ import {actionEngine} from './ai/actions.js';
 import {setSpamFeedback,resolveSuggestion} from './ai/intelligence.js';
 import {backfillInboxHistory} from './ai/historical-triage.js';
 import {listHistoryProgress,discoverHistoryAccounts} from './historical-sync.js';
+import {mergeConversations,splitConversation} from './conversation-threading.js';
 import {crmIntelligence} from './crm-intelligence.js';
 import {fileIntelligence} from './file-intelligence.js';
 import {loginSecurity} from './login-security.js';
@@ -34,10 +35,14 @@ export function registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState={enab
   if(!inbound.length)throw Error('conversation_has_no_incoming_message');
   return setSpamFeedback({messageId:inbound[0].id,classification:'spam',actor:'dashboard'});
  });
+ route('POST','/api/conversations/merge',req=>mergeConversations(req.body||{}));
+ route('POST','/api/conversations/split',req=>splitConversation(req.body||{}));
  route('POST','/api/outgoing/prepare',async req=>{
-  const {client_id,account_id,body,subject='',channel}=req.body||{};
+  const {recipient,account_id,body,subject='',channel}=req.body||{};
   if(!['email','whatsapp'].includes(channel))throw Error('invalid_sending_channel');
-  return actionEngine.execute(channel==='email'?'send_email':'send_whatsapp',{client_id,account_id,body,subject},context());
+  if(typeof recipient!=='string'||recipient.trim().length<5||recipient.length>255||typeof body!=='string'||!body.trim()||body.length>20000)throw Error('invalid_outbound_request');
+  return actionEngine.execute(channel==='email'?'send_email':'send_whatsapp',{recipient:recipient.trim(),account_id,body,subject},{...context(),manualCompose:true});
+ 
  });
  route('GET','/api/inbox/work/:id',async req=>{const result=await listInboxWork({conversation_id:req.params.id,view:'all'});if(!result.items[0])throw Error('conversation_not_found');return {ok:true,item:result.items[0]};});
  route('POST','/api/inbox/work/:id/task',async req=>{

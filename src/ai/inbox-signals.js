@@ -12,6 +12,16 @@ export function nonCustomerSignal(message={}){
  if(aliSender||aliSubject)return {classification:'spam',confidence:.99,reason:'הודעה של AliExpress (כולל כתובות מתחלפות)',source:'brand_rule'};
  let headers=message.headers||{};try{if(message.headers_json)headers=JSON.parse(message.headers_json);}catch{}
  const header=name=>String(Object.entries(headers).find(([k])=>k.toLowerCase()===name)?.[1]||'');
+ // Explicit ads and recurring marketing notices are not direct customer requests,
+ // even if their copy uses questions such as "Need help?".
+ const reply=/^(?:re|fw|fwd):/i.test(subject);
+ const ads=/(?:\(פרסומת\)|^פרסומת\s*[|:]|\[ad\]|מבצע(?:ים)?|הנחה|משלוח חינם|last chance|limited[- ]time|\b(?:sale|special offer|free trial|promo(?:tion)?|discount|[0-9]+% off)\b)/i.test(subject);
+ if(!reply&&ads&&/(?:פרסומת|\[ad\]|משלוח חינם|last chance|special offer)/i.test(subject))
+  return {classification:'spam',confidence:.98,reason:'פרסומת מפורשת ולא פנייה אישית',source:'routing'};
+ const mailingSender=/(?:^|[\s<])(?:newsletter|marketing|promotions)@|@(?:updates\.hostinger\.com|email\.grok\.com|ubersuggest\.com|marketing\.mcdonalds\.co\.il|priority\.instagram\.com|mail\.instagram\.com|mailer\.capital\.com|newsletter\.artlist\.io)>?$/i.test(sender);
+ const newsletterSubject=/(?:newsletter|weekly (?:digest|roundup)|what.s new|free trial|offer|upgrade|your weekly|try .* free|הכירו את|פרסומת|הישארו מעודכנים|עדכונים חדשים|ניהול הוצאות|הצטרפו|מתנה|מבצע)/i.test(subject);
+ if(!reply&&(mailingSender||(newsletterSubject&&/^(?:.*<)?(?:info@make\.com|team@emails\.hostinger\.com|support@mailer\.capital\.com|support@unipile\.com|neil@ubersuggest\.com)>?$/i.test(sender))))
+  return {classification:'marketing',confidence:.97,reason:'ניוזלטר או עדכון שיווקי; לא בקשת לקוח',source:'routing'};
  if(header('content-type').includes('reaction')||header('content-disposition').includes('reaction')||
     /^(?:.+ )?(?:reacted with|הגיב[ה]? באמצעות|הגיב[ה]? עם|תגובה באמצעות אימוג)/iu.test(subject)||
     /^(?:.+ )?reacted .{1,20} to (?:your|a) message[.!]?$/iu.test(body.trim()))

@@ -48,7 +48,7 @@ export class HostingerMailConnector{
      const mail=await simpleParser(content,{skipHtmlToText:false,skipTextToHtml:true,maxHtmlLengthToParse:1024*1024});
      const messageId=String(mail.messageId||"uid-"+String(c.mailbox.uidValidity)+"-"+uid);
      const meta=await c.fetchOne(uid,{flags:true},{uid:true});
-     const refs=Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[];
+     const refs=[...new Set([...(Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[]),...(mail.inReplyTo?[String(mail.inReplyTo)]:[])])];
      const from=addresses(mail.from),to=addresses(mail.to),cc=addresses(mail.cc);
      const self=String(settings.user).toLowerCase();
      const fromSelf=emailOf(from)===self;
@@ -91,7 +91,7 @@ export class HostingerMailConnector{
       const mail=await simpleParser(content,{skipHtmlToText:false,skipTextToHtml:true,maxHtmlLengthToParse:1024*1024});
       const meta=await c.fetchOne(uid,{flags:true},{uid:true});
       const messageId=String(mail.messageId||'uid-'+String(c.mailbox.uidValidity)+'-'+uid+'-'+folders[folder]);
-      const refs=Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[];
+      const refs=[...new Set([...(Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[]),...(mail.inReplyTo?[String(mail.inReplyTo)]:[])])];
       const from=addresses(mail.from),to=addresses(mail.to),cc=addresses(mail.cc);
       const fromSelf=emailOf(from)===String(settings.user).toLowerCase();
       events.push({id:'hostinger:'+messageId,type:'message',source:'hostinger.imap',channel:'email',account_id:settings.user,account:{provider:'hostinger',type:'email',identifier:settings.user,label:'Hostinger · '+settings.user},conversation_external_id:'email:'+String(refs[0]||mail.inReplyTo||messageId),headers:inboxHeaders(mail.headers),external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?'out':'in',sender:from,recipient:to,cc,subject:String(mail.subject||''),body:String(mail.text||''),is_read:Boolean(meta?.flags?.has('\\Seen')),sent_at:(mail.date||new Date()).toISOString()});

@@ -78,3 +78,24 @@ test('AliExpress historical sweep changes only branded inbound messages in batch
  const r=await backfillAliExpressPage({}, {db,enqueue:async()=>{throw Error('should not enqueue');}});
  assert.equal(r.updated,1);assert.deepEqual(writes[0].p,['a']);assert.match(writes[0].sql,/WHERE id IN/);
 });
+
+test('aged archives stay searchable but cannot create stale tasks; explicit workflow override wins',()=>{
+ const clock=Date.parse('2026-10-13T15:00:00Z');
+ const base={direction:'in',sender:'business@example.com',subject:'בקשת הצעת מחיר',body:'אני צריך הצעת מחיר',classification:'normal'};
+ const old=decideInbox({...base,waiting_since:'2024-07-31T12:00:00Z'},clock);
+ assert.equal(old.handling_state,'no_action');assert.equal(old.historical,true);
+ const recent=decideInbox({...base,waiting_since:'2026-10-12T12:00:00Z'},clock);
+ assert.equal(recent.handling_state,'needs_reply');
+ const manual=decideInbox({...base,manual_status:'in_progress',waiting_since:'2024-07-31T12:00:00Z'},clock);
+ assert.equal(manual.handling_state,'in_progress');
+});
+test('promotional emails from pasted CRM examples are not new leads',()=>{
+ for(const [sender,subject,expected] of [
+  ['"Hostinger" <team@updates.hostinger.com>','Share sites with clients without Hostinger branding','marketing'],
+  ['"ימות המשיח" <newsletter@yemot.co.il>','ממשק הדוחות החדש שלנו','marketing'],
+  ['"Plus500" <Info@updates.plus500.com>','הישארו מעודכנים (פרסומת)','spam'],
+  ['"Grok" <updates@email.grok.com>','Try Grok Bot free for 3 days','marketing'],
+  ['"Artlist" <team@newsletter.artlist.io>','[ad] special offer','spam']
+ ]){const detected=nonCustomerSignal({sender,subject});assert.equal(detected?.classification,expected,subject);
+ const decision=decideInbox({sender,subject,direction:'in',waiting_since:'2026-10-12T12:00:00Z',body:'Need help?'});assert.equal(decision.handling_state,'no_action',subject);}
+});

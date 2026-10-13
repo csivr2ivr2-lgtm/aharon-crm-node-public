@@ -29,6 +29,7 @@ import {enqueueJob,startJobWorker} from "./platform/jobs.js";
 import {migrateHistorySync,discoverHistoryAccounts,historyPageJob} from './historical-sync.js';
 import {backfillAliExpressPage} from './brand-cleanup.js';
 import {migrateInboxWorkbench} from "./inbox-workbench.js";
+import {migrateThreading} from './conversation-threading.js';
 import {migrateIntelligence,applySenderFeedbackPage} from "./ai/intelligence.js";
 import {migrateActions} from "./ai/actions.js";
 import {migrateAssistantChats} from "./assistant-chat-history.js";
@@ -39,7 +40,7 @@ import {migrateKnowledge} from "./ai/knowledge.js";
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
