@@ -39,7 +39,7 @@ register('waiting_for_reply','Find conversations whose newest inbound message ha
 register('business_inbox','Read verified business inbox work and source links.',object({view:z.enum(['all','needs_reply','waiting_customer','review']).optional(),since_visit:z.boolean().optional(),message_type:z.enum(['quote','support','business']).optional(),q:optionalText(300),from:optionalText(40),limit:z.number().int().min(1).max(50).optional()}),'business_inbox');
 register('recent_activity','Read recent CRM activity.',object({limit:z.number().int().min(1).max(50).optional()}),'activity.list');
 register('list_accounts','List sending accounts; credentials are never returned.',object({}),'account.list');
-for(const name of ['send_email','send_whatsapp'])register(name,'Send exact text to one resolved client; requires preview and confirmation.',object({client_id:id,account_id:id.optional(),body:text(20000),subject:optionalText(500)}),name,'send');
+for(const name of ['send_email','send_whatsapp'])register(name,'Send exact text to one resolved client; requires preview and confirmation.',object({client_id:id.optional(),recipient:optionalText(255),account_id:id.optional(),body:text(20000),subject:optionalText(500)}),name,'send');
 register('create_draft','Prepare a reply draft without sending.',object({conversation_id:id,instruction:optionalText(2000)}),'create_draft','write');
 register('search_files','Search indexed CRM files.',object({q:text(500),client_id:id.optional()}),'search_files');
 register('read_file','Read an indexed file by its CRM ID, never a filesystem path.',object({id}),'read_file');
@@ -82,6 +82,8 @@ export class ActionEngine{
  async execute(name,input,context,options={}){
   const {tool,args}=validateTool(name,input);authorizeTool(tool,context);
   if(tool.permission==='read'){const result=boundedToolResult(safeJSON(await this.perform(tool,args,'')));await this.audit({id:'act_'+randomUUID(),tool:name,actor:context.actor,source:context.source},'read_completed',null,{query:args});return {ok:true,status:'completed',tool:name,result};}
+  if(tool.permission==='send'&&args.recipient&&(!context.manualCompose||context.actor!=='dashboard'||args.client_id))throw Error('manual_recipient_not_permitted');
+  if(tool.permission==='send'&&!args.recipient&&!args.client_id)throw Error('recipient_or_client_required');
   const settings=await this.settings();
   if(tool.permission==='send'&&!args.account_id){args.account_id=settings.messaging?.defaultAccountId;if(!args.account_id)throw Error('sending_account_required');}
   const resolved=tool.permission==='send'?await this.resolveSend(tool.name,args):null;
@@ -134,11 +136,17 @@ export class ActionEngine{
   return {ok:true,status:'dismissed'};
  }
  async resolveSend(name,args){
-  const result=await this.workspace.call('client.get',{id:args.client_id});if(!result.ok)throw Error('client_not_found');const client=result.item;
+  let client;
+  if(args.recipient){if(args.client_id)throw Error('ambiguous_recipient');client={id:'',name:String(args.recipient).trim()};}
+  else{const result=await this.workspace.call('client.get',{id:args.client_id});if(!result.ok)throw Error('client_not_found');client=result.item;}
   const accounts=await this.workspace.call('account.list',{});const account=accounts.items.find(a=>a.id===args.account_id&&a.status==='active');if(!account)throw Error('account_not_found');
   const provider=String(account.integration_key||'').split(':')[0],externalId=String(account.integration_key||'').slice(provider.length+1);
   if(name==='send_whatsapp'&&provider!=='whatsapp'||name==='send_email'&&!['google','hostinger'].includes(provider))throw Error('account_channel_mismatch');
-  let to=name==='send_email'?emailOf(client.email):normalizedPhone(client.phone);if(!to)throw Error('client_destination_missing');if(name==='send_whatsapp'&&!/^[1-9][0-9]{8,14}$/.test(to))throw Error('international_phone_required');
+  const direct=String(args.recipient||'').trim();
+  let to=name==='send_email'?emailOf(direct||client.email):normalizedPhone(direct||client.phone);
+  if(!to)throw Error('client_destination_missing');
+  if(direct&&name==='send_email'&&direct.toLowerCase()!==to)throw Error('invalid_email_recipient');
+  if(name==='send_whatsapp'&&!/^[1-9][0-9]{8,14}$/.test(to))throw Error('international_phone_required');
   return {to,client,account,provider,externalId};
  }
  async perform(tool,args,actionId,approvedPreview=null){
