@@ -38,10 +38,11 @@ import {migrateFileIntelligence,fileIntelligence} from "./file-intelligence.js";
 import {registerIntelligenceRoutes} from "./intelligence-routes.js";
 import {migrateKnowledge} from "./ai/knowledge.js";
 import {migrateOwnerMemories,listOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory} from "./owner-memory.js";
+import {migrateWhatsAppProfiles} from './whatsapp-profiles.js';
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -167,7 +168,15 @@ app.post("/v1/workspace/:op",async(req,reply)=>{if(!apiAuth(req,reply))return;re
 app.post("/v1/sync",async(req,reply)=>{if(!apiAuth(req,reply))return;return scheduler.runOnce()});
 app.all("/mcp",handleMcp);
 
-async function onWhatsAppEvent(event){const r=await workspace.call("message.ingest",event);if(r.inserted)hub.publish("message.new",{conversation_id:r.conversation_id,channel:"whatsapp"});}
+async function onWhatsAppEvent(event){
+ if(event?.type==='whatsapp.profile'){
+  const result=await workspace.call('whatsapp.profile',event);
+  if(result.updated)hub.publish('whatsapp.profile',{account_id:event.account_id});
+  return;
+ }
+ const r=await workspace.call("message.ingest",event);
+ if(r.inserted)hub.publish("message.new",{conversation_id:r.conversation_id,channel:"whatsapp"});
+}
 const backgroundState={enabled:startBackground,running:false,last_error:null};
 registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState});
 let stopJobs=async()=>{},reminders,historyDiscoveryTimer;

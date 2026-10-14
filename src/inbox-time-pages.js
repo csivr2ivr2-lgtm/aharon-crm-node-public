@@ -1,4 +1,5 @@
 import {randomUUID,createHash} from 'node:crypto';
+import {whatsappChannelExclusion} from './connectors/whatsapp-channel-filter.js';
 
 // Immutable membership (message IDs, not message bodies) keeps pages stable while
 // new messages arrive. A refresh creates a fresh snapshot. No data is deleted.
@@ -41,7 +42,7 @@ export async function openTimePage({cursor,filters,col},db,clock=Date.now()){
   await db.execute('DELETE FROM inbox_page_sets WHERE id=?',[expired[0].id]);
  }
  const where=["COALESCE(m.inbox_event_type,'') NOT IN ('reaction','technical')",
-  "NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter')",
+  whatsappChannelExclusion('c'),
   `NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=m.conversation_id
    AND COALESCE(newer.inbox_event_type,'') NOT IN ('reaction','technical')
    AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))`];
