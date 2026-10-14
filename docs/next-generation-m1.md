@@ -171,3 +171,12 @@ markers and preserved messages remain stored. No live rollback was performed.
   current view and show a refresh notice. This avoids silently discarding work.
 - This is a guarded browser refresh, not a durable message event replay system.
   Browser/WebSocket behavior still needs live E2E verification.
+
+## Secret-scan follow-up
+
+- Replaced three previously flagged fake key markers in `.env.example` and
+  `test/external-router.test.js` with shorter inert placeholders. Test assertions
+  keep verifying provider routing and secret redaction with fake credentials.
+- Added `Heuristic secret scan` as a separate CI release gate using the
+  repository's existing scanner. It reports only filenames and line numbers.
+  A heuristic clean result does not guarantee there are no secrets.

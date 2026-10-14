@@ -60,6 +60,17 @@ jobs:
         run: npm ci
       - name: Owner-memory unit tests
         run: node --test test/owner-memory.test.js
+  secret-scan:
+    name: Heuristic secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reject suspected committed credentials
+        run: node scripts/scan-secrets.mjs
   mysql-integration:
     name: Database integration (${{ matrix.database.name }})
     runs-on: ubuntu-latest

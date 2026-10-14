@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {parseAiProviders,callExternalAi} from '../src/ai/external-router.js';
 const fake=(code,text='ok')=>({ok:code===200,status:code,json:async()=>({choices:[{message:{content:text}}]})});
 const options={aiProvidersJson:JSON.stringify([
- {id:'test-one',base_url:'https://example-one.invalid/v1',api_key:'TEST_ONLY_ONE',model:'free-model-one'},
- {id:'test-two',base_url:'https://example-two.invalid/v1',api_key:'TEST_ONLY_TWO',model:'free-model-two'}
+ {id:'test-one',base_url:'https://example-one.invalid/v1',api_key:'MOCK_ONE',model:'free-model-one'},
+ {id:'test-two',base_url:'https://example-two.invalid/v1',api_key:'MOCK_TWO',model:'free-model-two'}
 ])};
 test('accepts explicit, server-side AI provider configuration without disclosing secrets',()=>{
  const routes=parseAiProviders(options);assert.equal(routes.length,2);assert.equal(routes[0].id,'test-one');
@@ -17,7 +17,7 @@ test('accepts explicit, server-side AI provider configuration without disclosing
 test('switches to a different provider when a service is unavailable',async()=>{
  const routes=parseAiProviders(options),calls=[];
  const result=await callExternalAi([{role:'user',content:'hello'}],{routes,fetcher:async(url,init)=>{calls.push({url,auth:init.headers.Authorization});return calls.length===1?fake(503):fake(200,'שלום');}});
- assert.equal(result.text,'שלום');assert.equal(result.provider,'test-two');assert.equal(result.model,'free-model-two');assert.deepEqual(calls.map(x=>x.auth),['Bearer TEST_ONLY_ONE','Bearer TEST_ONLY_TWO']);
+ assert.equal(result.text,'שלום');assert.equal(result.provider,'test-two');assert.equal(result.model,'free-model-two');assert.deepEqual(calls.map(x=>x.auth),['Bearer MOCK_ONE','Bearer MOCK_TWO']);
 });
 test('does not rotate API keys on same host to bypass provider 429 limits',async()=>{
  const routes=parseAiProviders(options).map((r,i)=>i?{...r,host:'shared.example',id:'same-host-two'}:{...r,host:'shared.example',id:'same-host-one'});
@@ -27,7 +27,7 @@ test('does not rotate API keys on same host to bypass provider 429 limits',async
 });
 test('a provider cannot redirect a request or send secrets in error text',async()=>{
  const routes=parseAiProviders(options).map(r=>({...r,id:r.id+'-errors'}));
- await assert.rejects(callExternalAi([{role:'user',content:'hello'}],{routes,fetcher:async()=>{throw Error('API key TEST_ONLY_ONE failed');}}),error=>!String(error).includes('TEST_ONLY_ONE'));
+ await assert.rejects(callExternalAi([{role:'user',content:'hello'}],{routes,fetcher:async()=>{throw Error('API key MOCK_ONE failed');}}),error=>!String(error).includes('MOCK_ONE'));
 });
 test('legacy single-provider environment still works without an explicit model',async()=>{
  const routes=parseAiProviders({aiBaseUrl:'https://legacy.example/v1',aiApiToken:'TEST_LEGACY'});
