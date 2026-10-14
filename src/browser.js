@@ -232,7 +232,32 @@ document.addEventListener('click',async e=>{
  }catch(error){$('#error').textContent=error.message;}finally{b.disabled=false;}
 });
 window.addEventListener('hashchange',()=>navigateHash().catch(e=>$('#error').textContent=e.message));
-async function realtime(){try{const d=await post('/api/ws-ticket'),url=new URL('/ws',location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';url.searchParams.set('ticket',d.ticket);const socket=new WebSocket(url);socket.onmessage=e=>{const event=JSON.parse(e.data);if(event.type!=='connected')$('#notice').textContent='המידע עודכן ברקע. ניתן לרענן את המסך.';};socket.onclose=()=>setTimeout(realtime,5000);}catch{setTimeout(realtime,15000);}}
+let inboxRealtimeTimer=null,lastInboxAutoRefresh=0;
+function scheduleRealtimeInboxRefresh(event){
+ if(!['message.new','message.sent','ai.inbox','external.event'].includes(event?.type))return false;
+ if(event.type==='external.event'&&event.payload?.type!=='message')return false;
+ if(!['inbox','spam','updates'].includes(view))return false;
+ const notice=$('#notice');
+ const safeToRefresh=()=>{
+  const form=$('#workSearch');
+  // Do not reset a user's filter edits, active conversation task or loaded older pages.
+  return !!form&&!form.contains(document.activeElement)&&!document.querySelector('dialog[open]')&&
+   workPending.size===0&&inboxItems.length<=50&&window.scrollY<240&&
+   !String($('#workCoverage')?.textContent||'').includes('סורק שיחות');
+ };
+ if(!safeToRefresh()){if(notice)notice.textContent='נקלט עדכון חדש. לרענון בלי לאבד את מצב העבודה לחץ על רענון התיבה.';return true;}
+ clearTimeout(inboxRealtimeTimer);
+ const delay=Math.max(900,7000-(Date.now()-lastInboxAutoRefresh));
+ inboxRealtimeTimer=setTimeout(()=>{
+  if(!['inbox','spam','updates'].includes(view)||!safeToRefresh())return;
+  void renderWorkInbox().then(()=>{
+   lastInboxAutoRefresh=Date.now();
+   if(notice)notice.textContent='תיבת ההודעות עודכנה אוטומטית.';
+  }).catch(()=>{if(notice)notice.textContent='התקבל עדכון חדש. הרענון האוטומטי נכשל; לחץ על רענון התיבה.';});
+ },delay);
+ return true;
+}
+async function realtime(){try{const d=await post('/api/ws-ticket'),url=new URL('/ws',location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';url.searchParams.set('ticket',d.ticket);const socket=new WebSocket(url);socket.onmessage=e=>{let event;try{event=JSON.parse(e.data);}catch{return;}if(event.type==='connected')return;if(scheduleRealtimeInboxRefresh(event))return;const notice=$('#notice');if(notice)notice.textContent='המידע עודכן ברקע. ניתן לרענן את המסך.';};socket.onclose=()=>setTimeout(realtime,5000);}catch{setTimeout(realtime,15000);}}
 
 
 

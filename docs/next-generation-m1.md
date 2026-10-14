@@ -155,3 +155,19 @@ markers and preserved messages remain stored. No live rollback was performed.
   connector-managed labels and cannot overwrite owner-chosen names.
 - New memory tests added. Production, browser and live-provider verification
   remain necessary. This does not complete Account Intelligence.
+
+## Continuation: CI repair and guarded live inbox refresh
+
+- Fixed an isolated VM regression fixture to stub the newly imported owner-memory
+  dependency; this restored full Node 20 and Node 22 CI. Added a security regression
+  ensuring irrelevant owner preference memories are not sent to AI prompts.
+- Independent locked-dependency high-severity audit, owner-memory tests, and full
+  Node 20/22 tests passed. Database integration, including manual-label preservation,
+  passed on MySQL 8 and MariaDB 10.11 at the preceding verification commit.
+- WebSocket events for new WhatsApp messages, sent replies, inbox processing and
+  newly ingested email messages now trigger debounced refresh of the initial inbox
+  page when the user is idle near the top. If a filter is being edited, a dialog
+  is open, an approval is pending, or historical pages are loaded, preserve the
+  current view and show a refresh notice. This avoids silently discarding work.
+- This is a guarded browser refresh, not a durable message event replay system.
+  Browser/WebSocket behavior still needs live E2E verification.
