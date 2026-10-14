@@ -8,9 +8,12 @@ function fixture(){
  const database={
   async query(sql){
    if(!sql.includes('information_schema.COLUMNS'))throw Error('unexpected mock query: '+sql);
-   return [[['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']].map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME,COLLATION_NAME:'utf8mb4_unicode_ci'}))];
+   return [[['messages','id'],['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']].map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME,COLLATION_NAME:'utf8mb4_unicode_ci'}))];
   },
+  async getConnection(){return {execute:this.execute.bind(this),beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release(){}};},
   async execute(sql,p=[]){
+  if(sql.startsWith('SELECT id FROM inbox_page_sets')||sql.startsWith('SELECT conversation_id AS id,position'))return [[]];
+  if(sql.startsWith('INSERT INTO inbox_page_sets')||sql.startsWith('INSERT INTO inbox_page_members'))return [{affectedRows:0}];
   if(sql.startsWith('SELECT id FROM conversations WHERE'))return [[]];
   if(sql.startsWith('SELECT c.id,c.title'))return [[]];
   if(sql.startsWith('INSERT IGNORE INTO ai_actions')){if(rows.has(p[0]))return [{affectedRows:0}];rows.set(p[0],{id:p[0],actor:p[1],source:p[2],tool:p[3],args_json:p[4],state:p[5],token_hash:p[6],expires_at:p[7],preview_json:p[10]});return [{affectedRows:1}];}
@@ -129,3 +132,4 @@ test('manual recipient requires dashboard composer and explicit confirmation; CR
  const approved=await f.engine.confirm(prepared.id,prepared.confirmation_token,{...context,actor:'dashboard'});
  assert.equal(approved.status,'completed');assert.equal(f.sendCount(),1);
 });
+

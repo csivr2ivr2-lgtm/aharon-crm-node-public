@@ -95,7 +95,8 @@ test('non-Groq models never retry invisible outputs without evidence of truncati
 });
 test('workbench query pages a stable cursor and excludes channel posts',async()=>{
  const source=await readFile(new URL('../src/inbox-workbench.js',import.meta.url),'utf8');
- assert.ok(source.includes('ORDER BY c.id ASC LIMIT ?'));
+ assert.ok(source.includes("page?'pg.position ASC':'c.id ASC'"));
  assert.ok(source.includes("c.external_id LIKE '%@newsletter'"));
  assert.ok(source.includes('newer.id>m.id'));
 });
+

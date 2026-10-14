@@ -37,7 +37,7 @@ test('inbox read errors expose safe identifiers to authenticated owner only',asy
  let observed='';
  t.mock.method(db,'query',async sql=>{
   if(!sql.includes('information_schema.COLUMNS'))throw Error('unexpected_query');
-  return [[['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']].map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME,COLLATION_NAME:'utf8mb4_unicode_ci'}))];
+  return [[['messages','id'],['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']].map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME,COLLATION_NAME:'utf8mb4_unicode_ci'}))];
  });
  t.mock.method(db,'execute',async sql=>{
   if(sql.startsWith('SELECT id FROM conversations WHERE'))return [[{id:'diagnostic-test-conversation'}]];
@@ -47,12 +47,12 @@ test('inbox read errors expose safe identifiers to authenticated owner only',asy
  t.mock.method(console,'error',(...args)=>{observed+=args.join(' ');});
  const app=await buildApp({initializeDatabase:false,startBackground:false});
  try{
-  const unauthenticated=await app.inject({url:'/api/inbox/work?view=needs_reply'});
+  const unauthenticated=await app.inject({url:'/api/inbox/work?view=needs_reply&sort=priority'});
   assert.equal(unauthenticated.statusCode,401);
   assert.equal(unauthenticated.json().error,'login_required');
   assert.equal(unauthenticated.json().diagnostic_code,undefined);
   const cookie=await login(app);
-  const response=await app.inject({url:'/api/inbox/work?view=needs_reply',headers:{cookie}});
+  const response=await app.inject({url:'/api/inbox/work?view=needs_reply&sort=priority',headers:{cookie}});
   assert.equal(response.statusCode,400);
   assert.equal(response.json().error,'request_failed');
   assert.equal(response.json().diagnostic_category,'Error');
@@ -137,4 +137,5 @@ test('AI status and Test Local AI use the same effective saved model',async t=>{
   }
  }finally{await app.close();}
 });
+
 

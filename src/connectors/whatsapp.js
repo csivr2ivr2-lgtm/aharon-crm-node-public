@@ -1,4 +1,4 @@
-import makeWASocket,{DisconnectReason,useMultiFileAuthState,getContentType} from "@whiskeysockets/baileys";
+import makeWASocket,{DisconnectReason,useMultiFileAuthState,getContentType,normalizeMessageContent} from "@whiskeysockets/baileys";
 import {Boom} from "@hapi/boom";
 import QRCode from "qrcode";
 import {mkdir,rm} from "node:fs/promises";
@@ -13,8 +13,8 @@ export function whatsappDestination(value){
  const digits=raw.replace(/\D/g,"");if(!/^[1-9]\d{6,14}$/.test(digits))throw Error("invalid_whatsapp_recipient");
  return digits+"@s.whatsapp.net";
 }
-const textFrom=m=>{
- const x=m?.message;if(!x)return"";
+export const textFrom=m=>{
+ const x=normalizeMessageContent(m?.message);if(!x)return"";
  const t=getContentType(x);
  if(t==="conversation")return String(x.conversation||"");
  if(t==="extendedTextMessage")return String(x.extendedTextMessage?.text||"");
@@ -65,6 +65,7 @@ export class WhatsAppConnector{
      if(this.pairingPhone){await this.preparePairingCode(sock);}
      else try{const qr=await QRCode.toDataURL(update.qr);if(this.sock!==sock||this.stopped)return;this.qrDataUrl=qr;this.statusValue="qr_required";}catch{this.lastError="qr_generation_failed";this.statusValue="error";}
     }
+    if(this.sock!==sock||this.stopped)return;
     if(update.connection==="open"){this.statusValue="connected";this.qrDataUrl=null;this.pairingCode=null;this.pairingPhone=null;this.pairingRequested=false;this.lastError=null}
     if(update.connection==="close"){
      this.sock=null;this.qrReady=false;const code=new Boom(update.lastDisconnect?.error).output?.statusCode;
@@ -73,22 +74,35 @@ export class WhatsAppConnector{
      if(code!==DisconnectReason.loggedOut&&!this.stopped){this.statusValue="reconnecting";clearTimeout(this.retryTimer);this.retryTimer=setTimeout(()=>this.start(this.onEvent).catch(()=>{this.lastError="reconnect_failed";this.statusValue="error";}),5000);this.retryTimer.unref?.();}
     }
    });
-   sock.ev.on("messages.upsert",async ({messages,type})=>{
+   sock.ev.on("messages.upsert",batch=>this.receiveMessages(sock,batch));
+  }catch{this.lastError="connection_failed";this.statusValue="error";throw Error("whatsapp_connection_failed");}finally{this.connecting=false}
+ }
+ async receiveMessages(sock,{messages,type}={}){
     if(this.sock!==sock||this.stopped||!Array.isArray(messages))return;
     if(type!=="notify"&&type!=="append")return;
     for(const m of messages){
+     try{
      if(!m?.key?.remoteJid||isWhatsAppChannelJid(m.key.remoteJid))continue;
-     const body=textFrom(m);if(!body&&!m.message)continue;
+     const content=normalizeMessageContent(m.message);
+     if(!content)continue;
+     const contentType=getContentType(content);
+     // Protocol traffic is not a new human message. Preserve recognized reactions
+     // as events while keeping them out of the meaningful conversation clock.
+     let eventType=contentType==='reactionMessage'?'reaction':
+      ['protocolMessage','senderKeyDistributionMessage'].includes(contentType)?'technical':'';
+     const body=contentType==='reactionMessage'?String(content.reactionMessage?.text||''):textFrom(m);if(!body&&!m.message)continue;
+     let timestamp=Number(m.messageTimestamp);
+     if(!Number.isFinite(timestamp)||timestamp<=0||timestamp*1000>Date.now()+300000){this.lastError="invalid_message_timestamp";timestamp=0;if(!eventType)eventType="timestamp_review";}
      const jid=String(m.key.remoteJid),direction=m.key.fromMe?"out":"in";
      const event={id:"wa:"+this.sessionId+":"+String(m.key.id||Date.now()),type:"message",source:"whatsapp.baileys",channel:"whatsapp",account_id:this.sessionId,
       account:{provider:"whatsapp",type:"whatsapp",identifier:this.sessionId,label:this.label},
       conversation_external_id:jid,external_id:String(m.key.id||""),direction,sender:direction==="in"?jid:"me",recipient:direction==="out"?jid:"me",
-      subject:"",body,is_read:direction==="out",sent_at:new Date(Number(m.messageTimestamp||Math.floor(Date.now()/1000))*1000).toISOString()};
-     try{await this.onEvent?.(event)}catch{this.lastError="message_ingestion_failed";}
+      subject:"",body,inbox_event_type:eventType,is_read:direction==="out"||Boolean(eventType),sent_at:new Date(timestamp*1000).toISOString()};
+     await this.onEvent?.(event);
+     }catch{this.lastError="message_ingestion_failed";}
     }
-   });
-  }catch{this.lastError="connection_failed";this.statusValue="error";throw Error("whatsapp_connection_failed");}finally{this.connecting=false}
  }
+
  stop(){this.stopped=true;clearTimeout(this.retryTimer);this.retryTimer=null;const sock=this.sock;this.sock=null;this.qrReady=false;this.qrDataUrl=null;this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.statusValue="disconnected";sock?.end?.(new Error("shutdown"));}
  async disconnect(){this.stop();return {ok:true,...this.status()};}
  async reconnect(onEvent=this.onEvent){this.stop();await this.start(onEvent);return {ok:true,...this.status()};}
@@ -100,5 +114,6 @@ export class WhatsAppConnector{
   await rm(this.sessionDir,{recursive:true,force:true});this.statusValue="logged_out";this.lastError=null;
  }
  async deleteSession(){await this.logout();return {ok:true,...this.status()};}
- async send({to,body}){if(!this.sock||this.statusValue!=="connected")throw Error("WhatsApp is not connected");const jid=whatsappDestination(to);if(!String(body||"").trim())throw Error("body_required");const r=await this.sock.sendMessage(jid,{text:String(body)});return {ok:true,message_id:String(r?.key?.id||""),jid};}
+ async send({to,body}){if(!this.sock||this.statusValue!=="connected")throw Error("WhatsApp is not connected");const jid=whatsappDestination(to);if(!String(body||"").trim())throw Error("body_required");const r=await this.sock.sendMessage(jid,{text:String(body)});if(!r?.key?.id)throw Error("send_not_confirmed");return {ok:true,message_id:String(r.key.id),jid};}
 }
+

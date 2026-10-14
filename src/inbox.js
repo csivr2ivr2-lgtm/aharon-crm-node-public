@@ -46,12 +46,14 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
  const [previous]=await database.execute("SELECT * FROM outgoing_sends WHERE id=?",[requestId]);
  if(previous[0])return replay(previous[0]);
  const [rows]=await database.execute("SELECT * FROM conversations WHERE id=?",[conversationId]);const conv=rows[0];if(!conv)throw Error("conversation_not_found");
- const [accounts]=await database.execute("SELECT * FROM accounts WHERE id=?",[conv.account_id]);const account=accounts[0];if(!account)throw Error("account_not_found");
- const [messages]=await database.execute("SELECT * FROM messages WHERE conversation_id=? AND direction='in' ORDER BY sent_at DESC LIMIT 1",[conversationId]);const inbound=messages[0];if(!inbound)throw Error("conversation_has_no_incoming_message");
+ const [accounts]=await database.execute("SELECT * FROM accounts WHERE id=?",[conv.account_id]);const account=accounts[0];if(!account)throw Error("account_not_found");if(account.status!=="active")throw Error("account_not_active");
+ const [messages]=await database.execute("SELECT * FROM messages WHERE conversation_id=? AND direction='in' ORDER BY sent_at DESC LIMIT 1",[conversationId]);const inbound=messages[0];
  if(draftId){const [drafts]=await database.execute("SELECT id FROM message_drafts WHERE id=? AND conversation_id=? AND status='draft'",[draftId,conversationId]);if(!drafts.length)throw Error("invalid_draft");}
  const key=String(account.integration_key||""),provider=key.split(":")[0],externalAccountId=key.slice(provider.length+1);
+ if(!externalAccountId)throw Error("account_identity_missing");
  let channel,payload={body};
  if(provider==="google"||provider==="hostinger"){
+  if(!inbound)throw Error("conversation_has_no_incoming_message");
   const to=emailOf(inbound.sender);if(!to)throw Error("invalid_reply_recipient");
   let references=[];try{references=JSON.parse(inbound.references_json||"[]");}catch{}
   if(inbound.rfc_message_id)references.push(inbound.rfc_message_id);
@@ -74,7 +76,7 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
  let sent;
  try{
   sent=await send(channel,payload);if(!sent?.ok||!sent.message_id)throw Error("send_not_confirmed");
-  await ingest({type:"message",source:provider+"."+(provider==="google"?"gmail":provider==="hostinger"?"smtp":"baileys"),channel:conv.channel,account_id:externalAccountId,account:{provider,type:conv.channel==="whatsapp"?"whatsapp":"email",identifier:account.identifier,label:account.label},conversation_external_id:conv.external_id,external_id:sent.message_id,thread_id:sent.thread_id||inbound.thread_id,rfc_message_id:provider==="hostinger"?sent.message_id:"",references:payload.references||[],direction:"out",sender:account.identifier,recipient:payload.to,subject:payload.subject||"",body,is_read:true,sent_at:now(),client_id:conv.client_id,project_id:conv.project_id});
+  await ingest({type:"message",source:provider+"."+(provider==="google"?"gmail":provider==="hostinger"?"smtp":"baileys"),channel:conv.channel,account_id:externalAccountId,account:{provider,type:conv.channel==="whatsapp"?"whatsapp":"email",identifier:account.identifier,label:account.label},conversation_external_id:conv.external_id,external_id:sent.message_id,thread_id:sent.thread_id||inbound?.thread_id,rfc_message_id:provider==="hostinger"?sent.message_id:"",references:payload.references||[],direction:"out",sender:account.identifier,recipient:payload.to,subject:payload.subject||"",body,is_read:true,sent_at:now(),client_id:conv.client_id,project_id:conv.project_id});
   if(draftId)await database.execute("UPDATE message_drafts SET status='sent',updated_at=? WHERE id=? AND conversation_id=?",[now(),draftId,conversationId]);
   const result={ok:true,...sent};await database.execute("UPDATE outgoing_sends SET status='sent',result_json=?,updated_at=? WHERE id=?",[JSON.stringify(result),now(),requestId]);return result;
  }catch(error){
@@ -83,3 +85,4 @@ export async function sendConversationReply({conversationId,body,draftId="",requ
   throw error;
  }
 }
+

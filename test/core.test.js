@@ -79,7 +79,7 @@ test('HTTP auth, assets, ticket issuance, origin rejection and MCP initialize',a
 test('sending rejects foreign draft before calling any provider',async()=>{
  let sent=false;const fake={execute:async sql=>{
   if(sql.includes('FROM conversations'))return [[{id:'c',account_id:'a'}]];
-  if(sql.includes('FROM accounts'))return [[{integration_key:'google:g'}]];
+  if(sql.includes('FROM accounts'))return [[{status:'active',integration_key:'google:g'}]];
   if(sql.includes('FROM messages'))return [[{sender:'a@example.test'}]];
   return [[]];
  }};
@@ -88,7 +88,7 @@ test('sending rejects foreign draft before calling any provider',async()=>{
 test('a repeated uncertain send never calls the provider a second time',async()=>{
  let sends=0;const fake={execute:async sql=>{
   if(sql.includes('FROM conversations'))return [[{id:'c',account_id:'a',external_id:'thread',channel:'email'}]];
-  if(sql.includes('FROM accounts'))return [[{integration_key:'google:g'}]];
+  if(sql.includes('FROM accounts'))return [[{status:'active',integration_key:'google:g'}]];
   if(sql.includes('FROM messages'))return [[{sender:'a@example.test'}]];
   if(sql.startsWith('INSERT IGNORE'))return [{affectedRows:0}];
   if(sql.includes('FROM outgoing_sends'))return [[{conversation_id:'c',status:'uncertain'}]];
@@ -131,4 +131,21 @@ test('file upload records byte count and uses an opaque storage name',async t=>{
   const response=await app.inject({method:'POST',url:'/api/files',headers:{cookie,'content-type':'multipart/form-data; boundary=uploadBoundary'},payload:Buffer.from('--uploadBoundary\r\nContent-Disposition: form-data; name="file"; filename="test.txt"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--uploadBoundary--\r\n')});
   assert.equal(response.statusCode,200);assert.equal(stored[3],5);assert.match(stored[4],/^file_[a-f0-9]{32}$/);
  }finally{await app.close();if(stored)await unlink('runtime/uploads/'+stored[4]);}
+});
+
+
+test('technical and reaction messages persist without moving conversation clock or enqueueing AI',async t=>{
+ for(const eventType of ['reaction','technical','timestamp_review']){
+  const calls=[];const connection={beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release(){},execute:async(sql,args=[])=>{
+   calls.push({sql,args});if(sql.startsWith('SELECT id FROM accounts'))return [[{id:'a'}]];
+   if(sql.startsWith('SELECT m.id')||sql.startsWith('SELECT target_id'))return [[]];
+   return [{affectedRows:1}];
+  }};
+  t.mock.method(db,'getConnection',async()=>connection);
+  const r=await ingestMessage({channel:'whatsapp',account:{provider:'whatsapp'},account_id:'wa1',external_id:'evt-'+eventType,conversation_external_id:'972501234567@s.whatsapp.net',body:'preserved',sent_at:'2026-10-14T10:00:00.000Z',inbox_event_type:eventType});
+  assert.equal(r.inserted,true);
+  const stored=calls.find(x=>x.sql.startsWith('INSERT INTO messages'));assert.equal(stored.args.at(-1),eventType);assert.ok(stored.args.includes('preserved'));
+  assert.ok(!calls.some(x=>x.sql.startsWith('UPDATE conversations SET last_message_at')));
+  assert.ok(!calls.some(x=>x.sql.includes('INSERT')&&x.sql.includes('INSERT INTO jobs')));
+ }
 });

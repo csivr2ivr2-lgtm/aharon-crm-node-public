@@ -51,6 +51,7 @@ export async function ingestMessage(p){
  const accountId=hashId("acct",integrationKey);let convId=hashId("conv",provider+"|"+externalAccountId+"|"+ext);
  const msgId=hashId("msg",provider+"|"+externalAccountId+"|"+ev);
  const date=new Date(p.sent_at||Date.now());if(Number.isNaN(date.getTime()))throw Error("invalid_sent_at");
+ const inboxEventType=p.channel==='whatsapp'&&['reaction','technical','timestamp_review'].includes(p.inbox_event_type)?p.inbox_event_type:nonCustomerSignal(p)?.event_type||'';
  const ts=date.toISOString(),direction=p.direction==="out"?"out":"in",read=direction==="out"||Boolean(p.is_read);
  const c=await db.getConnection();
  try{
@@ -65,13 +66,13 @@ export async function ingestMessage(p){
   const [redirect]=await c.execute('SELECT target_id FROM conversation_redirects WHERE source_id=? LIMIT 1',[convId]);if(redirect.length)convId=redirect[0].target_id;
   const [exists]=await c.execute("SELECT m.id,m.conversation_id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id WHERE m.id=? OR (cv.account_id=? AND m.external_id=?) LIMIT 1",[msgId,localAccountId,ev]);
   if(exists.length){await c.commit();return {inserted:false,conversation_id:exists[0].conversation_id,message_id:exists[0].id,account_id:localAccountId};}
-  await c.execute(`INSERT INTO conversations(id,channel,account_id,external_id,title,client_id,project_id,unread_count,last_message_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)`,[convId,p.channel||"email",localAccountId,ext,String(p.subject||(direction==='out'?p.recipient:p.sender)||ext).slice(0,500),String(p.client_id||""),String(p.project_id||""),0,ts,now(),now()]);
+  await c.execute(`INSERT INTO conversations(id,channel,account_id,external_id,title,client_id,project_id,unread_count,last_message_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)`,[convId,p.channel||"email",localAccountId,ext,String(p.subject||(direction==='out'?p.recipient:p.sender)||ext).slice(0,500),String(p.client_id||""),String(p.project_id||""),0,inboxEventType?null:ts,now(),now()]);
   await c.execute("SELECT id FROM conversations WHERE id=? FOR UPDATE",[convId]);
-  await c.execute(`INSERT INTO messages(id,conversation_id,external_id,direction,sender,recipient,subject,body,is_read,sent_at,created_at,source,channel,account_id,thread_id,cc,rfc_message_id,references_json,headers_json,inbox_event_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[msgId,convId,ev,direction,String(p.sender||""),String(p.recipient||""),String(p.subject||""),String(p.body||""),read?1:0,ts,now(),String(p.source||provider),p.channel||"email",localAccountId,String(p.thread_id||ext),String(p.cc||""),String(p.rfc_message_id||""),j(p.references||[]),j(inboxHeaders(p.headers)),nonCustomerSignal(p)?.event_type||'']);
-  await c.execute("UPDATE conversations SET last_message_at=GREATEST(COALESCE(last_message_at,''),?),unread_count=unread_count+?,updated_at=? WHERE id=?",[ts,direction==="in"&&!read?1:0,now(),convId]);
+  await c.execute(`INSERT INTO messages(id,conversation_id,external_id,direction,sender,recipient,subject,body,is_read,sent_at,created_at,source,channel,account_id,thread_id,cc,rfc_message_id,references_json,headers_json,inbox_event_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[msgId,convId,ev,direction,String(p.sender||""),String(p.recipient||""),String(p.subject||""),String(p.body||""),read?1:0,ts,now(),String(p.source||provider),p.channel||"email",localAccountId,String(p.thread_id||ext),String(p.cc||""),String(p.rfc_message_id||""),j(p.references||[]),j(inboxHeaders(p.headers)),inboxEventType]);
+  if(!inboxEventType)await c.execute("UPDATE conversations SET last_message_at=GREATEST(COALESCE(last_message_at,''),?),unread_count=unread_count+?,updated_at=? WHERE id=?",[ts,direction==="in"&&!read?1:0,now(),convId]);
   await c.execute("INSERT INTO activities(event,entity_type,entity_id,title,metadata_json,created_at) VALUES(?,?,?,?,?,?)",["message."+direction,"conversation",convId,String(p.subject||p.body||"הודעה חדשה").slice(0,160),j({source:provider}),now()]);
   await c.execute('INSERT IGNORE INTO message_intelligence(message_id,engine_version,decision_json,updated_at) VALUES(?,?,?,?)',[msgId,INBOX_ENGINE_VERSION,j(decideInbox({...p,direction})),now()]);
-  if(direction==="in")await enqueueJob("inbox.process",{messageId:msgId},{idempotencyKey:"incoming:"+msgId,db:c});
+  if(direction==="in"&&!inboxEventType)await enqueueJob("inbox.process",{messageId:msgId},{idempotencyKey:"incoming:"+msgId,db:c});
   await c.commit();return {inserted:true,conversation_id:convId,message_id:msgId,account_id:localAccountId};
  }catch(error){await c.rollback();throw error;}finally{c.release();}
 }
@@ -166,4 +167,5 @@ export class WorkspaceService{
   throw Error("Unknown Workspace operation: "+op);
  }
 }
+
 

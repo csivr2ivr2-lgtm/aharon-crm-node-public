@@ -56,10 +56,11 @@ export function waitingExcerpt(items){
 export function businessReadRequest(message){
  const m=String(message||'').trim();
  if(explicitMutationRequest(m))return null;
- if(/(?:חמש|חמישה|5).{0,25}פניות.{0,20}חשוב/.test(m))return {view:'needs_reply',limit:5};
+ if(/(?:חמש|חמישה|5).{0,25}פניות.{0,20}חשוב/.test(m))return {view:'needs_reply',sort:'priority',limit:5};
  if(/(?:מי|איזה|אילו).{0,35}(?:ביקש|רצ[וה]).{0,25}(?:מחיר|הצעה)/.test(m))return {view:'needs_reply',message_type:'quote',limit:10};
  if(/(?:איזה|אילו|מי).{0,40}(?:רצ[וה]|ביקש|מתעניין).{0,25}מספרים/.test(m))return {view:'all',q:'מספר',limit:20};
  if(/מה השתנה/.test(m))return {view:'all',since_visit:true,limit:30};
  if(/(?:תקציר|סיכום).{0,12}(?:יומי|היום)/.test(m))return {view:'all',from:new Date(Date.now()-24*3600000).toISOString(),limit:30};
  return null;
 }
+

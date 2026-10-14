@@ -80,7 +80,8 @@ app.setErrorHandler((error,req,reply)=>{
  const category=["TypeError","RangeError","ReferenceError","SyntaxError","Error"].includes(error.name)?error.name:"OtherError";
  app.log.warn({errorName:error.name,code:error.code},"Request failed");
  if(inboxRead)console.error("[CRM_INBOX_WORK_DIAGNOSTIC] category="+category+" code="+code+" sqlState="+sqlState);
- const payload={ok:false,error:inboxRead?"request_failed":/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"};
+ const safeInboxError=["inbox_cursor_expired_refresh","inbox_cursor_filter_mismatch","invalid_inbox_cursor"].includes(error.message);
+ const payload={ok:false,error:inboxRead&&!safeInboxError?"request_failed":/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"};
  if(inboxRead&&logged(req)){payload.diagnostic_category=category;payload.diagnostic_code=code;payload.diagnostic_sql_state=sqlState;}
  reply.code(error.statusCode>=400&&error.statusCode<500?error.statusCode:400).send(payload);
 });
@@ -186,4 +187,5 @@ export async function start(){
  const app=await buildApp();await app.listen({host:config.host,port:config.port});
  let closing=false;const stop=async()=>{if(closing)return;closing=true;await app.close();};process.once("SIGTERM",stop);process.once("SIGINT",stop);return app;
 }
+
 

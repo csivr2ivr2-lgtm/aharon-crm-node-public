@@ -36,7 +36,7 @@ register('update_system','Update system notes or relationships.',object({did:tex
 register('list_conversations','List conversations, including unread messages.',object({client_id:id.optional(),unread_only:z.boolean().optional(),limit:z.number().int().min(1).max(50).optional()}),'conversation.list');
 register('get_conversation','Read a conversation and its messages.',object({id}),'conversation.get');
 register('waiting_for_reply','Find conversations whose newest inbound message has no later outgoing reply.',object({limit:z.number().int().min(1).max(50).optional()}),'waiting_for_reply');
-register('business_inbox','Read verified business inbox work and source links.',object({view:z.enum(['all','needs_reply','waiting_customer','review']).optional(),since_visit:z.boolean().optional(),message_type:z.enum(['quote','support','business']).optional(),q:optionalText(300),from:optionalText(40),limit:z.number().int().min(1).max(50).optional()}),'business_inbox');
+register('business_inbox','Read verified business inbox work and source links.',object({sort:z.enum(['time','priority']).optional(),view:z.enum(['all','needs_reply','waiting_customer','review']).optional(),since_visit:z.boolean().optional(),message_type:z.enum(['quote','support','business']).optional(),q:optionalText(300),from:optionalText(40),limit:z.number().int().min(1).max(50).optional()}),'business_inbox');
 register('recent_activity','Read recent CRM activity.',object({limit:z.number().int().min(1).max(50).optional()}),'activity.list');
 register('list_accounts','List sending accounts; credentials are never returned.',object({}),'account.list');
 for(const name of ['send_email','send_whatsapp'])register(name,'Send exact text to one resolved client; requires preview and confirmation.',object({client_id:id.optional(),recipient:optionalText(255),account_id:id.optional(),body:text(20000),subject:optionalText(500)}),name,'send');
@@ -199,4 +199,5 @@ export async function migrateActions(database=db){await database.query(`CREATE T
  error VARCHAR(200),created_at VARCHAR(40),updated_at VARCHAR(40),INDEX(actor,state)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);}
 export const actionEngine=new ActionEngine();
+
 
