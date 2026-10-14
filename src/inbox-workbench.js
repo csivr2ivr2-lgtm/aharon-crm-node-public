@@ -35,7 +35,7 @@ export function matchesInbox(row,view){
  return row.handling_state===view;
 }
 export async function listInboxWork({cursor='',limit=50,since_visit=false,priority='',message_type='',view='needs_reply',q='',account_id='',client_id='',conversation_id='',channel='',from='',to='',sort='priority',maxBatches=20}={},database=defaultDb){
- conversation_id=scalar(conversation_id,96);cursor=scalar(cursor);q=scalar(q,300);account_id=scalar(account_id);client_id=scalar(client_id);channel=scalar(channel,40);from=scalar(from,40);to=scalar(to,40);
+ conversation_id=scalar(conversation_id,96);cursor=scalar(cursor,180);q=scalar(q,300);account_id=scalar(account_id);client_id=scalar(client_id);channel=scalar(channel,40);from=scalar(from,40);to=scalar(to,40);
  if(priority&&!['high','normal'].includes(priority))throw Error('invalid_inbox_filter');
  let visitKnown=true;
  if(since_visit){const [visits]=await database.execute('SELECT previous_seen FROM inbox_visits WHERE actor=?',['dashboard']);from=visits[0]?.previous_seen||'';visitKnown=Boolean(from);if(!visitKnown)from=new Date(Date.now()-86400000).toISOString();}
@@ -44,14 +44,27 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
  for(const date of [from,to])if(date&&!Number.isFinite(Date.parse(date)))throw Error('invalid_inbox_date');
  const count=Math.max(1,Math.min(100,Math.trunc(Number(limit)||50))),batchSize=200;
  const items=[],seen=new Set();let scanned=0,done=false,next=cursor;
+ const timeMode=sort==='time';
+ let position=null;
+ if(timeMode&&cursor){
+  const parts=cursor.split('~');
+  if(parts.length!==3||parts[0]!=='t'||parts[1].length>40||!/^[a-zA-Z0-9_-]{1,96}$/.test(parts[2]))throw Error('invalid_inbox_cursor');
+  position={timestamp:parts[1],id:parts[2]};
+ }
+
  // Query the actual indexed-key collations rather than applying a forced collation
  // to both join operands, which caused a full scan and timeouts in Hostinger.
  const col=await inboxJoinCollations(database.query?database:defaultDb);
  // Page primary keys before evaluating JSON reply checks and newest-message lookups.
  for(let batch=0;batch<Math.max(1,Math.min(50,maxBatches));batch++){
-  const candidateWhere=['id>?'],candidateParams=[next];
+  const candidateWhere=[],candidateParams=[];
+  if(timeMode){
+   if(position){candidateWhere.push("(COALESCE(last_message_at,'')<? OR (COALESCE(last_message_at,'')=? AND id<?))");candidateParams.push(position.timestamp,position.timestamp,position.id);}
+  }else{candidateWhere.push('id>?');candidateParams.push(next);}
   for(const [field,value] of [['id',conversation_id],['account_id',account_id],['client_id',client_id],['channel',channel]])if(value){candidateWhere.push(field+'=?');candidateParams.push(value);}
-  const [candidates]=await database.execute('SELECT id FROM conversations WHERE '+candidateWhere.join(' AND ')+' ORDER BY id ASC LIMIT ?',[...candidateParams,batchSize]);
+  const candidateOrder=timeMode?"COALESCE(last_message_at,'') DESC,id DESC":"id ASC";
+  const candidateSql='SELECT id,last_message_at FROM conversations'+(candidateWhere.length?' WHERE '+candidateWhere.join(' AND '):'')+' ORDER BY '+candidateOrder+' LIMIT ?';
+  const [candidates]=await database.execute(candidateSql,[...candidateParams,batchSize]);
   if(!Array.isArray(candidates))throw Error('inbox_read_unavailable');
   if(!candidates.length){done=true;break;}
   const ids=candidates.map(c=>c.id);
@@ -79,7 +92,12 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
    const key=row.rfc_message_id?row.rfc_message_id+'|'+String(row.sender).toLowerCase():row.id;
    if(seen.has(key))continue;seen.add(key);items.push(item);
   }
-  const last=ids.at(-1);if(last<=next)throw Error('inbox_cursor_not_advancing');next=last;
+  const last=ids.at(-1);
+  if(timeMode){
+   const lastTime=String(candidates.at(-1).last_message_at||'');
+   if(lastTime.length>40||position&&(lastTime>position.timestamp||lastTime===position.timestamp&&last>=position.id))throw Error('inbox_cursor_not_advancing');
+   position={timestamp:lastTime,id:last};next='t~'+lastTime+'~'+last;
+  }else{if(last<=next)throw Error('inbox_cursor_not_advancing');next=last;}
   if(candidates.length<batchSize){done=true;break;}
   // Return every match from the final batch; no matched rows are lost behind the cursor.
   if(items.length>=count)break;

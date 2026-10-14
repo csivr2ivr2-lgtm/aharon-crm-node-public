@@ -7,7 +7,7 @@ let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
 let assistantMessages=[], pendingActions=[], showArchived=false, showArchivedFiles=false, fileQuery='';
 let visitRecorded=false;
-let workView='needs_reply',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
+let workView='all',workCursor='',workDone=false,workFilters={sort:'time'},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
 function phoneForDisplay(value){
  const raw=String(value||'').trim().replace(/@s\.whatsapp\.net$/i,'');
@@ -37,7 +37,7 @@ async function render(next){
  }
  if(await renderIntelligence(view))return;
  if(view==='inbox'||view==='spam'||view==='updates'){
-  if(view==='spam')workView='spam';else if(view==='updates')workView='updates';else if(['spam','updates'].includes(workView))workView='needs_reply';
+  if(view==='spam')workView='spam';else if(view==='updates')workView='updates';else if(['spam','updates'].includes(workView))workView='all';
   await renderWorkInbox();return;
  }
  if(entityNames[view]){
@@ -493,7 +493,7 @@ function workCard(x){
 async function renderWorkInbox(){
  workCursor='';inboxItems=[];
  const [accounts,clients]=await Promise.all([api('/api/accounts'),api('/api/clients')]);
- $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('sync','סנכרון')+button('compose-new','הודעה חדשה')+button('history-sync','סנכרון היסטוריה ברקע')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['priority','חשיבות עסקית'],['time','זמן']],workFilters.sort||'priority')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
+ $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('sync','סנכרון')+button('compose-new','הודעה חדשה')+button('history-sync','סנכרון היסטוריה ברקע')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['priority','חשיבות עסקית'],['time','זמן']],workFilters.sort||'time')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
  await loadWorkBatch();
 }
 async function loadWorkBatch(){

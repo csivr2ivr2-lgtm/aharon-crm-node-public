@@ -105,3 +105,27 @@ test('priority filters preserve only eligible leads and themes reference their e
  const themes=inboxThemes(high.items);assert.ok(themes.length);assert.deepEqual(themes[0].conversation_ids,['a','b']);
  assert.deepEqual(inboxThemes([{id:'spam',message_type:'spam',request_summary:'SMS numbers'}]),[]);
 });
+
+test('recent-time inbox pages newest conversations first, including existing WhatsApp threads',async()=>{
+ const rows=[
+  {...fixtures[5],id:'conv_old',channel:'whatsapp',last_message_at:'2026-10-13T01:00:00.000Z',waiting_since:'2026-10-13T01:00:00.000Z',message_id:'m1',direction:'in'},
+  {...fixtures[5],id:'conv_new',channel:'whatsapp',last_message_at:'2026-10-14T07:00:00.000Z',waiting_since:'2026-10-14T07:00:00.000Z',message_id:'m2',direction:'out'},
+  {...fixtures[5],id:'conv_mid',channel:'whatsapp',last_message_at:'2026-10-13T12:00:00.000Z',waiting_since:'2026-10-13T12:00:00.000Z',message_id:'m3',direction:'in'}
+ ];
+ const candidateSql=[],captured=[];
+ const database={query:async()=>[testCollations],execute:async(sql,p=[])=>{
+  if(sql.startsWith('SELECT id,last_message_at FROM conversations')){
+   candidateSql.push(sql);
+   const ordered=[...rows].sort((a,b)=>b.last_message_at.localeCompare(a.last_message_at)||b.id.localeCompare(a.id));
+   const current=p.length>1?ordered.filter(x=>x.last_message_at<p[0]||x.last_message_at===p[1]&&x.id<p[2]):ordered;
+   return [current.slice(0,p.at(-1)).map(x=>({id:x.id,last_message_at:x.last_message_at}))];
+  }
+  if(sql.startsWith('SELECT c.id')){captured.push(sql);return [rows.filter(x=>p.includes(x.id))];}
+  throw Error('unexpected_sql');
+ }};
+ const r=await listInboxWork({view:'all',sort:'time',limit:50,maxBatches:1},database);
+ assert.deepEqual(r.items.map(x=>x.id),['conv_new','conv_mid','conv_old']);
+ assert.match(candidateSql[0],/last_message_at.*DESC/);
+ assert.equal(r.next_cursor,'t~2026-10-13T01:00:00.000Z~conv_old');
+ await assert.rejects(listInboxWork({view:'all',sort:'time',cursor:'bad'},database),/invalid_inbox_cursor/);
+});
