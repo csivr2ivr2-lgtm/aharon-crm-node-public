@@ -246,7 +246,7 @@ function classificationHtml(m){if(m.direction==='out')return '';return '<div cla
 function optionHtml(values,current){return values.map(([value,label])=>'<option value="'+esc(value)+'" '+(value===current?'selected':'')+'>'+esc(label)+'</option>').join('');}
 async function renderIntelligence(page){
  if(page==='assistant'){
-  $('#content').innerHTML='<section class="assistant-layout"><aside class="assistant-history" aria-label="היסטוריית שיחות"><div class="assistant-history-head"><h3>השיחות שלי</h3>'+button('assistant-new','+ שיחה חדשה')+'</div><label>חיפוש שיחות<input id="assistantHistorySearch" type="search"></label><div id="assistantSessions" class="assistant-session-list"></div><p class="muted">השיחות נשמרות בשרת באופן פרטי.</p></aside><div class="assistant-workspace"><header class="assistant-header"><div class="assistant-mark"><i class="bi bi-stars" aria-hidden="true"></i></div><div><p class="eyebrow">Aharon AI</p><h2>העוזר העסקי שלך</h2><p>פעולות לאישור מופיעות לצד ההודעה שיצרה אותן, גם בשיחות קודמות.</p></div></header><div class="assistant-prompts">'+button('assistant-prompt','מי מחכה לתשובה?','waiting')+button('assistant-prompt','משימות דחופות','urgent')+button('assistant-prompt','פניות חדשות','new')+'</div><div id="chatLog" class="assistant-transcript" role="log" aria-live="polite" aria-label="שיחה עם העוזר"></div><form id="assistantForm" class="assistant-composer"><label class="sr-only" for="assistantMessage">הודעה לעוזר</label><textarea id="assistantMessage" name="message" rows="2" maxlength="12000" required placeholder="מה תרצה לבדוק או לעשות?"></textarea><button class="btn primary" type="submit"><i class="bi bi-arrow-up" aria-hidden="true"></i> שלח</button></form><p class="assistant-disclaimer">פעולות שמשנות נתונים נשמרות במקומן עד לאישור, ביטול או פקיעת התוקף.</p></div></section>';
+  $('#content').innerHTML='<section class="assistant-layout"><aside class="assistant-history" aria-label="היסטוריית שיחות"><div class="assistant-history-head"><h3>השיחות שלי</h3>'+button('assistant-new','+ שיחה חדשה')+button('owner-memory','זיכרון אישי')+'</div><label>חיפוש שיחות<input id="assistantHistorySearch" type="search"></label><div id="assistantSessions" class="assistant-session-list"></div><p class="muted">השיחות נשמרות בשרת באופן פרטי.</p></aside><div class="assistant-workspace"><header class="assistant-header"><div class="assistant-mark"><i class="bi bi-stars" aria-hidden="true"></i></div><div><p class="eyebrow">Aharon AI</p><h2>העוזר העסקי שלך</h2><p>פעולות לאישור מופיעות לצד ההודעה שיצרה אותן, גם בשיחות קודמות.</p></div></header><div class="assistant-prompts">'+button('assistant-prompt','מי מחכה לתשובה?','waiting')+button('assistant-prompt','משימות דחופות','urgent')+button('assistant-prompt','פניות חדשות','new')+'</div><div id="chatLog" class="assistant-transcript" role="log" aria-live="polite" aria-label="שיחה עם העוזר"></div><form id="assistantForm" class="assistant-composer"><label class="sr-only" for="assistantMessage">הודעה לעוזר</label><textarea id="assistantMessage" name="message" rows="2" maxlength="12000" required placeholder="מה תרצה לבדוק או לעשות?"></textarea><button class="btn primary" type="submit"><i class="bi bi-arrow-up" aria-hidden="true"></i> שלח</button></form><p class="assistant-disclaimer">פעולות שמשנות נתונים נשמרות במקומן עד לאישור, ביטול או פקיעת התוקף.</p></div></section>';
   await loadAssistantSessions();return true;
  }
  if(page==='notifications'){
@@ -264,6 +264,38 @@ async function renderIntelligence(page){
  return false;
 }
 function previewArgs(args){const fields={company:'חברה',role:'תפקיד',evidence:'מקור בהודעה',confidence:'רמת ביטחון',source_message_id:'הודעת מקור',next_step:'הצעד הבא',origin:'מקור',provider:'ספק',status:'מצב',recipient:'נמען',client:'לקוח',account:'חשבון שולח',account_key:'מזהה חשבון',subject:'נושא',body:'תוכן',to:'נמען',client_id:'לקוח',project_id:'פרויקט',title:'כותרת',name:'שם',due_date:'תאריך יעד',did:'מספר מערכת',conversation_id:'שיחה',query:'חיפוש',notes:'הערות',description:'תיאור',content:'תוכן הקובץ',id:'מזהה',channel:'ערוץ'};return '<div class="note">'+Object.entries(args||{}).filter(([k])=>k!=='account_key').map(([k,v])=>esc(fields[k]||k)+': '+esc(typeof v==='object'?JSON.stringify(v):v)).join('\n')+'</div>';}
+
+async function openOwnerMemory(){
+ document.getElementById('ownerMemoryDialog')?.remove();
+ const d=await api('/api/owner-memories');
+ const dialog=document.createElement('dialog');dialog.id='ownerMemoryDialog';
+ const kinds=[['preference','העדפה'],['decision','החלטה'],['project','פרויקט'],['fact','עובדה']];
+ dialog.innerHTML='<section class="panel" style="min-width:min(560px,85vw);max-height:80vh;overflow:auto"><h2>זיכרון אישי</h2><p>פרטים שהזנת בעצמך וזמינים לעוזר בשיחות עתידיות לפי הקשר. שום מידע מהודעות של לקוחות לא נשמר כאן אוטומטית.</p><form id="ownerMemoryForm"><input type="hidden" name="id"><input type="hidden" name="revision"><label>סוג זיכרון<select name="kind">'+kinds.map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></label><label>נושא<input name="subject" required maxlength="160"></label><label>מה לזכור<textarea name="body" required maxlength="2500" rows="4"></textarea></label><div class="actions"><button type="submit" class="btn primary">שמירה</button><button type="button" class="btn" id="ownerMemoryClear">זיכרון חדש</button><button type="button" class="btn" id="ownerMemoryClose">סגירה</button></div></form><div id="ownerMemoryItems">'+(d.items||[]).map(m=>'<article class="row"><div><strong>'+esc(m.subject)+'</strong><p class="note">'+esc(m.body)+'</p><small>'+esc(kinds.find(x=>x[0]===m.kind)?.[1]||m.kind)+'</small></div><div class="actions"><button class="btn" data-memory-edit="'+esc(m.id)+'">עריכה</button><button class="btn" data-memory-delete="'+esc(m.id)+'">מחיקה</button></div></article>').join('')+'</div></section>';
+ document.body.append(dialog);
+ const form=dialog.querySelector('#ownerMemoryForm'),clear=()=>{form.reset();form.elements.id.value='';form.elements.revision.value='';};
+ dialog.querySelector('#ownerMemoryClear').addEventListener('click',clear);
+ dialog.querySelector('#ownerMemoryClose').addEventListener('click',()=>dialog.close());
+ dialog.addEventListener('close',()=>dialog.remove());
+ dialog.addEventListener('click',async e=>{
+  const edit=e.target.closest('[data-memory-edit]'),del=e.target.closest('[data-memory-delete]');
+  const id=edit?.dataset.memoryEdit||del?.dataset.memoryDelete;if(!id)return;
+  const item=(d.items||[]).find(x=>x.id===id);if(!item)return;
+  if(edit){for(const name of ['id','revision','kind','subject','body'])form.elements[name].value=item[name];return;}
+  if(del&&confirm('למחוק את הזיכרון האישי הזה ממסד הנתונים הפעיל?'))try{
+   await api('/api/owner-memories/'+encodeURIComponent(id),{method:'DELETE',body:JSON.stringify({revision:item.revision})});
+   dialog.close();await openOwnerMemory();
+  }catch(err){alert(err.message);}
+ });
+ form.addEventListener('submit',async e=>{
+  e.preventDefault();const data=Object.fromEntries(new FormData(form));
+  const id=data.id;delete data.id;const revision=Number(data.revision);delete data.revision;
+  try{await api('/api/owner-memories'+(id?'/'+encodeURIComponent(id):''),{method:id?'PATCH':'POST',body:JSON.stringify(id?{...data,revision}:data)});
+   dialog.close();await openOwnerMemory();
+  }catch(err){alert(err.message);}
+ });
+ dialog.showModal();
+}
+
 async function loadAssistantSessions(){
  const d=await api('/api/assistant/sessions');assistantSessions=d.items||[];
  if(!assistantSessions.length){const fresh=await post('/api/assistant/sessions');assistantSessions=[fresh];assistantSession=fresh.id;}
@@ -347,6 +379,7 @@ async function intelligenceAction(action,b){
   if(assistantSession)await post('/api/assistant/sessions/'+encodeURIComponent(assistantSession)+'/actions/'+encodeURIComponent(id)+'/dismiss');
   a.status='dismissed';delete a.confirmation_token;pendingActions=pendingActions.filter(x=>x.id!==id);renderChat({preserveScroll:true});
  }
+ else if(action==='owner-memory'){await openOwnerMemory();}
  else if(action==='assistant-open'){await openAssistantSession(id);}
  else if(action==='assistant-new'){const fresh=await post('/api/assistant/sessions');assistantSessions.unshift(fresh);await openAssistantSession(fresh.id);}
  else if(action==='assistant-archive'){
