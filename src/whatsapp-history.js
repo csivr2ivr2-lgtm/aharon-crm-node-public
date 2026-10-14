@@ -66,23 +66,58 @@ export async function markWhatsAppHistoryRequested({account_id,jid,error=''}={},
 }
 // On-demand requests need a real, previously received key & timestamp.
 // The oldest known message is an anchor, NOT a guarantee of older history.
-export async function whatsappHistoryCandidates({account_id='whatsapp-main',limit=8}={},database=defaultDb){
+// Candidates may come from persisted CRM rows OR real Baileys message keys
+// observed before database synchronization completed. Chat metadata alone
+// does not contain the message key required by WhatsApp's on-demand API.
+export async function whatsappHistoryCandidates({
+ account_id='whatsapp-main',limit=8,live=[],diagnostics=null
+}={},database=defaultDb){
  const key=accountKey(account_id),max=Math.max(1,Math.min(10,Math.floor(Number(limit)||8)));
+ const stats={account_found:false,stored_chats:0,live_anchors:Array.isArray(live)?live.length:0,
+  no_anchor:0,cooldown:0,invalid:0,eligible:0};
  const [accounts]=await database.execute('SELECT id FROM accounts WHERE integration_key=? LIMIT 1',[key]);
- if(!accounts[0])return [];
- const [chats]=await database.execute(`SELECT external_id,id FROM conversations WHERE account_id=? AND channel='whatsapp'
- ORDER BY last_message_at DESC LIMIT 5000`,[accounts[0].id]);
- const cutoff=new Date(Date.now()-24*3600*1000).toISOString(),result=[];
- for(const row of chats){
-  if(!isWhatsAppConversationJid(row.external_id))continue;
-  const [seen]=await database.execute('SELECT requested_at FROM whatsapp_history_chats WHERE account_key=? AND jid=?',[key,row.external_id]);
-  if(seen[0]?.requested_at&&seen[0].requested_at>cutoff)continue;
-  const [messages]=await database.execute(`SELECT external_id,sent_at,direction FROM messages WHERE conversation_id=?
-  AND external_id<>'' ORDER BY sent_at ASC,id ASC LIMIT 1`,[row.id]);
-  const m=messages[0],time=Date.parse(m?.sent_at||'');
-  if(!m||!m.external_id||!Number.isFinite(time)||time<1)continue;
-  result.push({jid:row.external_id,key:{remoteJid:row.external_id,id:m.external_id,fromMe:m.direction==='out'},timestamp:time});
-  if(result.length>=max)break;
+ stats.account_found=Boolean(accounts[0]);
+ const candidates=[],selected=new Set();
+ const cutoff=new Date(Date.now()-24*3600*1000).toISOString();
+ const tryAdd=async anchor=>{
+  const jid=String(anchor?.jid||'').toLowerCase();
+  const id=String(anchor?.key?.id||'');
+  const timestamp=Number(anchor?.timestamp);
+  if(!isWhatsAppConversationJid(jid)||!id||id.length>128||
+   !Number.isSafeInteger(timestamp)||timestamp<946684800000||
+   timestamp>Date.now()+300000){stats.invalid++;return;}
+  if(selected.has(jid))return;
+  const [seen]=await database.execute(
+   'SELECT requested_at FROM whatsapp_history_chats WHERE account_key=? AND jid=?',[key,jid]);
+  if(seen[0]?.requested_at&&seen[0].requested_at>cutoff){stats.cooldown++;return;}
+  selected.add(jid);
+  candidates.push({jid,key:{remoteJid:jid,id,fromMe:anchor.key.fromMe===true},timestamp});
+  stats.eligible++;
+ };
+ if(stats.account_found){
+  const [chats]=await database.execute(`SELECT external_id,id FROM conversations
+   WHERE account_id=? AND channel='whatsapp'
+   ORDER BY last_message_at DESC LIMIT 5000`,[accounts[0].id]);
+  stats.stored_chats=chats.length;
+  for(const chat of chats){
+   if(candidates.length>=max)break;
+   if(!isWhatsAppConversationJid(chat.external_id))continue;
+   const [rows]=await database.execute(`SELECT external_id,sent_at,direction
+    FROM messages WHERE conversation_id=? AND external_id<>''
+    ORDER BY sent_at ASC,id ASC LIMIT 1`,[chat.id]);
+   const m=rows[0],timestamp=Date.parse(m?.sent_at||'');
+   if(!m||!m.external_id||!Number.isSafeInteger(timestamp)||timestamp<946684800000){
+    stats.no_anchor++;continue;
+   }
+   await tryAdd({jid:chat.external_id,
+    key:{id:m.external_id,fromMe:m.direction==='out'},timestamp});
+  }
  }
- return result;
+ // Fallback works even if no accounts/conversations have been inserted yet.
+ for(const raw of Array.isArray(live)?live:[]){
+  if(candidates.length>=max)break;
+  await tryAdd(raw);
+ }
+ if(diagnostics&&typeof diagnostics==='object')Object.assign(diagnostics,stats);
+ return candidates;
 }
