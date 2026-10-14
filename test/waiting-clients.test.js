@@ -60,7 +60,7 @@ test('real assistant responds to "מי מהלקוחות מחכה לתשובה מ
  const intents=await import('../src/ai/assistant-intents.js');
  const source=await readFile(new URL('../src/ai/assistant.js',import.meta.url),'utf8');
  const isolated=source.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=(?:function|class|const))/g,'');
- const sandbox={createHash,randomUUID,actionEngine:{},toolDefinitions:()=>[],selectToolCatalog:()=>[],...intents};
+ const sandbox={createHash,randomUUID,actionEngine:{},toolDefinitions:()=>[],selectToolCatalog:()=>[],retrieveOwnerMemories:async()=>[],...intents};
  vm.runInNewContext(isolated+'\nthis.TestAssistant=Assistant;',sandbox);
  const calls=[];
  const assistant=new sandbox.TestAssistant({
