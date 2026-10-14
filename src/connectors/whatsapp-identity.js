@@ -10,7 +10,10 @@ export function safeWhatsAppName(value){
 }
 export function safeWhatsAppPn(value){
  const jid=String(value||'').trim().toLowerCase();
- return isPhoneJid(jid)?jid:'';
+ // Baileys can return device-scoped PN JIDs. Only strip the device suffix
+ // after validating the original JID's exact structure.
+ const match=/^([1-9]\\d{6,14})(?::\\d{1,3})?@s\\.whatsapp\\.net$/.exec(jid);
+ return match?match[1]+'@s.whatsapp.net':'';
 }
 export function whatsappPeerTitle({jid,name='',phoneJid=''}={}){
  const label=safeWhatsAppName(name);

@@ -58,6 +58,7 @@ export class WhatsAppConnector{
    const sock=makeWASocket({auth:state,markOnlineOnConnect:false,syncFullHistory:false,generateHighQualityLinkPreview:false,logger:{level:"silent",child(){return this},trace(){},debug(){},info(){},warn(){},error(){},fatal(){}}});
    if(this.stopped){sock.end?.(new Error("shutdown"));return;}
    this.sock=sock;this.statusValue="connecting";
+   this.groupRequests.clear();
    sock.ev.on("creds.update",()=>{this.credentialWrites=this.credentialWrites.then(async()=>{if(this.sock===sock&&!this.stopped)await saveCreds();}).catch(()=>{this.lastError="credentials_save_failed";});});
    sock.ev.on("connection.update",async update=>{
     if(this.sock!==sock||this.stopped)return;
@@ -156,9 +157,10 @@ export class WhatsAppConnector{
      if(isGroupJid(jid))void this.resolveGroupName(sock,jid);
      const pn=await this.knownPhone(sock,jid,m.key.remoteJidAlt);
      if(pn&&!this.peerPhones.has(jid))await this.rememberPeer(sock,jid,{phoneJid:pn});
-     const groupParticipant=String(m.key.participantAlt||m.key.participant||'').toLowerCase();
-     const actualSender=isGroupJid(jid)&&isWhatsAppConversationJid(groupParticipant)?
-      (safeWhatsAppPn(groupParticipant)||groupParticipant):pn||jid;
+     const participant=String(m.key.participant||'').toLowerCase();
+     const participantPn=safeWhatsAppPn(m.key.participantAlt)||safeWhatsAppPn(participant)||
+      (isLidJid(participant)?await this.knownPhone(sock,participant,''):'');
+     const actualSender=isGroupJid(jid)?(participantPn||participant||jid):pn||jid;
      const title=whatsappPeerTitle({jid,name:this.peerNames.get(jid),phoneJid:pn});
      const event={id:"wa:"+this.sessionId+":"+String(m.key.id||Date.now()),type:"message",source:"whatsapp.baileys",channel:"whatsapp",account_id:this.sessionId,
       account:{provider:"whatsapp",type:"whatsapp",identifier:this.sessionId,label:this.label},

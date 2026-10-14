@@ -8,6 +8,7 @@ import {migrateInboxWorkbench,listInboxWork,markInboxVisit} from '../src/inbox-w
 import {migrateHistorySync} from '../src/historical-sync.js';
 import {migrateThreading,mergeConversations,splitConversation} from '../src/conversation-threading.js';
 import {migrateOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory,listOwnerMemories} from '../src/owner-memory.js';
+import {migrateWhatsAppProfiles,saveWhatsAppProfile,lookupWhatsAppTitle} from '../src/whatsapp-profiles.js';
 
 assert.equal(process.env.NODE_ENV,'test','Only run with NODE_ENV=test');
 assert.equal(process.env.DB_NAME,'crm_ci','Only run against isolated crm_ci database');
@@ -29,6 +30,8 @@ const run=async()=>{
  await migrateThreading(db);
  await migrateOwnerMemories(db);
  await migrateOwnerMemories(db);
+ await migrateWhatsAppProfiles(db);
+ await migrateWhatsAppProfiles(db);
  const memory=await createOwnerMemory({kind:'decision',subject:'CI memory test',body:'Private manual decision'},db);
  assert.ok((await listOwnerMemories({},db)).items.some(row=>row.id===memory.id));
  await updateOwnerMemory({id:memory.id,revision:1,kind:'decision',subject:'CI memory test',body:'Updated private decision'},db);
@@ -61,6 +64,14 @@ const run=async()=>{
  const [[autoLabel]]=await db.execute("SELECT label FROM accounts WHERE id='ci-auto-label'");
  assert.equal(autoLabel.label,'New provider label');
  console.log('PASS: manual account labels cannot be overwritten by sync');
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,status,integration_key) VALUES('ci-whatsapp','whatsapp','Test account','whatsapp-main','active','whatsapp:whatsapp-main')");
+ await db.execute("INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES('ci-wa-chat','whatsapp','ci-whatsapp','126509016678653@lid','126509016678653@lid','')");
+ await saveWhatsAppProfile({account_id:'whatsapp-main',jid:'126509016678653@lid',name:'Verified test contact',phone_jid:'972537291432@s.whatsapp.net'},db);
+ const [[waChat]]=await db.execute("SELECT title FROM conversations WHERE id='ci-wa-chat'");
+ assert.equal(waChat.title,'Verified test contact');
+ assert.equal(await lookupWhatsAppTitle({account_id:'whatsapp-main',jid:'126509016678653@lid'},db),'Verified test contact');
+ console.log('PASS: real SQL WhatsApp profile lookup and historical title backfill');
+
  console.log('PASS: columns, tables, index');
 
  // Simulate an upgraded production database where legacy tables kept different utf8mb4 collations.

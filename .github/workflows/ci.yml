@@ -2,7 +2,7 @@ name: CRM validation
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'fix/whatsapp-identities-channels-20261014']
 permissions:
   contents: read
 jobs:
