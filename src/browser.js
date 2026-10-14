@@ -160,7 +160,7 @@ async function loadWa(){
   const code=s.pairing_code?'<p role="status">קוד קישור: <strong dir="ltr">'+esc(s.pairing_code)+'</strong></p>':'';
   const qr=s.qr&&s.qr.startsWith('data:image/png;base64,')?'<img alt="QR לקישור" width="220" src="'+esc(s.qr)+'">':'';
   const error=s.last_error?'<p class="error">'+esc(userError(s.last_error))+'</p>':'';
-  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
+  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-history','השלמת היסטוריה',s.id)+button('wa-history-status','סטטוס היסטוריה',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
  }).join('')||'<p>אין עדיין חשבונות WhatsApp מחוברים.</p>';
 }
 
@@ -212,6 +212,15 @@ document.addEventListener('click',async e=>{
   if(action==='google-disconnect'&&confirm('לנתק את חשבון Google הזה מהמערכת?')){await api('/api/google/accounts/'+encodeURIComponent(b.dataset.id),{method:'DELETE'});await render('connectors');}
   if(action==='hostinger-disconnect'&&confirm('לנתק את חשבון הדואר של Hostinger?')){await post('/api/hostinger/disconnect');await render('connectors');}
   if(action==='wa-refresh')await loadWa();
+  if(action==='wa-history-status'){
+   const info=await api('/api/whatsapp/history/status?session_id='+encodeURIComponent(id));
+   const c=info.summary||{};
+   $('#notice').textContent='היסטוריית WhatsApp: '+String(c.chats||0)+' צ׳אטים · '+String(c.imported||0)+' הודעות יובאו · '+String(c.duplicates||0)+' כפילויות · '+String(c.failed||0)+' שגיאות · כיסוי חלקי או לא מאומת.';
+  }
+  if(action==='wa-history'){
+   const result=await post('/api/whatsapp/history/request',{session_id:id,limit:5});
+   $('#notice').textContent='נשלחו '+String(result.requested||0)+' בקשות היסטוריה. חלק מהבקשות עלולות לא לקבל מענה מ־WhatsApp.';
+  }
   if(action==='wa-logout'&&confirm('לנתק את החשבון המקושר?')){await post('/api/whatsapp/logout',{session_id:id});await loadWa();}
   if(action==='associate'){await api('/api/conversations/'+encodeURIComponent(conversation),{method:'PATCH',body:JSON.stringify({client_id:$('#convClient').value,project_id:$('#convProject').value})});$('#notice').textContent='השיוך נשמר';}
   if(action==='reply-suggestion'){
