@@ -30,7 +30,7 @@ test('phone history enumerates direct chats then ingests every incoming and outg
  assert.equal(messages.length,3);
  assert.ok(messages.some(x=>x.direction==='out'&&x.body==='תשובה'));
  assert.ok(messages.every(x=>x.conversation_external_id===jid));
- assert.ok(messages.every(x=>x.conversation_title==='משתמש בדיקה'));
+ assert.ok(messages.every(x=>x.conversation_title==='משתמש בדיקה · 972501234567'));
  const batches=events.filter(x=>x.type==='whatsapp.history.batch');
  assert.equal(batches.length,1);
  assert.equal(batches[0].imported,2);
