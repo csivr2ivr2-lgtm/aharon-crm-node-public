@@ -76,6 +76,8 @@ const schema=[
 
 export async function migrate(){
   for(const sql of schema) await db.query(sql);
+  // Protect legacy owner-chosen names; new synced accounts are connector-managed.
+  await ensureColumn("accounts","label_source","VARCHAR(20) NOT NULL DEFAULT 'manual'");
   await ensureColumn("tasks","automation_mode","VARCHAR(32) DEFAULT 'manual'");
   await ensureColumn("tasks","worker_state","VARCHAR(32) DEFAULT 'idle'");
   await ensureColumn("tasks","worker_result","LONGTEXT");

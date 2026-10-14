@@ -138,3 +138,20 @@ snapshot tables initially; old code ignores them. No reverse migration or custom
 data restore is required solely for these additive tables. Their eventual removal
 is an explicit maintenance operation after rollback verification. Reaction/technical
 markers and preserved messages remain stored. No live rollback was performed.
+
+## Continuation: owner memory and account label safety (2026-10-14)
+
+- Added authenticated owner-only memory CRUD and a dedicated SQL table. Only the
+  owner may create, edit or delete these explicit memories; inbound emails and
+  WhatsApp content cannot author memories. Revision guards prevent stale edits.
+  Delete removes the active database record (backups may still retain data).
+- The assistant retrieves a bounded, query-ranked subset of manually entered
+  memories, with source and timestamp, for signed-in dashboard chats. Memories
+  are data only, never authorization for tools; no client facts are auto-promoted.
+- The assistant UI offers a memory dialog with create/edit/delete controls.
+  This is first-step lexical retrieval, not autonomous semantic AI memory.
+- Existing account labels are marked manual during additive migration, and
+  explicit account edits keep that flag. Connector ingestion only refreshes
+  connector-managed labels and cannot overwrite owner-chosen names.
+- New memory tests added. Production, browser and live-provider verification
+  remain necessary. This does not complete Account Intelligence.
