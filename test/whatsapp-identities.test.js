@@ -15,6 +15,7 @@ test('LID and group IDs are not phone numbers and broadcast is blocked',()=>{
  assert.match(whatsappPeerTitle({jid:'972583268888-1584353032@g.us'}),/קבוצת WhatsApp/);
  assert.equal(whatsappPeerTitle({jid:'126509016678653@lid',phoneJid:'972554409165@s.whatsapp.net'}),'972554409165');
  assert.equal(isWhatsAppConversationJid('126509016678653@lid'),true);
+ assert.equal(isWhatsAppConversationJid('972583268888-1584353032@g.us'),false);
  for(const jid of ['status@broadcast','153452123@broadcast','12345@newsletter']){assert.equal(isWhatsAppChannelJid(jid),true);assert.equal(isWhatsAppConversationJid(jid),false);}
  assert.match(whatsappChannelExclusion('c'),/%@broadcast/);
 });
@@ -28,7 +29,7 @@ test('contacts and LID mapping resolve displayed peer but preserve conversation 
  assert.equal(m.conversation_title,'לקוח לדוגמה');
  assert.equal(m.sender,'972537291432@s.whatsapp.net');
 });
-test('groups show subject, group sender is participant, channels are ignored',async()=>{
+test('group, channel, and broadcast message content is excluded from CRM',async()=>{
  const c=new WhatsAppConnector({sessionId:'whatsapp-main'}),events=[],sock={groupMetadata:async()=>({subject:'קבוצת תמיכה'})};
  c.sock=sock;c.statusValue='connected';c.onEvent=async e=>events.push(e);
  await c.receiveMessages(sock,{type:'notify',messages:[
@@ -37,7 +38,5 @@ test('groups show subject, group sender is participant, channels are ignored',as
   msg('n','123456789@newsletter')
  ]});
  await new Promise(resolve=>setImmediate(resolve));
- assert.equal(events.filter(x=>x.type==='message').length,1);
- assert.equal(events.find(x=>x.type==='message').sender,'972501234567@s.whatsapp.net');
- assert.ok(events.some(x=>x.type==='whatsapp.profile'&&x.name==='קבוצת תמיכה'));
+ assert.equal(events.filter(x=>x.type==='message').length,0);
 });
