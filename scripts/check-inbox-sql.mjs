@@ -7,6 +7,7 @@ import {migrateIntelligence} from '../src/ai/intelligence.js';
 import {migrateInboxWorkbench,listInboxWork,markInboxVisit} from '../src/inbox-workbench.js';
 import {migrateHistorySync} from '../src/historical-sync.js';
 import {migrateThreading,mergeConversations,splitConversation} from '../src/conversation-threading.js';
+import {migrateOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory,listOwnerMemories} from '../src/owner-memory.js';
 
 assert.equal(process.env.NODE_ENV,'test','Only run with NODE_ENV=test');
 assert.equal(process.env.DB_NAME,'crm_ci','Only run against isolated crm_ci database');
@@ -26,6 +27,14 @@ const run=async()=>{
  await migrateHistorySync(db);
  await migrateThreading(db);
  await migrateThreading(db);
+ await migrateOwnerMemories(db);
+ await migrateOwnerMemories(db);
+ const memory=await createOwnerMemory({kind:'decision',subject:'CI memory test',body:'Private manual decision'},db);
+ assert.ok((await listOwnerMemories({},db)).items.some(row=>row.id===memory.id));
+ await updateOwnerMemory({id:memory.id,revision:1,kind:'decision',subject:'CI memory test',body:'Updated private decision'},db);
+ await deleteOwnerMemory({id:memory.id,revision:2},db);
+ assert.ok(!(await listOwnerMemories({},db)).items.some(row=>row.id===memory.id));
+ console.log('PASS: real SQL owner-memory migrations, revision edits, deletion');
  const [historyTable]=await db.query("SHOW TABLES LIKE 'historical_sync_progress'");
  assert.equal(historyTable.length,1,'historical sync progress must be restart-safe');
 
@@ -36,10 +45,22 @@ const run=async()=>{
  for(const name of ['headers_json','inbox_event_type','references_json','classification','classification_score','classification_reason','spam_disposition'])assert.ok(names.has(name),'missing column '+name);
  const [index]=await db.query("SHOW INDEX FROM messages WHERE Key_name='idx_inbox_latest'");
  assert.deepEqual(index.map(x=>x.Column_name).sort(),['conversation_id','id','sent_at'].sort());
- for(const name of ['conversation_workflow','message_intelligence','inbox_visits']){
+ for(const name of ['conversation_workflow','message_intelligence','inbox_visits','inbox_page_sets','inbox_page_members']){
   const [found]=await db.query('SHOW TABLES LIKE ?',[name]);
   assert.equal(found.length,1,'missing table '+name);
  }
+ const [labelSources]=await db.query("SHOW COLUMNS FROM accounts LIKE 'label_source'");
+ assert.equal(labelSources.length,1,'account label protection migration missing');
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-owner-label','email','Owner chosen label','account-label@example.test','ci:owner-label','manual')");
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-owner-label','email','Synced provider name','account-label@example.test','ci:owner-label','connector') ON DUPLICATE KEY UPDATE label=IF(label_source='manual',label,VALUES(label))");
+ const [[labelRow]]=await db.execute("SELECT label,label_source FROM accounts WHERE id='ci-owner-label'");
+ assert.equal(labelRow.label,'Owner chosen label');
+ assert.equal(labelRow.label_source,'manual');
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-auto-label','email','Old provider label','auto@example.test','ci:auto-label','connector')");
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-auto-label','email','New provider label','auto@example.test','ci:auto-label','connector') ON DUPLICATE KEY UPDATE label=IF(label_source='manual',label,VALUES(label))");
+ const [[autoLabel]]=await db.execute("SELECT label FROM accounts WHERE id='ci-auto-label'");
+ assert.equal(autoLabel.label,'New provider label');
+ console.log('PASS: manual account labels cannot be overwritten by sync');
  console.log('PASS: columns, tables, index');
 
  // Simulate an upgraded production database where legacy tables kept different utf8mb4 collations.
@@ -85,7 +106,7 @@ const run=async()=>{
  await db.execute("INSERT INTO conversation_workflow(conversation_id,manual_status,revision,updated_at) VALUES('ci-05','done',1,?)",[old]);
  const captured=[];
  const recording={execute:async(sql,params)=>{if(sql.includes('FROM conversations c JOIN messages m'))captured.push([sql,params]);return db.execute(sql,params);}};
- const waiting=await listInboxWork({view:'needs_reply',maxBatches:1},recording);
+ const waiting=await listInboxWork({view:'needs_reply',sort:'priority',maxBatches:1},recording);
  assert.ok(waiting.items.some(x=>x.id==='ci-01'),'new quote missing from work queue');
  assert.ok(waiting.items.some(x=>x.id==='ci-05'),'new message after done missing');
  assert.ok(!waiting.items.some(x=>x.id==='ci-03'),'answered elsewhere is incorrectly waiting');
@@ -111,6 +132,38 @@ const run=async()=>{
  const [visit]=await db.query("SELECT COUNT(*) AS n FROM inbox_visits WHERE actor='dashboard'");
  assert.equal(Number(visit[0].n),1);
  console.log('PASS: session visit persisted');
+ // Real SQL snapshot tests: IDs are deliberately not chronological, and inserts
+ // happen between requests to exercise immutable membership rather than a mock.
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key) VALUES('ci-time','email','Time test','time@example.test','ci:time')");
+ for(const id of ['time-z','time-b','time-a'])await conv(id,'ci-time');
+ await insert('time-mz','time-z','in','hello','2026-10-14T10:01:00.000Z','<same-copy>');
+ await insert('time-mb','time-b','in','hello','2026-10-14T10:02:00.000Z','<same-copy>');
+ await insert('time-ma','time-a','in','hello','2026-10-14T10:03:00.000Z');
+ const filter={view:'all',account_id:'ci-time',limit:1};
+ const first=await listInboxWork(filter,db);
+ assert.deepEqual(first.items.map(x=>x.id),['time-a']);
+ assert.equal(first.ranking_scope,'snapshot_time');
+ await insert('time-new-b','time-b','out','new outgoing','2026-10-14T10:05:00.000Z');
+ await conv('time-new','ci-time');
+ await insert('time-new-message','time-new','in','new inbound','2026-10-14T10:04:00.000Z');
+ await insert('time-late-a','time-a','in','late archive','2026-10-14T10:00:00.000Z');
+ await insert('time-reaction','time-z','in','reaction','2026-10-14T10:06:00.000Z');
+ await db.execute("UPDATE messages SET inbox_event_type='reaction' WHERE id='time-reaction'");
+ const second=await listInboxWork({...filter,cursor:first.next_cursor},db);
+ assert.deepEqual(second.items.map(x=>x.id),['time-b']);
+ assert.equal(second.items[0].message_id,'time-mb','snapshot must keep pre-insert message');
+ const third=await listInboxWork({...filter,cursor:second.next_cursor},db);
+ assert.deepEqual(third.items.map(x=>x.id),['time-z']);
+ assert.equal((await listInboxWork({...filter,cursor:third.next_cursor},db)).done,true);
+ const fresh=await listInboxWork({...filter,limit:20},db);
+ assert.deepEqual(fresh.items.map(x=>x.id),['time-b','time-new','time-a','time-z']);
+ assert.equal(fresh.items[0].direction,'out');
+ await assert.rejects(listInboxWork({...filter,account_id:'ci-b',cursor:first.next_cursor},db),/filter_mismatch/);
+ const snapshotId=first.next_cursor.split(':')[1];
+ await db.execute("UPDATE inbox_page_sets SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?",[snapshotId]);
+ await assert.rejects(listInboxWork({...filter,cursor:first.next_cursor},db),/expired_refresh/);
+ console.log('PASS: real time snapshot ordering, concurrent arrivals, outgoing activity, reaction exclusion, exact pagination, scope and expiry');
+
  const merged=await mergeConversations({source_id:'ci-05',target_id:'ci-01'},db);
  assert.equal(merged.moved,1);
  const [[mergedCount]]=await db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id='ci-01'");
@@ -124,5 +177,44 @@ const run=async()=>{
  assert.equal(Number(left.n),1);assert.equal(Number(separated.n),1);
  await assert.rejects(mergeConversations({source_id:'ci-04',target_id:'ci-01'},db),/conversation_account_channel_mismatch/);
  console.log('PASS: transactionally merge/split and cross-account isolation without deleting messages');
+
+ // Moderate-size isolated fixture: exercise multi-page chronological ordering and
+ // immutable pagination with 300 conversations and 600 messages on REAL databases.
+ // This is a functional scale check, not a production latency benchmark.
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key) VALUES('ci-scale','email','Scale fixture','scale@example.test','ci:scale')");
+ const total=300,block=100,base=Date.parse('2026-10-14T09:00:00.000Z');
+ const conversations=Array.from({length:total},(_,i)=>'ci-scale-'+String(i).padStart(4,'0'));
+ for(let offset=0;offset<total;offset+=block){
+  const ids=conversations.slice(offset,offset+block);
+  await db.execute("INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES "+ids.map(()=>' (?,?,?,?,?,?)').join(','),ids.flatMap(id=>[id,'email','ci-scale',id,'CI load','']));
+ }
+ for(let offset=0;offset<total;offset+=block){
+  const ids=conversations.slice(offset,offset+block);
+  const records=ids.flatMap((cid,j)=>[0,1].map(part=>({
+   id:cid+'-m'+part,cid,stamp:new Date(base+((offset+j)*2+part)*60000).toISOString()
+  })));
+  await db.execute("INSERT INTO messages(id,conversation_id,external_id,direction,sender,subject,body,sent_at,rfc_message_id,references_json,classification) VALUES "+records.map(()=>' (?,?,?,?,?,?,?,?,?,?,?)').join(','),records.flatMap(m=>[m.id,m.cid,m.id,'in','scale@example.test','CI fixture','test inquiry',m.stamp,'','[]','normal']));
+ }
+ const query={view:'all',account_id:'ci-scale',limit:50};
+ const begun=Date.now(),firstLoad=await listInboxWork(query,db);
+ const firstMs=Date.now()-begun;
+ assert.equal(firstLoad.items.length,50,'initial large fixture page must fill all slots');
+ assert.equal(firstLoad.items[0].id,conversations[total-1],'newest conversation should be globally first');
+ await db.execute("INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES('ci-scale-new','email','ci-scale','ci-scale-new','New during pagination','')");
+ await insert('ci-scale-new-m','ci-scale-new','in','new message mid-page',new Date(base+(total*2+2)*60000).toISOString());
+ let all=firstLoad.items.map(x=>x.id),cursor=firstLoad.next_cursor,done=firstLoad.done,pageCount=1;
+ while(!done&&pageCount<12){
+  const next=await listInboxWork({...query,cursor},db);
+  all.push(...next.items.map(x=>x.id));cursor=next.next_cursor;done=next.done;pageCount++;
+ }
+ assert.equal(done,true,'all snapshot pages should finish');
+ assert.equal(all.length,total,'snapshot must keep original membership without losing rows');
+ assert.equal(new Set(all).size,total,'no duplicates across pages');
+ assert.ok(!all.includes('ci-scale-new'),'new arrival must not shift existing snapshot');
+ const after=await listInboxWork({...query,limit:10},db);
+ assert.equal(after.items[0].id,'ci-scale-new','refreshed snapshot must show newly arrived conversation');
+ console.log('PASS: 300 real SQL conversations, 600 messages, stable paging after concurrent arrivals; initial snapshot ms='+firstMs+'; pages='+pageCount);
+
 };
 try{await run()}catch(e){console.error('REAL SQL INTEGRATION FAILED:',e);process.exitCode=1}finally{await db.end()}
+

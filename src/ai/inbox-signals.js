@@ -1,6 +1,9 @@
 // Conservative, deterministic signals for messages that are not customer inquiries.
 // Keep such messages accessible in Updates; never delete them or label them as spam.
 export function nonCustomerSignal(message={}){
+ if(message.inbox_event_type==='timestamp_review')return {classification:'suspicious',confidence:.35,reason:'חותמת זמן לא תקינה; תוכן ההודעה נשמר לבדיקה',source:'routing'};
+ if(message.inbox_event_type==='reaction')return {classification:'automated',event_type:'reaction',confidence:1,reason:'אירוע תגובה להודעה; אינו פנייה חדשה',source:'routing'};
+ if(message.inbox_event_type==='technical')return {classification:'system',event_type:'technical',confidence:1,reason:'אירוע טכני של הערוץ; אינו פנייה חדשה',source:'routing'};
  const sender=String(message.sender||'').trim();
  const peer=String(message.conversation_external_id||'').trim();
  const subject=String(message.subject||'').trim();
@@ -52,4 +55,5 @@ export function nonCustomerSignal(message={}){
   return {classification:'marketing',confidence:.94,reason:'עדכון שיווקי/רשימת תפוצה; לא פנייה ישירה',source:'routing'};
  return null;
 }
+
 

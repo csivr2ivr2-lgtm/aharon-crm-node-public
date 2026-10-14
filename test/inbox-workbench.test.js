@@ -2,14 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {decideInbox,INBOX_ENGINE_VERSION} from '../src/ai/inbox-decision.js';
-import {listInboxWork,updateInboxWork,inboxThemes,markInboxVisit} from '../src/inbox-workbench.js';
+import {listInboxWork as listInboxWorkRaw,updateInboxWork,inboxThemes,markInboxVisit} from '../src/inbox-workbench.js';
 import {backfillInboxHistory} from '../src/ai/historical-triage.js';
 import {extractWaitingItems,businessReadRequest} from '../src/ai/assistant-intents.js';
 import {inboxHeaders} from '../src/ai/inbox-headers.js';
 import {createRequestCache} from '../src/ai/request-cache.js';
+const listInboxWork=(options,db)=>listInboxWorkRaw({sort:'priority',view:'needs_reply',...options},db);
 const fixtures=JSON.parse(await readFile(new URL('./fixtures/inbox-work.json',import.meta.url),'utf8'));
 const testCollations=[
- ['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']
+ ['messages','id'],['messages','conversation_id'],['conversations','id'],['accounts','id'],['clients','id'],['conversation_workflow','conversation_id']
 ].map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME,COLLATION_NAME:'utf8mb4_unicode_ci'}));
 function inboxFixtureDb(rows,{capture=[],previousSeen=null}={}){
  return {query:async()=>[testCollations],execute:async(sql,p=[])=>{
@@ -48,9 +49,9 @@ test('bounded incomplete scans cannot masquerade as a verified empty answer',asy
  await assert.rejects(listInboxWork({}, {query:async()=>[testCollations],execute:async()=>{throw Error('database_down');}}),/database_down/);
  await assert.rejects(listInboxWork({cursor:[]},db),/invalid_inbox_filter/);
 });
-test('deduplicates the same RFC message in two accounts; same sender with different threads survives',async()=>{
+test('distinct conversations in different accounts remain visible even with the same RFC id',async()=>{
  const rows=[{...fixtures[5],id:'a',rfc_message_id:'<same>'},{...fixtures[5],id:'b',rfc_message_id:'<same>'},{...fixtures[5],id:'c',rfc_message_id:'<different>'}];
- const r=await listInboxWork({},inboxFixtureDb(rows));assert.deepEqual(r.items.map(x=>x.id),['a','c']);
+ const r=await listInboxWork({},inboxFixtureDb(rows));assert.deepEqual(r.items.map(x=>x.id),['a','b','c']);
 });
 test('SQL filters keep user strings out of executable query text',async()=>{
  const q="' OR 1=1 --";const seen=[];
@@ -105,3 +106,4 @@ test('priority filters preserve only eligible leads and themes reference their e
  const themes=inboxThemes(high.items);assert.ok(themes.length);assert.deepEqual(themes[0].conversation_ids,['a','b']);
  assert.deepEqual(inboxThemes([{id:'spam',message_type:'spam',request_summary:'SMS numbers'}]),[]);
 });
+

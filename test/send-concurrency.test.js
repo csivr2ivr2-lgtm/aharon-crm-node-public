@@ -8,7 +8,7 @@ function fixture(){
  const db={async execute(sql,p=[]){
   if(sql.startsWith('SELECT * FROM outgoing_sends'))return [[sends.get(p[0])].filter(Boolean)];
   if(sql.includes('FROM conversations'))return [[{id:'c',account_id:'a',external_id:'thread',channel:'email'}]];
-  if(sql.includes('FROM accounts'))return [[{integration_key:'google:g',identifier:'owner@example.org'}]];
+  if(sql.includes('FROM accounts'))return [[{status:'active',integration_key:'google:g',identifier:'owner@example.org'}]];
   if(sql.includes('FROM messages'))return [[{sender:'client@example.org',subject:'Test'}]];
   if(sql.includes('FROM message_drafts'))return [status==='draft'?[{id:'draft'}]:[]];
   if(sql.startsWith('INSERT IGNORE INTO outgoing_sends')){
@@ -55,4 +55,39 @@ test('AI schemas accept explicit client, system and source message relationships
  const task=validateTool('create_task',{title:'בדיקת מערכת',client_id:'client_david',system_id:'0771234567',source_message_id:'msg_1'});
  assert.equal(task.args.system_id,'0771234567');assert.equal(task.args.source_message_id,'msg_1');
  assert.throws(()=>validateTool('create_task',{title:'x',system_id:''}));
+});
+
+
+test('outbound-only WhatsApp conversation replies use its original account and no email subject',async()=>{
+ const f=fixture(),base=f.dependencies.db.execute;let payload,ingested;
+ f.dependencies.db.execute=async(sql,p)=>{
+  if(sql.includes('FROM conversations'))return [[{id:'c',account_id:'a',external_id:'972501234567@s.whatsapp.net',channel:'whatsapp'}]];
+  if(sql.includes('FROM accounts'))return [[{status:'active',integration_key:'whatsapp:wa_account_a',identifier:'owner'}]];
+  if(sql.includes('FROM messages'))return [[]];
+  return base(sql,p);
+ };
+ f.dependencies.send=async(channel,p)=>{payload=p;assert.equal(channel,'whatsapp');return {ok:true,message_id:'wa_sent'};};
+ f.dependencies.ingest=async event=>{ingested=event;};
+ assert.equal((await sendConversationReply({...input,draftId:''},f.dependencies)).ok,true);
+ assert.equal(payload.account_id,'wa_account_a');assert.equal(payload.to,'972501234567@s.whatsapp.net');assert.equal('subject' in payload,false);
+ assert.equal(ingested.account_id,'wa_account_a');assert.equal(ingested.external_id,'wa_sent');assert.equal(ingested.direction,'out');
+});
+test('email reply without an incoming message stays blocked before any provider call',async()=>{
+ const f=fixture(),base=f.dependencies.db.execute;
+ f.dependencies.db.execute=async(sql,p)=>sql.includes('FROM messages')?[[]]:base(sql,p);
+ await assert.rejects(sendConversationReply(input,f.dependencies),/conversation_has_no_incoming_message/);assert.equal(f.count(),0);
+});
+test('provider confirmation without message id is uncertain and cannot replay',async()=>{
+ const f=fixture();let calls=0;f.dependencies.send=async()=>{calls++;return {ok:true};};
+ await assert.rejects(sendConversationReply(input,f.dependencies),/send_not_confirmed/);
+ await assert.rejects(sendConversationReply(input,f.dependencies),/pending_or_uncertain/);
+ assert.equal(calls,1);assert.equal(f.status(),'uncertain');
+});
+
+test('inactive or unidentified sender accounts cannot send a reply',async()=>{
+ for(const account of [{status:'disabled',integration_key:'google:g'},{status:'active',integration_key:'google:'}]){
+  const f=fixture(),base=f.dependencies.db.execute;
+  f.dependencies.db.execute=async(sql,p)=>sql.includes('FROM accounts')?[[account]]:base(sql,p);
+  await assert.rejects(sendConversationReply(input,f.dependencies),/account_not_active|account_identity_missing/);assert.equal(f.count(),0);
+ }
 });

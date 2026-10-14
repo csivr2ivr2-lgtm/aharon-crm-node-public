@@ -49,8 +49,9 @@ export function decideInbox(row={},clock=Date.now()){
  // Keep explicit operator workflow choices; age never marks mail as spam or deletes it.
  const arrived=Date.parse(row.waiting_since||row.sent_at||row.last_message_at||'');
  const historical=Number.isFinite(arrived)&&clock-arrived>90*86400000&&clock>=arrived;
- if(historical&&(!row.manual_status||row.manual_status==='auto')&&['needs_reply','waiting_customer','review'].includes(handling_state)){
+ if(row.inbox_event_type!=='timestamp_review'&&historical&&(!row.manual_status||row.manual_status==='auto')&&['needs_reply','waiting_customer','review'].includes(handling_state)){
   handling_state='no_action';priority=Math.min(priority,10);reason='התכתבות היסטורית (מעל 90 יום); זמינה בארכיון אך אינה דורשת טיפול אוטומטי';confidence=.99;
  }
  return {message_type,caller_type,handling_state,confidence,reason,historical,priority,priority_reason:priority>=80?'בקשת מחיר או היקף עסקי משמעותי':priority>=60?'בקשה עסקית פעילה':'בדיקה לפי ההקשר',engine_version:INBOX_ENGINE_VERSION,review_required:handling_state==='review',request_summary:body.replace(/\s+/g,' ').slice(0,220)||subject,next_action:handling_state==='needs_reply'?'בדוק את הבקשה והכן תשובה':handling_state==='waiting_customer'?'בדוק אם נדרש מעקב':handling_state==='review'?'בדוק את ההקשר וסמן מצב טיפול':'אין פעולה אוטומטית'};
 }
+

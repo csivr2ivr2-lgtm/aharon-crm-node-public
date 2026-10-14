@@ -28,8 +28,49 @@ jobs:
         run: npm run check
       - name: Unit, HTTP and regression tests
         run: npm test
+  audit:
+    name: Dependency audit (high+)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
       - name: Dependency vulnerability audit (high+)
         run: npm audit --omit=dev --audit-level=high
+  owner-memory:
+    name: Owner memory regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Owner-memory unit tests
+        run: node --test test/owner-memory.test.js
+  secret-scan:
+    name: Heuristic secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reject suspected committed credentials
+        run: node scripts/scan-secrets.mjs
   mysql-integration:
     name: Database integration (${{ matrix.database.name }})
     runs-on: ubuntu-latest

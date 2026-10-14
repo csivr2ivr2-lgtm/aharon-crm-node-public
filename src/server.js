@@ -37,10 +37,11 @@ import {migrateCrmIntelligence} from "./crm-intelligence.js";
 import {migrateFileIntelligence,fileIntelligence} from "./file-intelligence.js";
 import {registerIntelligenceRoutes} from "./intelligence-routes.js";
 import {migrateKnowledge} from "./ai/knowledge.js";
+import {migrateOwnerMemories,listOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory} from "./owner-memory.js";
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -80,7 +81,8 @@ app.setErrorHandler((error,req,reply)=>{
  const category=["TypeError","RangeError","ReferenceError","SyntaxError","Error"].includes(error.name)?error.name:"OtherError";
  app.log.warn({errorName:error.name,code:error.code},"Request failed");
  if(inboxRead)console.error("[CRM_INBOX_WORK_DIAGNOSTIC] category="+category+" code="+code+" sqlState="+sqlState);
- const payload={ok:false,error:inboxRead?"request_failed":/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"};
+ const safeInboxError=["inbox_cursor_expired_refresh","inbox_cursor_filter_mismatch","invalid_inbox_cursor"].includes(error.message);
+ const payload={ok:false,error:inboxRead&&!safeInboxError?"request_failed":/^[a-z_]{3,100}$/.test(error.message)?error.message:"request_failed"};
  if(inboxRead&&logged(req)){payload.diagnostic_category=category;payload.diagnostic_code=code;payload.diagnostic_sql_state=sqlState;}
  reply.code(error.statusCode>=400&&error.statusCode<500?error.statusCode:400).send(payload);
 });
@@ -141,6 +143,13 @@ for(const [plural,entity] of [["projects","project"],["clients","client"],["task
  app.patch("/api/"+plural+"/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call(entity+".update",{...(req.body||{}),[entity==="system"?"did":"id"]:req.params.id});});
 }
 app.patch("/api/conversations/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.update",{...(req.body||{}),id:req.params.id});});
+
+// Only signed-in dashboard users can manage the owner's private memory. Never
+// expose this table through generic /v1/workspace or AI write tools.
+app.get("/api/owner-memories",async(req,reply)=>{if(!uiAuth(req,reply))return;return listOwnerMemories();});
+app.post("/api/owner-memories",async(req,reply)=>{if(!uiAuth(req,reply))return;return createOwnerMemory(req.body||{});});
+app.patch("/api/owner-memories/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return updateOwnerMemory({...req.body,id:req.params.id});});
+app.delete("/api/owner-memories/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return deleteOwnerMemory({id:req.params.id,revision:req.body?.revision});});
 app.get("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("note.list",req.query||{});});
 app.post("/api/notes",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("note.create",req.body||{});});
 app.post("/api/whatsapp/connect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.start(onWhatsAppEvent,String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};});
@@ -186,4 +195,5 @@ export async function start(){
  const app=await buildApp();await app.listen({host:config.host,port:config.port});
  let closing=false;const stop=async()=>{if(closing)return;closing=true;await app.close();};process.once("SIGTERM",stop);process.once("SIGINT",stop);return app;
 }
+
 
