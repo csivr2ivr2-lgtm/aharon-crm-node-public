@@ -138,14 +138,15 @@ test('technical and reaction messages persist without moving conversation clock 
  for(const eventType of ['reaction','technical','timestamp_review']){
   const calls=[];const connection={beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release(){},execute:async(sql,args=[])=>{
    calls.push({sql,args});if(sql.startsWith('SELECT id FROM accounts'))return [[{id:'a'}]];
-   if(sql.startsWith('SELECT m.id')||sql.startsWith('SELECT target_id'))return [[]];
+   if(sql.startsWith('SELECT m.id')||sql.startsWith('SELECT target_id')||sql.includes('FROM whatsapp_peer_profiles'))return [[]];
    return [{affectedRows:1}];
   }};
   t.mock.method(db,'getConnection',async()=>connection);
-  const r=await ingestMessage({channel:'whatsapp',account:{provider:'whatsapp'},account_id:'wa1',external_id:'evt-'+eventType,conversation_external_id:'972501234567@s.whatsapp.net',body:'preserved',sent_at:'2026-10-14T10:00:00.000Z',inbox_event_type:eventType});
+  const r=await ingestMessage({channel:'whatsapp',account:{provider:'whatsapp'},account_id:'whatsapp-main',external_id:'evt-'+eventType,conversation_external_id:'972501234567@s.whatsapp.net',body:'preserved',sent_at:'2026-10-14T10:00:00.000Z',inbox_event_type:eventType});
   assert.equal(r.inserted,true);
   const stored=calls.find(x=>x.sql.startsWith('INSERT INTO messages'));assert.equal(stored.args.at(-1),eventType);assert.ok(stored.args.includes('preserved'));
   assert.ok(!calls.some(x=>x.sql.startsWith('UPDATE conversations SET last_message_at')));
   assert.ok(!calls.some(x=>x.sql.includes('INSERT')&&x.sql.includes('INSERT INTO jobs')));
  }
 });
+

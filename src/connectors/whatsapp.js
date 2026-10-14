@@ -138,8 +138,10 @@ export class WhatsAppConnector{
   catch{/* Group metadata might be unavailable. Preserve the group JID. */}
  }
  async knownPhone(sock,jid,alt){
+  // A canonical PN wins over conflicting alternatives; only LIDs need resolution.
+  if(!isLidJid(jid))return safeWhatsAppPn(jid);
   const existing=safeWhatsAppPn(alt)||this.peerPhones.get(jid)||'';
-  if(existing||!isLidJid(jid))return existing;
+  if(existing)return existing;
   try{
    const store=sock.signalRepository?.lidMapping,resolver=store?.getPNForLID;
    if(typeof resolver==='function')return safeWhatsAppPn(await resolver.call(store,jid));
@@ -161,7 +163,7 @@ export class WhatsAppConnector{
   // History may contain verified LID -> PN mappings even when chat labels are empty.
   for(const mapping of Array.isArray(history.lidPnMappings)?history.lidPnMappings:[]){
    const jid=String(mapping?.lid||'').toLowerCase(),pn=safeWhatsAppPn(mapping?.pn);
-   if(isLidJid(jid)&&pn)await this.rememberPeer(sock,jid,{phoneJid:pn});
+   if(isLidJid(jid)&&pn)try{await this.rememberPeer(sock,jid,{phoneJid:pn});}catch{this.lastError='history_contact_metadata_failed';}
   }
   try{await this.consumeChats(sock,chats);}catch{this.lastError='history_chat_metadata_failed';}
   const grouped=new Map();
@@ -217,12 +219,13 @@ export class WhatsAppConnector{
   if(this.statusValue!=='connected'||!this.sock)throw Error('whatsapp_not_connected');
   if(typeof this.sock.fetchMessageHistory!=='function')
    return {ok:true,requested:0,attempted:0,reason:'unsupported_api',results:[]};
-  const results=[];
+  const results=[],sock=this.sock;
   for(const c of candidates.slice(0,10)){
+   if(this.sock!==sock||this.stopped||this.statusValue!=='connected')break;
    if(!isWhatsAppConversationJid(c.jid)||!c.key?.id||!Number.isFinite(c.timestamp))continue;
    try{
     // WhatsApp's documented on-demand page limit is 50 messages.
-    const ticket=await this.sock.fetchMessageHistory(50,c.key,c.timestamp);
+    const ticket=await sock.fetchMessageHistory(50,c.key,c.timestamp);
     results.push({jid:c.jid,status:ticket?'requested':'unconfirmed'});
    }catch(error){
     const category=/timeout/i.test(String(error?.message||''))?'timeout':'request_failed';
@@ -240,6 +243,7 @@ export class WhatsAppConnector{
     if(type!=="notify"&&type!=="append")return;
     const summary={imported:0,duplicates:0,failed:0};
     for(const m of messages){
+     if(this.sock!==sock||this.stopped)break;
      try{
      if(!m?.key?.remoteJid||isWhatsAppChannelJid(m.key.remoteJid)||!isWhatsAppConversationJid(m.key.remoteJid))continue;
      const content=normalizeMessageContent(m.message);
@@ -250,15 +254,16 @@ export class WhatsAppConnector{
      let eventType=contentType==='reactionMessage'?'reaction':
       ['protocolMessage','senderKeyDistributionMessage'].includes(contentType)?'technical':'';
      const body=contentType==='reactionMessage'?String(content.reactionMessage?.text||''):textFrom(m);if(!body&&!m.message)continue;
-     let timestamp=Number(m.messageTimestamp);
-     if(!Number.isFinite(timestamp)||timestamp<=0||timestamp*1000>Date.now()+300000){this.lastError="invalid_message_timestamp";timestamp=0;if(!eventType)eventType="timestamp_review";}
+     const rawTimestamp=Number(m.messageTimestamp);
+     let timestamp=rawTimestamp>1e12?rawTimestamp:rawTimestamp*1000;
+     if(!Number.isSafeInteger(timestamp)||timestamp<946684800000||timestamp>Date.now()+300000){this.lastError="invalid_message_timestamp";timestamp=0;if(!eventType)eventType="timestamp_review";}
      const jid=String(m.key.remoteJid).toLowerCase(),direction=m.key.fromMe?"out":"in";
      if(isGroupJid(jid))void this.resolveGroupName(sock,jid);
      const pn=await this.knownPhone(sock,jid,m.key.remoteJidAlt);
      const publicName=direction==='in'?(m.pushName||m.verifiedBizName||''):'';
      // pushName is a display hint, never a phone-number proof.
      if((pn&&!this.peerPhones.has(jid))||(publicName&&!this.peerNames.has(jid)))
-      await this.rememberPeer(sock,jid,{phoneJid:pn,name:publicName});
+      try{await this.rememberPeer(sock,jid,{phoneJid:pn,name:publicName});}catch{this.lastError='message_profile_failed';}
      const participant=String(m.key.participant||'').toLowerCase();
      const participantPn=safeWhatsAppPn(m.key.participantAlt)||safeWhatsAppPn(participant)||
       (isLidJid(participant)?await this.knownPhone(sock,participant,''):'');
@@ -268,7 +273,10 @@ export class WhatsAppConnector{
       account:{provider:"whatsapp",type:"whatsapp",identifier:this.sessionId,label:this.label},
       conversation_external_id:jid,conversation_title:title,external_id:String(m.key.id||""),direction,
       sender:direction==="in"?actualSender:"me",recipient:direction==="out"?pn||jid:"me",
-      subject:"",body,inbox_event_type:eventType,is_read:direction==="out"||Boolean(eventType),sent_at:new Date(timestamp*1000).toISOString()};
+      subject:"",body,inbox_event_type:eventType,is_read:direction==="out"||Boolean(eventType),sent_at:new Date(timestamp).toISOString()};
+     if(this.sock!==sock||this.stopped)break;
+     // Preserve recovery anchors even if persistence temporarily fails.
+     this.rememberHistoryAnchor(m);
      let result;
      for(let attempt=0;attempt<3;attempt++){
       try{result=await this.onEvent?.(event);break;}
@@ -278,7 +286,9 @@ export class WhatsAppConnector{
       }
      }
      this.rememberHistoryAnchor(m);
-     if(result?.inserted)summary.imported++;else summary.duplicates++;
+     if(result?.inserted===true)summary.imported++;
+     else if(result?.inserted===false)summary.duplicates++;
+     else {summary.failed++;this.lastError='message_ingestion_unconfirmed';}
      }catch{summary.failed++;this.lastError="message_ingestion_failed";}
     }
     return summary;
@@ -297,4 +307,5 @@ export class WhatsAppConnector{
  async deleteSession(){await this.logout();return {ok:true,...this.status()};}
  async send({to,body}){if(!this.sock||this.statusValue!=="connected")throw Error("WhatsApp is not connected");const jid=whatsappDestination(to);if(!String(body||"").trim())throw Error("body_required");const r=await this.sock.sendMessage(jid,{text:String(body)});if(!r?.key?.id)throw Error("send_not_confirmed");return {ok:true,message_id:String(r.key.id),jid};}
 }
+
 
