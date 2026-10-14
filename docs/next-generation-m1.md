@@ -2,7 +2,7 @@
 
 Base inspected: `main` at `8e71ac7bab53e84e0fbfd6fb980d0185e6a64dec`.
 This is the first implementation milestone, not completion of the full next-generation brief.
-Do not merge/deploy until database, performance and live-channel gates below pass.
+CI database compatibility passed; do not merge/deploy until production-sized performance and live-channel gates below pass.
 
 ## Findings and implementation
 
@@ -64,9 +64,10 @@ cooldown, and existing jobs/audit infrastructure.
 
 Remaining milestones / acceptance gaps:
 
-1. Database release gate for this change: validate the SQL on the actual MySQL or
-   MariaDB version, migration twice, mixed collations, transaction rollback,
-   concurrent ingestion/deletion and realistic production-sized fixtures. Window
+1. CI has verified migrations twice, mixed collations, snapshot paging with inserts
+   between requests, scope and expiry on MySQL 8 and MariaDB 10.11. Before release,
+   verify the production database version, rollback, concurrent deletion and
+   realistic production-sized fixtures. Window
    functions require MySQL 8+ or MariaDB 10.2+. Existing `idx_inbox_latest` supports
    per-conversation latest-message lookup; new tables use `(snapshot_id,position)`
    primary key and expiry index. Initial snapshot creation reads the entire matching
@@ -107,6 +108,15 @@ Remaining milestones / acceptance gaps:
 - GitHub connector secret scan could not run: GitHub Advanced Security is not enabled for this repository.
 - Local MySQL/MariaDB server unavailable. Attempt to prepare an OS package index
   failed due to container permission limitations; no escalation or access bypass.
+- GitHub CI for code commit `7c2e8d4596b1b417fa16065be04348d8c101668e`:
+  all four jobs passed: Node 20, Node 22, MySQL 8.0, MariaDB 10.11.
+  Run: https://github.com/csivr2ivr2-lgtm/aharon-crm-node-public/actions/runs/38563300821
+  Database jobs exercise additive migrations twice, mixed collations, actual SQL
+  time ranking, immutable pages under new inserts, outgoing activity, reactions,
+  scoped/expired cursors, cross-account reply references and merge/split integrity.
+  These are real isolated CI databases, not production or large-scale load tests.
+- Browser gate could not launch locally because the Playwright Chromium executable
+  is absent. No browser E2E pass is claimed.
 - Production: no login, send, schema migration, merge or deployment performed.
 
 New tests cover stable pages under concurrent arrivals, outgoing activity,
