@@ -61,7 +61,7 @@ test('on-demand request returns request status but never asserts old messages we
  const requested=[],sock={fetchMessageHistory:async(...args)=>{requested.push(args);return 'request-session-id';}};
  const c=new WhatsAppConnector({sessionId:'whatsapp-main'});c.sock=sock;c.statusValue='connected';
  const result=await c.requestHistory([{jid:'972501234567@s.whatsapp.net',key:{id:'oldest',remoteJid:'972501234567@s.whatsapp.net',fromMe:true},timestamp:1791972000000}]);
- assert.equal(result.requested,1);assert.equal(requested[0][0],100);
+ assert.equal(result.requested,1);assert.equal(requested[0][0],50);
  assert.match(result.note,/may not/);
 });
 test('non-person chat identifiers never enter the history queue',()=>{
@@ -132,4 +132,64 @@ test('verified LID mapping repairs stored sender of only the matching old inboun
  assert.deepEqual(stmt.args,['972501234567@s.whatsapp.net','conv-1','123456789012345@lid']);
  assert.match(stmt.sql,/direction='in' AND sender=\?/);
  assert.ok(!statements.some(x=>x.sql.includes('DELETE FROM messages')));
+});
+
+test('live message keys are kept as history anchors even before CRM history tables are populated',async()=>{
+ const jid='972501234567@s.whatsapp.net',sock={},connector=new WhatsAppConnector({sessionId:'whatsapp-main'});
+ connector.sock=sock;connector.statusValue='connected';
+ connector.onEvent=async e=>({inserted:e.type==='message'});
+ await connector.receiveMessages(sock,{type:'notify',messages:[inbound('last',jid,'first received')]});
+ const anchors=connector.historyAnchorCandidates();
+ assert.equal(anchors.length,1);
+ assert.equal(anchors[0].key.id,'last');
+ assert.equal(anchors[0].key.remoteJid,jid);
+ assert.ok(anchors[0].timestamp>1e12);
+ assert.equal(connector.status().history.anchor_chats,1);
+});
+test('fallback candidates from live socket work when account has no stored conversations',async()=>{
+ const jid='972501234567@s.whatsapp.net';
+ const db={execute:async(sql)=>{
+  if(sql.startsWith('SELECT id FROM accounts'))return [[]];
+  if(sql.startsWith('SELECT requested_at'))return [[]];
+  throw Error('unexpected SQL '+sql);
+ }};
+ const diagnostics={};
+ const items=await whatsappHistoryCandidates({account_id:'whatsapp-main',live:[
+  {jid,key:{id:'real-message-key',remoteJid:jid,fromMe:false},timestamp:1791972000000}
+ ],diagnostics},db);
+ assert.equal(items.length,1);
+ assert.equal(items[0].jid,jid);
+ assert.equal(diagnostics.account_found,false);
+ assert.equal(diagnostics.live_anchors,1);
+ assert.equal(diagnostics.eligible,1);
+});
+test('zero requests can be caused by missing message anchors or cooldown, not provider refusal',async()=>{
+ const jid='972501234567@s.whatsapp.net';
+ let queried=[];
+ const missing={execute:async(sql)=>{
+  queried.push(sql);
+  if(sql.startsWith('SELECT id FROM accounts'))return [[{id:'crm-account'}]];
+  if(sql.includes('FROM conversations'))return [[{id:'chat-1',external_id:jid}]];
+  if(sql.includes('FROM messages'))return [[]];
+  throw Error('unexpected SQL '+sql);
+ }};
+ const d={};
+ assert.deepEqual(await whatsappHistoryCandidates({diagnostics:d},missing),[]);
+ assert.equal(d.stored_chats,1);
+ assert.equal(d.no_anchor,1);
+ const cooldown={execute:async(sql)=>{
+  if(sql.startsWith('SELECT id FROM accounts'))return [[]];
+  if(sql.startsWith('SELECT requested_at'))return [[{requested_at:new Date().toISOString()}]];
+  throw Error('unexpected SQL '+sql);
+ }};
+ const result={};
+ assert.deepEqual(await whatsappHistoryCandidates({live:[
+  {jid,key:{id:'real-message',remoteJid:jid,fromMe:true},timestamp:1791972000000}
+ ],diagnostics:result},cooldown),[]);
+ assert.equal(result.cooldown,1);
+});
+test('group history never becomes live request candidate',async()=>{
+ const c=new WhatsAppConnector({sessionId:'whatsapp-main'});
+ assert.equal(c.rememberHistoryAnchor(inbound('g','972583268888-1584353032@g.us','group')),false);
+ assert.equal(c.historyAnchorCandidates().length,0);
 });
