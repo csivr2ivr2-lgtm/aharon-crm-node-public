@@ -26,9 +26,9 @@ export const textFrom=m=>{
 };
 
 export class WhatsAppConnector{
- constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set()}
+ constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set();this.historyQueue=Promise.resolve();this.historyStats={batches:0,chats:0,imported:0,duplicates:0,failed:0,last_at:null}}
  configured(){return config.whatsappEnabled}
- status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError}}
+ status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError,history:{...this.historyStats}}}
  async pairWithPhone(number,onEvent=this.onEvent){
   if(!this.configured())throw Error("whatsapp_not_enabled");
   const phone=pairingPhoneNumber(number);
@@ -55,7 +55,7 @@ export class WhatsAppConnector{
   try{
    await mkdir(this.sessionDir,{recursive:true,mode:0o700});
    const {state,saveCreds}=await useMultiFileAuthState(this.sessionDir);
-   const sock=makeWASocket({auth:state,markOnlineOnConnect:false,syncFullHistory:false,generateHighQualityLinkPreview:false,logger:{level:"silent",child(){return this},trace(){},debug(){},info(){},warn(){},error(){},fatal(){}}});
+   const sock=makeWASocket({auth:state,markOnlineOnConnect:false,syncFullHistory:true,shouldSyncHistoryMessage:()=>true,generateHighQualityLinkPreview:false,logger:{level:"silent",child(){return this},trace(){},debug(){},info(){},warn(){},error(){},fatal(){}}});
    if(this.stopped){sock.end?.(new Error("shutdown"));return;}
    this.sock=sock;this.statusValue="connecting";
    this.groupRequests.clear();
@@ -83,9 +83,7 @@ export class WhatsAppConnector{
     sock.ev.on(event,items=>{void this.consumeGroups(sock,items).catch(()=>{this.lastError='group_metadata_failed';});});
    for(const event of ['chats.upsert','chats.update'])
     sock.ev.on(event,items=>{void this.consumeChats(sock,items).catch(()=>{this.lastError='chat_metadata_failed';});});
-   sock.ev.on('messaging-history.set',history=>{
-    void Promise.all([this.consumeContacts(sock,history?.contacts),this.consumeChats(sock,history?.chats),this.consumeGroups(sock,history?.groups)]).catch(()=>{this.lastError='history_metadata_failed';});
-   });
+   sock.ev.on('messaging-history.set',history=>{void this.queueHistory(sock,history);});
   }catch{this.lastError="connection_failed";this.statusValue="error";throw Error("whatsapp_connection_failed");}finally{this.connecting=false}
  }
 
@@ -117,9 +115,12 @@ export class WhatsAppConnector{
  }
  async consumeChats(sock,chats){
   if(this.sock!==sock||!Array.isArray(chats))return;
-  for(const c of chats.slice(0,1000)){
+  for(const c of chats){
    const jid=String(c?.id||'').toLowerCase();
-   if(isWhatsAppConversationJid(jid))await this.rememberPeer(sock,jid,{name:c?.name||c?.subject||''});
+   if(!isWhatsAppConversationJid(jid))continue;
+   await this.onEvent?.({type:'whatsapp.history.chat',account_id:this.sessionId,jid});
+   await this.rememberPeer(sock,jid,{name:c?.name||c?.subject||c?.notify||'',
+    phoneJid:c?.pnJid||c?.phoneNumber||c?.phone_number||''});
   }
  }
  async resolveGroupName(sock,jid){
@@ -137,9 +138,68 @@ export class WhatsAppConnector{
   }catch{/* Older Baileys versions and old history may lack the mapping. */}
   return '';
  }
+ // History is delivered as multiple asynchronous chunks. Process one chunk at
+ // a time, in chat order, and acknowledge progress only after durable ingestion.
+ queueHistory(sock,history){
+  const work=this.historyQueue.then(()=>this.consumeHistory(sock,history));
+  this.historyQueue=work.catch(()=>{this.lastError='history_chunk_failed';});
+  return work;
+ }
+ async consumeHistory(sock,history={}){
+  if(this.sock!==sock||this.stopped)return {skipped:true};
+  const contacts=Array.isArray(history.contacts)?history.contacts:[];
+  const chats=Array.isArray(history.chats)?history.chats:[];
+  await this.consumeContacts(sock,contacts);
+  // History may contain verified LID -> PN mappings even when chat labels are empty.
+  for(const mapping of Array.isArray(history.lidPnMappings)?history.lidPnMappings:[]){
+   const jid=String(mapping?.lid||'').toLowerCase(),pn=safeWhatsAppPn(mapping?.pn);
+   if(isLidJid(jid)&&pn)await this.rememberPeer(sock,jid,{phoneJid:pn});
+  }
+  await this.consumeChats(sock,chats);
+  const grouped=new Map();
+  for(const message of Array.isArray(history.messages)?history.messages:[]){
+   const jid=String(message?.key?.remoteJid||'').toLowerCase();
+   if(!isWhatsAppConversationJid(jid))continue;
+   if(!grouped.has(jid))grouped.set(jid,[]);
+   grouped.get(jid).push(message);
+  }
+  for(const [jid,messages] of grouped){
+   await this.onEvent?.({type:'whatsapp.history.chat',account_id:this.sessionId,jid});
+   for(let offset=0;offset<messages.length;offset+=100){
+    if(this.sock!==sock||this.stopped)return {interrupted:true};
+    const chunk=messages.slice(offset,offset+100),result=await this.receiveMessages(sock,{messages:chunk,type:'append'});
+    this.historyStats.imported+=result.imported;
+    this.historyStats.duplicates+=result.duplicates;
+    this.historyStats.failed+=result.failed;
+    await this.onEvent?.({type:'whatsapp.history.batch',account_id:this.sessionId,jid,
+     imported:result.imported,duplicates:result.duplicates,failed:result.failed});
+   }
+  }
+  this.historyStats.batches++;this.historyStats.chats+=new Set([...grouped.keys(),...chats.map(c=>c?.id).filter(isWhatsAppConversationJid)]).size;
+  this.historyStats.last_at=new Date().toISOString();
+  return {ok:true,chats:grouped.size,messages:[...grouped.values()].reduce((n,a)=>n+a.length,0)};
+ }
+ // A single bounded on-demand request per known chat. A successful request
+ // means WhatsApp accepted the REQUEST, not that older messages were delivered.
+ async requestHistory(candidates=[]){
+  if(this.statusValue!=='connected'||!this.sock)throw Error('whatsapp_not_connected');
+  if(typeof this.sock.fetchMessageHistory!=='function')return {ok:true,unsupported:true,requested:0,results:[]};
+  const results=[];
+  for(const c of candidates.slice(0,10)){
+   if(!isWhatsAppConversationJid(c.jid)||!c.key?.id||!Number.isFinite(c.timestamp))continue;
+   try{
+    const ticket=await this.sock.fetchMessageHistory(100,c.key,c.timestamp);
+    results.push({jid:c.jid,status:ticket?'requested':'unconfirmed'});
+   }catch{results.push({jid:c.jid,status:'failed'});}
+  }
+  return {ok:true,requested:results.filter(x=>x.status==='requested').length,results,
+   note:'WhatsApp may not return older messages for an accepted request'};
+ }
+
  async receiveMessages(sock,{messages,type}={}){
     if(this.sock!==sock||this.stopped||!Array.isArray(messages))return;
     if(type!=="notify"&&type!=="append")return;
+    const summary={imported:0,duplicates:0,failed:0};
     for(const m of messages){
      try{
      if(!m?.key?.remoteJid||isWhatsAppChannelJid(m.key.remoteJid)||!isWhatsAppConversationJid(m.key.remoteJid))continue;
@@ -167,9 +227,11 @@ export class WhatsAppConnector{
       conversation_external_id:jid,conversation_title:title,external_id:String(m.key.id||""),direction,
       sender:direction==="in"?actualSender:"me",recipient:direction==="out"?pn||jid:"me",
       subject:"",body,inbox_event_type:eventType,is_read:direction==="out"||Boolean(eventType),sent_at:new Date(timestamp*1000).toISOString()};
-     await this.onEvent?.(event);
-     }catch{this.lastError="message_ingestion_failed";}
+     const result=await this.onEvent?.(event);
+     if(result?.inserted)summary.imported++;else summary.duplicates++;
+     }catch{summary.failed++;this.lastError="message_ingestion_failed";}
     }
+    return summary;
  }
 
  stop(){this.stopped=true;clearTimeout(this.retryTimer);this.retryTimer=null;const sock=this.sock;this.sock=null;this.qrReady=false;this.qrDataUrl=null;this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.statusValue="disconnected";sock?.end?.(new Error("shutdown"));}
