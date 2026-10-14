@@ -119,8 +119,13 @@ export class WhatsAppConnector{
    const jid=String(c?.id||'').toLowerCase();
    if(!isWhatsAppConversationJid(jid))continue;
    await this.onEvent?.({type:'whatsapp.history.chat',account_id:this.sessionId,jid});
-   await this.rememberPeer(sock,jid,{name:c?.name||c?.subject||c?.notify||'',
-    phoneJid:c?.pnJid||c?.phoneNumber||c?.phone_number||''});
+   const name=c?.name||c?.subject||c?.notify||'';
+   const alternative=String(c?.pnJid||c?.phoneNumber||c?.phone_number||'').toLowerCase();
+   await this.rememberPeer(sock,jid,{name,phoneJid:alternative});
+   // A PN chat may also expose its LID; keep that relationship without
+   // guessing it from digits or merging unrelated conversations.
+   const lid=String(c?.lid||c?.lidJid||'').toLowerCase();
+   if(isLidJid(lid)&&safeWhatsAppPn(jid))await this.rememberPeer(sock,lid,{name,phoneJid:jid});
   }
  }
  async resolveGroupName(sock,jid){
@@ -216,7 +221,10 @@ export class WhatsAppConnector{
      const jid=String(m.key.remoteJid).toLowerCase(),direction=m.key.fromMe?"out":"in";
      if(isGroupJid(jid))void this.resolveGroupName(sock,jid);
      const pn=await this.knownPhone(sock,jid,m.key.remoteJidAlt);
-     if(pn&&!this.peerPhones.has(jid))await this.rememberPeer(sock,jid,{phoneJid:pn});
+     const publicName=direction==='in'?(m.pushName||m.verifiedBizName||''):'';
+     // pushName is a display hint, never a phone-number proof.
+     if((pn&&!this.peerPhones.has(jid))||(publicName&&!this.peerNames.has(jid)))
+      await this.rememberPeer(sock,jid,{phoneJid:pn,name:publicName});
      const participant=String(m.key.participant||'').toLowerCase();
      const participantPn=safeWhatsAppPn(m.key.participantAlt)||safeWhatsAppPn(participant)||
       (isLidJid(participant)?await this.knownPhone(sock,participant,''):'');
