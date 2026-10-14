@@ -85,7 +85,7 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
    FROM conversations c JOIN messages m ON m.conversation_id=c.id COLLATE ${col.message}
    LEFT JOIN accounts a ON a.id=c.account_id COLLATE ${col.account} LEFT JOIN clients cl ON cl.id=c.client_id COLLATE ${col.client} LEFT JOIN conversation_workflow w ON w.conversation_id=c.id COLLATE ${col.workflow}
    WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=m.conversation_id ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))
-   ORDER BY '+(byTime?'c.last_message_at DESC,c.id DESC':'c.id ASC')+' LIMIT ?`,[...params,batchSize]);
+   ORDER BY ${byTime?'c.last_message_at DESC,c.id DESC':'c.id ASC'} LIMIT ?`,[...params,batchSize]);
   if(!Array.isArray(rows))throw Error('inbox_read_unavailable');
   scanned+=rows.length;
   for(const row of rows){
