@@ -59,7 +59,7 @@ export async function retrieveOwnerMemories({actor='dashboard',query='',limit=6,
  const scored=rows.map(row=>{
   const title=String(row.subject||'').normalize('NFKC').toLocaleLowerCase(),body=String(row.body||'').normalize('NFKC').toLocaleLowerCase();
   const hits=terms.reduce((n,t)=>n+(title.includes(t)?4:0)+(body.includes(t)?1:0),0);
-  return {row,score:hits+(row.kind==='preference'?.25:0)};
+  return {row,score:hits>0?hits+(row.kind==='preference'?.25:0):0};
  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||String(b.row.updated_at).localeCompare(String(a.row.updated_at)));
  const output=[];const budget=Math.max(200,Math.min(4000,Number(maxChars)||2600));let used=2;
  for(const {row} of scored){

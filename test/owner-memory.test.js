@@ -26,7 +26,7 @@ test('owner-controlled facts can be recalled in another session, edited and dele
  const b=await createOwnerMemory({kind:'preference',subject:'סגנון העבודה',body:'להיות תמציתי'},f.database);
  assert.equal((await listOwnerMemories({},f.database)).items.length,2);
  const related=await retrieveOwnerMemories({query:'מה החלטנו על המחירון?'},f.database);
- assert.equal(related[0].id,a.id);assert.ok(related.some(x=>x.id===b.id));
+ assert.equal(related[0].id,a.id);assert.ok(!related.some(x=>x.id===b.id),'unrelated preferences must not leak into a different topic');
  await assert.rejects(updateOwnerMemory({id:a.id,revision:5,kind:'decision',subject:'מחירון',body:'עודכן'},f.database),/not_found_or_changed/);
  await updateOwnerMemory({id:a.id,revision:1,kind:'decision',subject:'מחירון אהרן בענן',body:'תוכנית בסיסית 10'},f.database);
  assert.match((await retrieveOwnerMemories({query:'מחירון'},f.database))[0].body,/10/);
@@ -47,4 +47,11 @@ test('retrieval is bounded and sends no SQL containing the untrusted query',asyn
  const f=fixture();await createOwnerMemory({kind:'project',subject:'בדיקת פרויקט',body:'x'.repeat(1500)},f.database);
  assert.deepEqual(await retrieveOwnerMemories({query:"' OR 1=1 --",maxChars:200},f.database),[]);
  assert.ok(!f.queries.some(q=>q.includes("' OR 1=1 --")));
+});
+
+test('unrelated user memories are never sent to an unrelated query',async()=>{
+ const f=fixture();
+ await createOwnerMemory({kind:'preference',subject:'קוד סודי לפרויקט אחר',body:'מידע פרטי שאינו קשור לשאלה'},f.database);
+ assert.deepEqual(await retrieveOwnerMemories({query:'מזג האוויר היום'},f.database),[]);
+ assert.deepEqual(await retrieveOwnerMemories({query:''},f.database),[]);
 });

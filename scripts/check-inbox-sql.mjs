@@ -7,6 +7,7 @@ import {migrateIntelligence} from '../src/ai/intelligence.js';
 import {migrateInboxWorkbench,listInboxWork,markInboxVisit} from '../src/inbox-workbench.js';
 import {migrateHistorySync} from '../src/historical-sync.js';
 import {migrateThreading,mergeConversations,splitConversation} from '../src/conversation-threading.js';
+import {migrateOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory,listOwnerMemories} from '../src/owner-memory.js';
 
 assert.equal(process.env.NODE_ENV,'test','Only run with NODE_ENV=test');
 assert.equal(process.env.DB_NAME,'crm_ci','Only run against isolated crm_ci database');
@@ -26,6 +27,14 @@ const run=async()=>{
  await migrateHistorySync(db);
  await migrateThreading(db);
  await migrateThreading(db);
+ await migrateOwnerMemories(db);
+ await migrateOwnerMemories(db);
+ const memory=await createOwnerMemory({kind:'decision',subject:'CI memory test',body:'Private manual decision'},db);
+ assert.ok((await listOwnerMemories({},db)).items.some(row=>row.id===memory.id));
+ await updateOwnerMemory({id:memory.id,revision:1,kind:'decision',subject:'CI memory test',body:'Updated private decision'},db);
+ await deleteOwnerMemory({id:memory.id,revision:2},db);
+ assert.ok(!(await listOwnerMemories({},db)).items.some(row=>row.id===memory.id));
+ console.log('PASS: real SQL owner-memory migrations, revision edits, deletion');
  const [historyTable]=await db.query("SHOW TABLES LIKE 'historical_sync_progress'");
  assert.equal(historyTable.length,1,'historical sync progress must be restart-safe');
 
@@ -40,6 +49,18 @@ const run=async()=>{
   const [found]=await db.query('SHOW TABLES LIKE ?',[name]);
   assert.equal(found.length,1,'missing table '+name);
  }
+ const [labelSources]=await db.query("SHOW COLUMNS FROM accounts LIKE 'label_source'");
+ assert.equal(labelSources.length,1,'account label protection migration missing');
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-owner-label','email','Owner chosen label','account-label@example.test','ci:owner-label','manual')");
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-owner-label','email','Synced provider name','account-label@example.test','ci:owner-label','connector') ON DUPLICATE KEY UPDATE label=IF(label_source='manual',label,VALUES(label))");
+ const [[labelRow]]=await db.execute("SELECT label,label_source FROM accounts WHERE id='ci-owner-label'");
+ assert.equal(labelRow.label,'Owner chosen label');
+ assert.equal(labelRow.label_source,'manual');
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-auto-label','email','Old provider label','auto@example.test','ci:auto-label','connector')");
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key,label_source) VALUES('ci-auto-label','email','New provider label','auto@example.test','ci:auto-label','connector') ON DUPLICATE KEY UPDATE label=IF(label_source='manual',label,VALUES(label))");
+ const [[autoLabel]]=await db.execute("SELECT label FROM accounts WHERE id='ci-auto-label'");
+ assert.equal(autoLabel.label,'New provider label');
+ console.log('PASS: manual account labels cannot be overwritten by sync');
  console.log('PASS: columns, tables, index');
 
  // Simulate an upgraded production database where legacy tables kept different utf8mb4 collations.
