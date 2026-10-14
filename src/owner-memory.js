@@ -45,7 +45,7 @@ export async function deleteOwnerMemory({actor='dashboard',id,revision}={},datab
 // Match simple Hebrew definite articles/prepositions without using an AI service
 // to read private facts. Keep the original token to avoid losing precise matches.
 const tokens=s=>{
- const words=String(s||'').normalize('NFKC').toLocaleLowerCase().match(/[\\p{L}\\p{N}]{3,}/gu)||[];
+ const words=String(s||'').normalize('NFKC').toLocaleLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[];
  const expanded=[];
  for(const word of words.slice(0,24)){
   expanded.push(word);
