@@ -1,4 +1,5 @@
 import {migrateInboxTimePages,openTimePage,timeCursor} from './inbox-time-pages.js';
+import {whatsappChannelExclusion} from './connectors/whatsapp-channel-filter.js';
 import {createHash} from 'node:crypto';
 import {inboxSyncState} from './inbox-sync-state.js';
 import {db as defaultDb,now,ensureColumn} from './db.js';
@@ -67,7 +68,7 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
   if(!page&&from){where.push('m.sent_at>=?');params.push(new Date(from).toISOString());}if(!page&&to){where.push('m.sent_at<=?');params.push(new Date(to).toISOString());}
   if(!page&&q){where.push("(c.title LIKE ? OR m.sender LIKE ? OR cl.name LIKE ? OR EXISTS(SELECT 1 FROM messages searched WHERE searched.conversation_id=m.conversation_id AND searched.body LIKE ?))");params.push(...Array(4).fill('%'+q+'%'));}
   const [rows]=await database.execute(`SELECT ${page?'pg.position AS page_position,':''}c.id,c.title,c.client_id,c.channel,c.account_id,c.external_id AS conversation_external_id,c.unread_count,c.last_message_at,
-   a.label AS account_label,a.integration_key,COALESCE(NULLIF(TRIM(cl.name) COLLATE utf8mb4_unicode_ci,''),NULLIF(TRIM(m.sender) COLLATE utf8mb4_unicode_ci,''),c.title COLLATE utf8mb4_unicode_ci) AS contact_name,m.sender,m.subject,
+   a.label AS account_label,a.integration_key,COALESCE(NULLIF(TRIM(cl.name) COLLATE utf8mb4_unicode_ci,''),NULLIF(TRIM(c.title) COLLATE utf8mb4_unicode_ci,''),NULLIF(TRIM(m.sender) COLLATE utf8mb4_unicode_ci,'')) AS contact_name,m.sender,m.subject,
    m.id AS message_id,m.direction,m.sent_at AS waiting_since,m.rfc_message_id,m.classification,m.classification_score,m.inbox_event_type,m.headers_json,m.classification_reason,m.spam_disposition,LEFT(COALESCE(m.body,''),20000) AS body,
    w.manual_status,w.manual_caller_type,w.manual_message_type,w.snoozed_until,w.updated_at AS workflow_updated_at,COALESCE(w.revision,0) AS revision,
    EXISTS(SELECT 1 FROM messages reply JOIN conversations reply_conversation ON reply_conversation.id=reply.conversation_id COLLATE ${col.conversation} JOIN accounts own_account ON own_account.id=COALESCE(NULLIF(reply.account_id COLLATE ${col.account},''),reply_conversation.account_id COLLATE ${col.account})
@@ -75,7 +76,7 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
     AND (CASE WHEN JSON_VALID(reply.references_json)=1 THEN JSON_CONTAINS(reply.references_json,JSON_QUOTE(m.rfc_message_id)) ELSE 0 END)=1) AS replied_elsewhere
    FROM conversations c ${page?'JOIN inbox_page_members pg ON c.id=pg.conversation_id COLLATE '+col.conversation+' ':''}JOIN messages m ON m.conversation_id=c.id COLLATE ${col.message} ${page?'AND m.id=pg.message_id COLLATE '+col.messageId:''}
    LEFT JOIN accounts a ON a.id=c.account_id COLLATE ${col.account} LEFT JOIN clients cl ON cl.id=c.client_id COLLATE ${col.client} LEFT JOIN conversation_workflow w ON w.conversation_id=c.id COLLATE ${col.workflow}
-   WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') ${page?'':`AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=m.conversation_id ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))`}
+   WHERE ${where.join(' AND ')} ${meaningful} AND ${whatsappChannelExclusion('c')} ${page?'':`AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=m.conversation_id ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))`}
    ORDER BY ${page?'pg.position ASC':'c.id ASC'} LIMIT ?`,[...params,batchSize]);
   if(!Array.isArray(rows))throw Error('inbox_read_unavailable');
   scanned+=rows.length;

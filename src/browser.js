@@ -10,7 +10,10 @@ let visitRecorded=false;
 let workView='inbox',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
 function phoneForDisplay(value){
- const raw=String(value||'').trim().replace(/@s\.whatsapp\.net$/i,'');
+ const original=String(value||'').trim();
+  if(/@lid$/i.test(original))return 'איש קשר WhatsApp (מזהה פרטי · '+original.split('@')[0].slice(-4)+')';
+  if(/@g\.us$/i.test(original))return 'קבוצת WhatsApp · '+original.split('@')[0].slice(-4);
+  const raw=original.replace(/@s\.whatsapp\.net$/i,'');
  if(!/^\+?[0-9 ()\-.]{9,24}$/.test(raw))return String(value||'');
  const number=raw.replace(/\D/g,'');
  if(/^972[2-9]\d{7,8}$/.test(number))return '0'+number.slice(3);
