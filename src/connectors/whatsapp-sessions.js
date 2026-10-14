@@ -99,6 +99,10 @@ export class WhatsAppSessions {
  }
  async logout(id='whatsapp-main'){return this.deleteSession(id);}
  stop(){for(const c of this.sessions.values())c.stop();}
+ async requestHistory(sessionId,candidates){
+  await this.initialize();
+  return this.get(sessionId).requestHistory(candidates);
+ }
  async send(payload){
   await this.initialize();
   const id=payload.account_id;
