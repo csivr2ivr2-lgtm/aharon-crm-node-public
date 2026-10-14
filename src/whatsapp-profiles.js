@@ -31,7 +31,7 @@ export async function saveWhatsAppProfile({account_id,jid,name='',phone_jid=''}=
  const [accounts]=await database.execute('SELECT id FROM accounts WHERE integration_key=? LIMIT 1',[accountKey]);
  if(accounts[0])await database.execute(`UPDATE conversations SET title=? WHERE account_id=? AND channel='whatsapp' AND external_id=?
  AND (title=external_id OR title LIKE '%@lid' OR title LIKE '%@g.us' OR title LIKE '%@s.whatsapp.net'
- OR title LIKE 'קבוצת WhatsApp%' OR title LIKE 'איש קשר WhatsApp%')`,[title,accounts[0].id,jid]);
+ OR title LIKE 'קבוצת WhatsApp%' OR title LIKE 'איש קשר WhatsApp%' OR title=?)`,[title,accounts[0].id,jid,String(profiles[0]?.display_name||'')]);
  return {ok:true,updated:true};
 }
 export async function lookupWhatsAppTitle({account_id,jid}={},database=defaultDb){

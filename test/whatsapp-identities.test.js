@@ -26,7 +26,7 @@ test('contacts and LID mapping resolve displayed peer but preserve conversation 
  await c.receiveMessages(sock,{type:'notify',messages:[msg('1','126509016678653@lid')]});
  const m=events.find(x=>x.type==='message');
  assert.equal(m.conversation_external_id,'126509016678653@lid');
- assert.equal(m.conversation_title,'לקוח לדוגמה');
+ assert.equal(m.conversation_title,'לקוח לדוגמה · 972537291432');
  assert.equal(m.sender,'972537291432@s.whatsapp.net');
 });
 test('group, channel, and broadcast message content is excluded from CRM',async()=>{

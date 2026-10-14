@@ -17,9 +17,11 @@ export function safeWhatsAppPn(value){
 }
 export function whatsappPeerTitle({jid,name='',phoneJid=''}={}){
  const label=safeWhatsAppName(name);
- if(label)return label;
  const phone=safeWhatsAppPn(phoneJid)||(isPhoneJid(jid)?String(jid).toLowerCase():'');
- if(phone)return phone.slice(0,phone.indexOf('@'));
+ const number=phone?phone.slice(0,phone.indexOf('@')):'';
+ // A phone comes only from a real PN JID or trusted LID -> PN mapping.
+ if(label)return number&&!label.includes(number)?label+' · '+number:label;
+ if(number)return number;
  const short=String(jid||'').split('@')[0].slice(-4);
  if(isGroupJid(jid))return 'קבוצת WhatsApp'+(short?' · '+short:'');
  if(isLidJid(jid))return 'איש קשר WhatsApp (מזהה פרטי'+(short?' · '+short:'')+')';

@@ -79,8 +79,8 @@ const run=async()=>{
  await db.execute("INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES('ci-wa-chat','whatsapp','ci-whatsapp','126509016678653@lid','126509016678653@lid','')");
  await saveWhatsAppProfile({account_id:'whatsapp-main',jid:'126509016678653@lid',name:'Verified test contact',phone_jid:'972537291432@s.whatsapp.net'},db);
  const [[waChat]]=await db.execute("SELECT title FROM conversations WHERE id='ci-wa-chat'");
- assert.equal(waChat.title,'Verified test contact');
- assert.equal(await lookupWhatsAppTitle({account_id:'whatsapp-main',jid:'126509016678653@lid'},db),'Verified test contact');
+ assert.equal(waChat.title,'Verified test contact · 972537291432');
+ assert.equal(await lookupWhatsAppTitle({account_id:'whatsapp-main',jid:'126509016678653@lid'},db),'Verified test contact · 972537291432');
  console.log('PASS: real SQL WhatsApp profile lookup and historical title backfill');
 
  console.log('PASS: columns, tables, index');
