@@ -158,7 +158,7 @@ app.post("/v1/workspace/:op",async(req,reply)=>{if(!apiAuth(req,reply))return;re
 app.post("/v1/sync",async(req,reply)=>{if(!apiAuth(req,reply))return;return scheduler.runOnce()});
 app.all("/mcp",handleMcp);
 
-async function onWhatsAppEvent(event){const r=await workspace.call("message.ingest",event);if(r.inserted)hub.publish("message.new",{conversation_id:r.conversation_id,channel:"whatsapp"});}
+async function onWhatsAppEvent(event){const r=await workspace.call("message.ingest",event);if(r.inserted)hub.publish("message.new",{conversation_id:r.conversation_id,channel:"whatsapp"});return r;}
 const backgroundState={enabled:startBackground,running:false,last_error:null};
 registerIntelligenceRoutes(app,{uiAuth,hub,backgroundState});
 let stopJobs=async()=>{},reminders,historyDiscoveryTimer;

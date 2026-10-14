@@ -25,9 +25,9 @@ const textFrom=m=>{
 };
 
 export class WhatsAppConnector{
- constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false}
+ constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.lastEventAt=null;this.lastIngestedAt=null;this.receivedCount=0;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false}
  configured(){return config.whatsappEnabled}
- status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError}}
+ status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError,last_event_at:this.lastEventAt,last_ingested_at:this.lastIngestedAt,received_count:this.receivedCount}}
  async pairWithPhone(number,onEvent=this.onEvent){
   if(!this.configured())throw Error("whatsapp_not_enabled");
   const phone=pairingPhoneNumber(number);
@@ -84,7 +84,11 @@ export class WhatsAppConnector{
       account:{provider:"whatsapp",type:"whatsapp",identifier:this.sessionId,label:this.label},
       conversation_external_id:jid,external_id:String(m.key.id||""),direction,sender:direction==="in"?jid:"me",recipient:direction==="out"?jid:"me",
       subject:"",body,is_read:direction==="out",sent_at:new Date(Number(m.messageTimestamp||Math.floor(Date.now()/1000))*1000).toISOString()};
-     try{await this.onEvent?.(event)}catch{this.lastError="message_ingestion_failed";}
+     this.lastEventAt=new Date().toISOString();
+     try{
+      const ingested=await this.onEvent?.(event);
+      if(ingested?.inserted){this.receivedCount++;this.lastIngestedAt=new Date().toISOString();}
+     }catch{this.lastError="message_ingestion_failed";}
     }
    });
   }catch{this.lastError="connection_failed";this.statusValue="error";throw Error("whatsapp_connection_failed");}finally{this.connecting=false}

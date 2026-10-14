@@ -158,7 +158,7 @@ async function loadWa(){
   const code=s.pairing_code?'<p role="status">קוד קישור: <strong dir="ltr">'+esc(s.pairing_code)+'</strong></p>':'';
   const qr=s.qr&&s.qr.startsWith('data:image/png;base64,')?'<img alt="QR לקישור" width="220" src="'+esc(s.qr)+'">':'';
   const error=s.last_error?'<p class="error">'+esc(userError(s.last_error))+'</p>':'';
-  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
+  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p><p class="muted">הודעות שנקלטו מאז אתחול השרת: '+Number(s.received_count||0)+(s.last_ingested_at?' · קליטה אחרונה: '+esc(formatDate(s.last_ingested_at)):'')+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
  }).join('')||'<p>אין עדיין חשבונות WhatsApp מחוברים.</p>';
 }
 
