@@ -1,5 +1,6 @@
 // Isolated integration test: only the CI database set through DB_* is modified.
 import assert from 'node:assert/strict';
+import {AssistantChatHistory,migrateAssistantChats} from '../src/assistant-chat-history.js';
 import {db,migrate} from '../src/db.js';
 import {migrateExtras} from '../src/extra-schema.js';
 import {migratePlatform} from '../src/platform/schema.js';
@@ -7,7 +8,7 @@ import {migrateIntelligence} from '../src/ai/intelligence.js';
 import {migrateInboxWorkbench,listInboxWork,markInboxVisit} from '../src/inbox-workbench.js';
 import {migrateHistorySync} from '../src/historical-sync.js';
 import {migrateThreading,mergeConversations,splitConversation} from '../src/conversation-threading.js';
-import {migrateOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory,listOwnerMemories} from '../src/owner-memory.js';
+import {migrateOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory,listOwnerMemories,retrieveOwnerMemories} from '../src/owner-memory.js';
 import {migrateWhatsAppProfiles,saveWhatsAppProfile,lookupWhatsAppTitle} from '../src/whatsapp-profiles.js';
 import {migrateWhatsAppHistory,discoverWhatsAppChat,recordWhatsAppHistoryBatch,listWhatsAppHistory} from '../src/whatsapp-history.js';
 
@@ -49,6 +50,33 @@ const run=async()=>{
  await deleteOwnerMemory({id:memory.id,revision:2},db);
  assert.ok(!(await listOwnerMemories({},db)).items.some(row=>row.id===memory.id));
  console.log('PASS: real SQL owner-memory migrations, revision edits, deletion');
+ const recalled=await createOwnerMemory({kind:'decision',subject:'מחירון אוריון',body:'החלטה ישנה ורלוונטית'},db);
+ await db.execute('UPDATE owner_memories SET updated_at=? WHERE id=?',['2020-01-01T00:00:00.000Z',recalled.id]);
+ const memoryIds=[recalled.id];
+ for(let i=0;i<205;i++)memoryIds.push((await createOwnerMemory({kind:'fact',subject:'נושא בלתי קשור '+i,body:'מידע אחר'},db)).id);
+ const temporary=await createOwnerMemory({kind:'temporary',subject:'מחירון אוריון',body:'תזכורת שפגה'},db);memoryIds.push(temporary.id);
+ await db.execute('UPDATE owner_memories SET updated_at=? WHERE id=?',['2020-01-01T00:00:00.000Z',temporary.id]);
+ const inference=await createOwnerMemory({kind:'inference',subject:'מחירון אוריון',body:'השערה בלבד'},db);memoryIds.push(inference.id);
+ const memories=await retrieveOwnerMemories({query:'מחירון אוריון'},db);
+ assert.ok(memories.some(m=>m.id===recalled.id));assert.ok(!memories.some(m=>m.id===temporary.id));
+ assert.equal(memories.find(m=>m.id===inference.id).evidence,'unverified_inference');
+ for(const id of memoryIds)await deleteOwnerMemory({id,revision:1},db);
+ console.log('PASS: real SQL relevance before limit, old Hebrew decisions and temporary/inference separation');
+ await migrateAssistantChats(db);await migrateAssistantChats(db);
+ let recalledChat;
+ const chat=new AssistantChatHistory({database:db,assistant:{chat:async input=>{recalledChat=input;return {reply:'נבדק',actions:[]};}}});
+ const chatId=(await chat.create()).id,otherChatId=(await chat.create()).id;
+ const turn=async(id,session,body,at)=>db.execute('INSERT INTO assistant_chat_turns(id,session_id,role,body,request_id,created_at) VALUES(?,?,?,?,?,?)',[id,session,'user',body,id,at]);
+ await turn('sql_old_decision',chatId,'מחירון אוריון תשעה שקלים','2020-01-01T00:00:00.000Z');
+ await turn('sql_private_decision',otherChatId,'מחירון אוריון מידע חסוי','2020-01-01T00:00:00.000Z');
+ for(let i=0;i<405;i++)await turn('sql_history_'+i,chatId,'שיחה אחרת '+i,new Date(1700000000000+i*1000).toISOString());
+ const loadedChat=await chat.load(chatId);assert.equal(loadedChat.messages.length,400);assert.equal(loadedChat.messages.at(-1).id,'sql_history_404');
+ await chat.send({sessionId:chatId,message:'מה מחירון אוריון?',requestId:'sql_recall_request',context:{}});
+ assert.ok(recalledChat.recalledHistory.some(t=>t.text.includes('תשעה')));
+ assert.ok(!recalledChat.recalledHistory.some(t=>t.text.includes('חסוי')));
+ for(const id of [chatId,otherChatId]){await db.execute('DELETE FROM assistant_chat_turns WHERE session_id=?',[id]);await db.execute('DELETE FROM assistant_chat_sessions WHERE id=?',[id]);}
+ console.log('PASS: real SQL long-chat latest window and session-isolated relevant recall');
+
  const [historyTable]=await db.query("SHOW TABLES LIKE 'historical_sync_progress'");
  assert.equal(historyTable.length,1,'historical sync progress must be restart-safe');
 
@@ -239,4 +267,5 @@ const run=async()=>{
 
 };
 try{await run()}catch(e){console.error('REAL SQL INTEGRATION FAILED:',e);process.exitCode=1}finally{await db.end()}
+
 

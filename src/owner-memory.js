@@ -3,7 +3,7 @@ import {db as defaultDb,now} from './db.js';
 
 // Owner-only memory is NOT client knowledge. Nothing is extracted from inbound
 // messages or chat tool output automatically. Only an authenticated owner can edit it.
-const KINDS=['preference','decision','project','fact'];
+const KINDS=['preference','decision','project','fact','inference','temporary'];
 const actorId=actor=>{if(actor!=='dashboard')throw Error('owner_memory_access_denied');return actor;};
 const valid=(value,max,field)=>{if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw Error('invalid_owner_memory_'+field);return value.trim();};
 const kindValue=kind=>{if(!KINDS.includes(kind))throw Error('invalid_owner_memory_kind');return kind;};
@@ -44,7 +44,7 @@ export async function deleteOwnerMemory({actor='dashboard',id,revision}={},datab
 }
 // Match simple Hebrew definite articles/prepositions without using an AI service
 // to read private facts. Keep the original token to avoid losing precise matches.
-const tokens=s=>{
+export const memoryTerms=s=>{
  const words=String(s||'').normalize('NFKC').toLocaleLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[];
  const expanded=[];
  for(const word of words.slice(0,24)){
@@ -55,19 +55,27 @@ const tokens=s=>{
 };
 export async function retrieveOwnerMemories({actor='dashboard',query='',limit=6,maxChars=2600}={},database=defaultDb){
  actorId(actor);
- const terms=tokens(query),[rows]=await database.execute('SELECT id,kind,subject,body,updated_at FROM owner_memories WHERE actor=? ORDER BY updated_at DESC LIMIT 200',[actor]);
+ const terms=memoryTerms(query);
+ if(!terms.length)return [];
+ // Rank across the entire owner's store BEFORE limiting rows, so an old decision
+ // cannot disappear behind 200 unrelated recent edits. Values are always bound.
+ const score=terms.map(()=>'(CASE WHEN LOCATE(?,LOWER(subject))>0 THEN 4 ELSE 0 END + CASE WHEN LOCATE(?,LOWER(body))>0 THEN 1 ELSE 0 END)').join('+');
+ const [rows]=await database.execute(`SELECT id,kind,subject,body,source,updated_at,(${score}) AS relevance FROM owner_memories WHERE actor=? AND (kind<>'temporary' OR updated_at>?) HAVING relevance>0 ORDER BY relevance DESC,updated_at DESC,id DESC LIMIT 60`,[...terms.flatMap(t=>[t,t]),actor,new Date(Date.now()-7*86400000).toISOString()]);
  const scored=rows.map(row=>{
   const title=String(row.subject||'').normalize('NFKC').toLocaleLowerCase(),body=String(row.body||'').normalize('NFKC').toLocaleLowerCase();
   const hits=terms.reduce((n,t)=>n+(title.includes(t)?4:0)+(body.includes(t)?1:0),0);
-  return {row,score:hits>0?hits+(row.kind==='preference'?.25:0):0};
+  // Temporary notes expire after seven days, without deleting the owner's record.
+  const expired=row.kind==='temporary'&&(!Number.isFinite(Date.parse(row.updated_at))||Date.parse(row.updated_at)+7*86400000<=Date.now());
+  return {row,score:!expired&&hits>0?hits:0};
  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||String(b.row.updated_at).localeCompare(String(a.row.updated_at)));
  const output=[];const budget=Math.max(200,Math.min(4000,Number(maxChars)||2600));let used=2;
  for(const {row} of scored){
   if(output.length>=Math.min(10,Math.max(1,Number(limit)||6)))break;
-  const item={id:row.id,kind:row.kind,subject:row.subject,body:row.body,updated_at:row.updated_at,source:'owner_manual'};
+  const item={id:row.id,kind:row.kind,subject:row.subject,body:row.body,updated_at:row.updated_at,source:row.source||'owner_manual',evidence:row.kind==='inference'?'unverified_inference':row.kind==='preference'?'owner_preference':row.kind==='temporary'?'temporary_owner_note':'owner_assertion'};
   const n=JSON.stringify(item).length+2;
   if(used+n>budget)continue;
   output.push(item);used+=n;
  }
  return output;
 }
+

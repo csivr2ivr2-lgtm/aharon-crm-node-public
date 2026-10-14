@@ -319,7 +319,7 @@ async function openOwnerMemory(){
  document.getElementById('ownerMemoryDialog')?.remove();
  const d=await api('/api/owner-memories');
  const dialog=document.createElement('dialog');dialog.id='ownerMemoryDialog';
- const kinds=[['preference','העדפה'],['decision','החלטה'],['project','פרויקט'],['fact','עובדה']];
+ const kinds=[['preference','העדפה'],['decision','החלטה'],['project','פרויקט'],['fact','עובדה'],['inference','השערה לא מאומתת'],['temporary','מידע זמני — 7 ימים']];
  dialog.innerHTML='<section class="panel" style="min-width:min(560px,85vw);max-height:80vh;overflow:auto"><h2>זיכרון אישי</h2><p>פרטים שהזנת בעצמך וזמינים לעוזר בשיחות עתידיות לפי הקשר. שום מידע מהודעות של לקוחות לא נשמר כאן אוטומטית.</p><form id="ownerMemoryForm"><input type="hidden" name="id"><input type="hidden" name="revision"><label>סוג זיכרון<select name="kind">'+kinds.map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></label><label>נושא<input name="subject" required maxlength="160"></label><label>מה לזכור<textarea name="body" required maxlength="2500" rows="4"></textarea></label><div class="actions"><button type="submit" class="btn primary">שמירה</button><button type="button" class="btn" id="ownerMemoryClear">זיכרון חדש</button><button type="button" class="btn" id="ownerMemoryClose">סגירה</button></div></form><div id="ownerMemoryItems">'+(d.items||[]).map(m=>'<article class="row"><div><strong>'+esc(m.subject)+'</strong><p class="note">'+esc(m.body)+'</p><small>'+esc(kinds.find(x=>x[0]===m.kind)?.[1]||m.kind)+'</small></div><div class="actions"><button class="btn" data-memory-edit="'+esc(m.id)+'">עריכה</button><button class="btn" data-memory-delete="'+esc(m.id)+'">מחיקה</button></div></article>').join('')+'</div></section>';
  document.body.append(dialog);
  const form=dialog.querySelector('#ownerMemoryForm'),clear=()=>{form.reset();form.elements.id.value='';form.elements.revision.value='';};
@@ -627,4 +627,5 @@ async function workAction(action,id){
 
 function readHistoryCursor(){try{return localStorage.getItem('inbox-history-cursor')||'';}catch{return '';}}
 function saveHistoryCursor(value){try{localStorage.setItem('inbox-history-cursor',value);}catch{}}
+
 

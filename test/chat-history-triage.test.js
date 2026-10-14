@@ -16,8 +16,9 @@ function historyFixture(){
    if(sql.startsWith('SELECT id,title,created_at'))return [[...sessions.values()].filter(s=>s.actor===p[0]&&!s.archived_at)];
    if(sql.startsWith('INSERT INTO assistant_chat_turns')){turns.push({id:p[0],session_id:p[1],role:p[2],body:p[3],request_id:p[4],created_at:p[5]});return [{affectedRows:1}]}
    if(sql.startsWith('SELECT id FROM assistant_chat_turns'))return [turns.filter(t=>t.session_id===p[0]&&t.request_id===p[1]&&t.role==='user').map(t=>({id:t.id}))];
-   if(sql.startsWith('SELECT role,body FROM assistant_chat_turns'))return [turns.filter(t=>t.session_id===p[0]&&t.request_id!==p[1]).map(t=>({role:t.role,body:t.body})).reverse()];
-   if(sql.startsWith('SELECT id,role,body'))return [turns.filter(t=>t.session_id===p[0])];
+   if(sql.startsWith('SELECT role,body,('))return [turns.filter(t=>t.session_id===p.at(-2)&&t.request_id!==p.at(-1)).filter(t=>p.slice(0,-2).some(term=>t.body.includes(term))).slice(0,6)];
+   if(sql.startsWith('SELECT role,body FROM assistant_chat_turns'))return [turns.filter(t=>t.session_id===p[0]&&t.request_id!==p[1]).slice(-12).map(t=>({role:t.role,body:t.body})).reverse()];
+   if(sql.startsWith('SELECT id,role,body'))return [turns.filter(t=>t.session_id===p[0]).slice(-400).reverse()];
    if(sql.startsWith('INSERT INTO assistant_chat_actions')){links.push({action_id:p[0],session_id:p[1],turn_id:p[2],tool:p[3],args_json:p[4],preview_json:p[5],dismissed_at:null});return [{affectedRows:1}]}
    if(sql.startsWith('SELECT l.action_id'))return [links.filter(l=>l.session_id===p[0]).map(l=>({...l,state:actions.get(l.action_id)||'pending',expires_at:'2099-01-01'}))];
    if(sql.startsWith('SELECT action_id FROM assistant_chat_actions'))return [links.filter(l=>l.action_id===p[0]&&l.session_id===p[1]&&!l.dismissed_at).map(l=>({action_id:l.action_id}))];
@@ -95,3 +96,17 @@ test('UI keeps approvals by the original assistant turn, not the bottom',async()
  assert.ok(!html.includes('SECRET'));
 });
 
+
+
+test('long chats load the newest 400 turns and recall old relevant turns only within that session',async()=>{
+ const f=historyFixture();let captured;
+ const svc=new AssistantChatHistory({database:f.database,engine:f.engine,assistant:{chat:async input=>{captured=input;return {reply:'בדקתי',actions:[]};}}});
+ const a=(await svc.create()).id,b=(await svc.create()).id;
+ f.turns.push({id:'old',session_id:a,role:'user',body:'מחירון אוריון נקבע לתשעה שקלים',request_id:'old_request',created_at:'2020-01-01'});
+ f.turns.push({id:'private',session_id:b,role:'user',body:'מחירון אוריון של לקוח אחר',request_id:'private_request',created_at:'2020-01-01'});
+ for(let i=0;i<410;i++)f.turns.push({id:'turn'+i,session_id:a,role:i%2?'assistant':'user',body:'שיחה אחרת '+i,request_id:'r'+i,created_at:new Date(1700000000000+i*1000).toISOString()});
+ const loaded=await svc.load(a);assert.equal(loaded.messages.length,400);assert.equal(loaded.messages.at(-1).id,'turn409');
+ await svc.send({sessionId:a,message:'מה מחירון אוריון?',requestId:'recall_request',context:{}});
+ assert.ok(captured.recalledHistory.some(x=>x.text.includes('תשעה')));
+ assert.ok(!captured.recalledHistory.some(x=>x.text.includes('לקוח אחר')));
+});
