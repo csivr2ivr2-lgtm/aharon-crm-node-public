@@ -219,7 +219,20 @@ document.addEventListener('click',async e=>{
   }
   if(action==='wa-history'){
    const result=await post('/api/whatsapp/history/request',{session_id:id,limit:5});
-   $('#notice').textContent='נשלחו '+String(result.requested||0)+' בקשות היסטוריה. חלק מהבקשות עלולות לא לקבל מענה מ־WhatsApp.';
+   const descriptions={
+    not_connected:'החשבון אינו מחובר כרגע. יש להתחבר מחדש לחשבון הנכון.',
+    no_chats_available:'לא נמצאו צ׳אטים אישיים עם עוגן הודעה זמין עבור החשבון הזה. WhatsApp טרם סיפקה נתונים שמאפשרים בקשת היסטוריה.',
+    no_usable_anchors:'נמצאו צ׳אטים, אבל אין בהם מזהה ותאריך של הודעה אמיתית שניתן להשתמש בהם לבקשת היסטוריה.',
+    cooldown:'כבר נשלחו בקשות עבור הצ׳אטים הזמינים ב־24 השעות האחרונות. לא נשלחו בקשות כפולות.',
+    unsupported_api:'גרסת החיבור אינה תומכת בפונקציית בקשת היסטוריה.',
+    request_failed:'כל ניסיונות שליחת הבקשות נכשלו. יש לבדוק חיבור ויומן שגיאות.',
+    no_confirmed_requests:'ניסיונות הבקשה לא התקבלו באישור ברור.'
+   };
+   const d=result.diagnostics||{};
+   const extra=' (צ׳אטים במסד: '+String(d.stored_chats||0)+', עוגני הודעה חיים: '+String(d.live_anchors||0)+', ללא עוגן: '+String(d.no_anchor||0)+', בהמתנה: '+String(d.cooldown||0)+').';
+   $('#notice').textContent=Number(result.requested)>0?
+    'נשלחו '+String(result.requested)+' מתוך '+String(result.attempted||0)+' בקשות היסטוריה. WhatsApp אינה מבטיחה החזרת ההודעות.':
+    'לא נשלחה בקשת היסטוריה: '+(descriptions[result.reason]||'הסיבה אינה ידועה. בדוק סטטוס החיבור.')+extra;
   }
   if(action==='wa-logout'&&confirm('לנתק את החשבון המקושר?')){await post('/api/whatsapp/logout',{session_id:id});await loadWa();}
   if(action==='associate'){await api('/api/conversations/'+encodeURIComponent(conversation),{method:'PATCH',body:JSON.stringify({client_id:$('#convClient').value,project_id:$('#convProject').value})});$('#notice').textContent='השיוך נשמר';}

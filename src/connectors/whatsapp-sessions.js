@@ -99,6 +99,10 @@ export class WhatsAppSessions {
  }
  async logout(id='whatsapp-main'){return this.deleteSession(id);}
  stop(){for(const c of this.sessions.values())c.stop();}
+ async historyAnchors(sessionId,limit=20){
+  await this.initialize();
+  return this.get(sessionId).historyAnchorCandidates(limit);
+ }
  async requestHistory(sessionId,candidates){
   await this.initialize();
   return this.get(sessionId).requestHistory(candidates);

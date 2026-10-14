@@ -114,13 +114,25 @@ app.get('/api/whatsapp/history/status',async(req,reply)=>{
 app.post('/api/whatsapp/history/request',async(req,reply)=>{
  if(!uiAuth(req,reply))return;
  const id=String(req.body?.session_id||'whatsapp-main');
- const candidates=await whatsappHistoryCandidates({account_id:id,limit:Math.min(10,Math.max(1,Number(req.body?.limit)||5))});
- if(!candidates.length)return {ok:true,requested:0,note:'No anchors available or requests sent within 24 hours'};
+ const limit=Math.min(10,Math.max(1,Math.floor(Number(req.body?.limit)||5)));
+ await whatsapp.initialize();
+ const session=whatsapp.get(id),state=session.statusValue;
+ if(state!=='connected')
+  return {ok:true,requested:0,attempted:0,reason:'not_connected',connection_status:state};
+ const diagnostics={};
+ const live=await whatsapp.historyAnchors(id,100);
+ const candidates=await whatsappHistoryCandidates({account_id:id,limit,live,diagnostics});
+ if(!candidates.length){
+  const reason=diagnostics.cooldown&&diagnostics.no_anchor===0?'cooldown':
+   diagnostics.stored_chats||diagnostics.live_anchors?'no_usable_anchors':'no_chats_available';
+  return {ok:true,requested:0,attempted:0,reason,diagnostics,
+   note:'WhatsApp requires a previously observed real message key and timestamp for on-demand history'};
+ }
  const report=await whatsapp.requestHistory(id,candidates);
  for(const item of report.results||[]){
   if(item.status==='requested')await markWhatsAppHistoryRequested({account_id:id,jid:item.jid});
  }
- return report;
+ return {...report,diagnostics};
 });
 app.post("/api/sync",async(req,reply)=>{if(!uiAuth(req,reply))return;return scheduler.runOnce()});
 app.get("/api/sync/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,report:scheduler.lastReport||null};});
