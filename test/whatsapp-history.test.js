@@ -62,7 +62,7 @@ test('on-demand request returns request status but never asserts old messages we
  const c=new WhatsAppConnector({sessionId:'whatsapp-main'});c.sock=sock;c.statusValue='connected';
  const result=await c.requestHistory([{jid:'972501234567@s.whatsapp.net',key:{id:'oldest',remoteJid:'972501234567@s.whatsapp.net',fromMe:true},timestamp:1791972000000}]);
  assert.equal(result.requested,1);assert.equal(requested[0][0],50);
- assert.match(result.note,/may not/);
+ assert.match(result.note,/does not mean/);
 });
 test('non-person chat identifiers never enter the history queue',()=>{
  for(const id of ['972583268888-1584353032@g.us','status@broadcast','120363287988@newsletter']){
