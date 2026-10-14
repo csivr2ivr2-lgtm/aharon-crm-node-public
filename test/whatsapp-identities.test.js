@@ -11,7 +11,7 @@ test('LID and group IDs are not phone numbers and broadcast is blocked',()=>{
  assert.equal(isGroupJid('972583268888-1584353032@g.us'),true);
  assert.equal(safeWhatsAppPn('972554409165:2@s.whatsapp.net'),'972554409165@s.whatsapp.net');
  assert.equal(safeWhatsAppPn('126509016678653@lid'),'');
- assert.match(whatsappPeerTitle({jid:'126509016678653@lid'}),/מזהה פרטי/);
+ assert.equal(whatsappPeerTitle({jid:'126509016678653@lid'}),'מספר WhatsApp לא זמין');
  assert.match(whatsappPeerTitle({jid:'972583268888-1584353032@g.us'}),/קבוצת WhatsApp/);
  assert.equal(whatsappPeerTitle({jid:'126509016678653@lid',phoneJid:'972554409165@s.whatsapp.net'}),'972554409165');
  assert.equal(isWhatsAppConversationJid('126509016678653@lid'),true);
