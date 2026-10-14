@@ -26,9 +26,9 @@ export const textFrom=m=>{
 };
 
 export class WhatsAppConnector{
- constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set();this.historyQueue=Promise.resolve();this.historyStats={batches:0,chats:0,imported:0,duplicates:0,failed:0,last_at:null}}
+ constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set();this.historyQueue=Promise.resolve();this.knownChats=new Set();this.historyAnchors=new Map();this.historyStats={batches:0,chats:0,imported:0,duplicates:0,failed:0,last_at:null}}
  configured(){return config.whatsappEnabled}
- status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError,history:{...this.historyStats}}}
+ status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError,history:{...this.historyStats,known_chats:this.knownChats.size,anchor_chats:this.historyAnchors.size}}}
  async pairWithPhone(number,onEvent=this.onEvent){
   if(!this.configured())throw Error("whatsapp_not_enabled");
   const phone=pairingPhoneNumber(number);
@@ -118,6 +118,9 @@ export class WhatsAppConnector{
   for(const c of chats){
    const jid=String(c?.id||'').toLowerCase();
    if(!isWhatsAppConversationJid(jid))continue;
+   this.knownChats.add(jid);
+   // Some chat payloads include a real last-message anchor; most carry metadata only.
+   if(c?.lastMessage?.key)this.rememberHistoryAnchor(c.lastMessage);
    await this.onEvent?.({type:'whatsapp.history.chat',account_id:this.sessionId,jid});
    const name=c?.name||c?.subject||c?.notify||'';
    const alternative=String(c?.pnJid||c?.phoneNumber||c?.phone_number||'').toLowerCase();
@@ -184,21 +187,52 @@ export class WhatsAppConnector{
   this.historyStats.last_at=new Date().toISOString();
   return {ok:true,chats:grouped.size,messages:[...grouped.values()].reduce((n,a)=>n+a.length,0)};
  }
+ // WhatsApp's on-demand API requires the key and timestamp of an actual message.
+ // Keep the earliest raw key from observed live/history traffic even when its
+ // CRM row is not yet available (for example during initial synchronization).
+ rememberHistoryAnchor(message){
+  const jid=String(message?.key?.remoteJid||'').toLowerCase(),id=String(message?.key?.id||'');
+  const raw=Number(message?.messageTimestamp);
+  const timestamp=raw>1e12?raw:raw*1000;
+  if(!isWhatsAppConversationJid(jid)||!id||id.length>128||!Number.isSafeInteger(timestamp)||
+   timestamp<946684800000||timestamp>Date.now()+300000)return false;
+  this.knownChats.add(jid);
+  const previous=this.historyAnchors.get(jid);
+  if(previous&&previous.timestamp<=timestamp)return false;
+  // Bounded in-memory cache; not a replacement for SQL history inventory.
+  if(this.historyAnchors.size>=3000&&!this.historyAnchors.has(jid))
+   this.historyAnchors.delete(this.historyAnchors.keys().next().value);
+  const key={remoteJid:jid,id,fromMe:message.key.fromMe===true};
+  if(message.key.participant)key.participant=message.key.participant;
+  this.historyAnchors.set(jid,{jid,key,timestamp});
+  return true;
+ }
+ historyAnchorCandidates(limit=10){
+  return [...this.historyAnchors.values()].sort((a,b)=>a.timestamp-b.timestamp)
+   .slice(0,Math.max(1,Math.min(50,Number(limit)||10)));
+ }
  // A single bounded on-demand request per known chat. A successful request
  // means WhatsApp accepted the REQUEST, not that older messages were delivered.
  async requestHistory(candidates=[]){
   if(this.statusValue!=='connected'||!this.sock)throw Error('whatsapp_not_connected');
-  if(typeof this.sock.fetchMessageHistory!=='function')return {ok:true,unsupported:true,requested:0,results:[]};
+  if(typeof this.sock.fetchMessageHistory!=='function')
+   return {ok:true,requested:0,attempted:0,reason:'unsupported_api',results:[]};
   const results=[];
   for(const c of candidates.slice(0,10)){
    if(!isWhatsAppConversationJid(c.jid)||!c.key?.id||!Number.isFinite(c.timestamp))continue;
    try{
-    const ticket=await this.sock.fetchMessageHistory(100,c.key,c.timestamp);
+    // WhatsApp's documented on-demand page limit is 50 messages.
+    const ticket=await this.sock.fetchMessageHistory(50,c.key,c.timestamp);
     results.push({jid:c.jid,status:ticket?'requested':'unconfirmed'});
-   }catch{results.push({jid:c.jid,status:'failed'});}
+   }catch(error){
+    const category=/timeout/i.test(String(error?.message||''))?'timeout':'request_failed';
+    results.push({jid:c.jid,status:'failed',reason:category});
+   }
   }
-  return {ok:true,requested:results.filter(x=>x.status==='requested').length,results,
-   note:'WhatsApp may not return older messages for an accepted request'};
+  const requested=results.filter(x=>x.status==='requested').length;
+  return {ok:true,requested,attempted:results.length,reason:requested?'submitted':
+   results.some(x=>x.status==='failed')?'request_failed':'no_confirmed_requests',
+   results,note:'Sending a request does not mean WhatsApp will return historical messages'};
  }
 
  async receiveMessages(sock,{messages,type}={}){
@@ -243,6 +277,7 @@ export class WhatsAppConnector{
        await new Promise(resolve=>setTimeout(resolve,80*(attempt+1)));
       }
      }
+     this.rememberHistoryAnchor(m);
      if(result?.inserted)summary.imported++;else summary.duplicates++;
      }catch{summary.failed++;this.lastError="message_ingestion_failed";}
     }
@@ -257,7 +292,7 @@ export class WhatsAppConnector{
   try{await sock?.logout();}catch{this.lastError="logout_failed";throw Error("whatsapp_logout_failed");}finally{sock?.end?.(new Error("logout"));}
   // Removing stored credentials also works when there is no active socket.
   await this.credentialWrites;
-  await rm(this.sessionDir,{recursive:true,force:true});this.statusValue="logged_out";this.lastError=null;
+  await rm(this.sessionDir,{recursive:true,force:true});this.knownChats.clear();this.historyAnchors.clear();this.statusValue="logged_out";this.lastError=null;
  }
  async deleteSession(){await this.logout();return {ok:true,...this.status()};}
  async send({to,body}){if(!this.sock||this.statusValue!=="connected")throw Error("WhatsApp is not connected");const jid=whatsappDestination(to);if(!String(body||"").trim())throw Error("body_required");const r=await this.sock.sendMessage(jid,{text:String(body)});if(!r?.key?.id)throw Error("send_not_confirmed");return {ok:true,message_id:String(r.key.id),jid};}
