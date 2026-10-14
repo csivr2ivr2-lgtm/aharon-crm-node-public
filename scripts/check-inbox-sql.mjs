@@ -36,7 +36,7 @@ const run=async()=>{
  for(const name of ['headers_json','inbox_event_type','references_json','classification','classification_score','classification_reason','spam_disposition'])assert.ok(names.has(name),'missing column '+name);
  const [index]=await db.query("SHOW INDEX FROM messages WHERE Key_name='idx_inbox_latest'");
  assert.deepEqual(index.map(x=>x.Column_name).sort(),['conversation_id','id','sent_at'].sort());
- for(const name of ['conversation_workflow','message_intelligence','inbox_visits']){
+ for(const name of ['conversation_workflow','message_intelligence','inbox_visits','inbox_page_sets','inbox_page_members']){
   const [found]=await db.query('SHOW TABLES LIKE ?',[name]);
   assert.equal(found.length,1,'missing table '+name);
  }
@@ -85,7 +85,7 @@ const run=async()=>{
  await db.execute("INSERT INTO conversation_workflow(conversation_id,manual_status,revision,updated_at) VALUES('ci-05','done',1,?)",[old]);
  const captured=[];
  const recording={execute:async(sql,params)=>{if(sql.includes('FROM conversations c JOIN messages m'))captured.push([sql,params]);return db.execute(sql,params);}};
- const waiting=await listInboxWork({view:'needs_reply',maxBatches:1},recording);
+ const waiting=await listInboxWork({view:'needs_reply',sort:'priority',maxBatches:1},recording);
  assert.ok(waiting.items.some(x=>x.id==='ci-01'),'new quote missing from work queue');
  assert.ok(waiting.items.some(x=>x.id==='ci-05'),'new message after done missing');
  assert.ok(!waiting.items.some(x=>x.id==='ci-03'),'answered elsewhere is incorrectly waiting');
@@ -111,6 +111,38 @@ const run=async()=>{
  const [visit]=await db.query("SELECT COUNT(*) AS n FROM inbox_visits WHERE actor='dashboard'");
  assert.equal(Number(visit[0].n),1);
  console.log('PASS: session visit persisted');
+ // Real SQL snapshot tests: IDs are deliberately not chronological, and inserts
+ // happen between requests to exercise immutable membership rather than a mock.
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key) VALUES('ci-time','email','Time test','time@example.test','ci:time')");
+ for(const id of ['time-z','time-b','time-a'])await conv(id,'ci-time');
+ await insert('time-mz','time-z','in','hello','2026-10-14T10:01:00.000Z','<same-copy>');
+ await insert('time-mb','time-b','in','hello','2026-10-14T10:02:00.000Z','<same-copy>');
+ await insert('time-ma','time-a','in','hello','2026-10-14T10:03:00.000Z');
+ const filter={view:'all',account_id:'ci-time',limit:1};
+ const first=await listInboxWork(filter,db);
+ assert.deepEqual(first.items.map(x=>x.id),['time-a']);
+ assert.equal(first.ranking_scope,'snapshot_time');
+ await insert('time-new-b','time-b','out','new outgoing','2026-10-14T10:05:00.000Z');
+ await conv('time-new','ci-time');
+ await insert('time-new-message','time-new','in','new inbound','2026-10-14T10:04:00.000Z');
+ await insert('time-late-a','time-a','in','late archive','2026-10-14T10:00:00.000Z');
+ await insert('time-reaction','time-z','in','reaction','2026-10-14T10:06:00.000Z');
+ await db.execute("UPDATE messages SET inbox_event_type='reaction' WHERE id='time-reaction'");
+ const second=await listInboxWork({...filter,cursor:first.next_cursor},db);
+ assert.deepEqual(second.items.map(x=>x.id),['time-b']);
+ assert.equal(second.items[0].message_id,'time-mb','snapshot must keep pre-insert message');
+ const third=await listInboxWork({...filter,cursor:second.next_cursor},db);
+ assert.deepEqual(third.items.map(x=>x.id),['time-z']);
+ assert.equal((await listInboxWork({...filter,cursor:third.next_cursor},db)).done,true);
+ const fresh=await listInboxWork({...filter,limit:20},db);
+ assert.deepEqual(fresh.items.map(x=>x.id),['time-b','time-new','time-a','time-z']);
+ assert.equal(fresh.items[0].direction,'out');
+ await assert.rejects(listInboxWork({...filter,account_id:'ci-b',cursor:first.next_cursor},db),/filter_mismatch/);
+ const snapshotId=first.next_cursor.split(':')[1];
+ await db.execute("UPDATE inbox_page_sets SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?",[snapshotId]);
+ await assert.rejects(listInboxWork({...filter,cursor:first.next_cursor},db),/expired_refresh/);
+ console.log('PASS: real time snapshot ordering, concurrent arrivals, outgoing activity, reaction exclusion, exact pagination, scope and expiry');
+
  const merged=await mergeConversations({source_id:'ci-05',target_id:'ci-01'},db);
  assert.equal(merged.moved,1);
  const [[mergedCount]]=await db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id='ci-01'");
@@ -126,3 +158,4 @@ const run=async()=>{
  console.log('PASS: transactionally merge/split and cross-account isolation without deleting messages');
 };
 try{await run()}catch(e){console.error('REAL SQL INTEGRATION FAILED:',e);process.exitCode=1}finally{await db.end()}
+
