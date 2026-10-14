@@ -7,8 +7,9 @@ let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
 let assistantMessages=[], pendingActions=[], showArchived=false, showArchivedFiles=false, fileQuery='';
 let visitRecorded=false;
-let workView='needs_reply',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
+let workView='all',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
+let realtimeInboxRefresh=null;
 function phoneForDisplay(value){
  const raw=String(value||'').trim().replace(/@s\.whatsapp\.net$/i,'');
  if(!/^\+?[0-9 ()\-.]{9,24}$/.test(raw))return String(value||'');
@@ -232,7 +233,20 @@ document.addEventListener('click',async e=>{
  }catch(error){$('#error').textContent=error.message;}finally{b.disabled=false;}
 });
 window.addEventListener('hashchange',()=>navigateHash().catch(e=>$('#error').textContent=e.message));
-async function realtime(){try{const d=await post('/api/ws-ticket'),url=new URL('/ws',location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';url.searchParams.set('ticket',d.ticket);const socket=new WebSocket(url);socket.onmessage=e=>{const event=JSON.parse(e.data);if(event.type!=='connected')$('#notice').textContent='המידע עודכן ברקע. ניתן לרענן את המסך.';};socket.onclose=()=>setTimeout(realtime,5000);}catch{setTimeout(realtime,15000);}}
+async function realtime(){try{const d=await post('/api/ws-ticket'),url=new URL('/ws',location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';url.searchParams.set('ticket',d.ticket);const socket=new WebSocket(url);socket.onmessage=e=>{
+ const event=JSON.parse(e.data);
+ if(event.type==='connected')return;
+ if(event.type==='message.new'&&['inbox','spam','updates'].includes(view)&&!conversation){
+  if(realtimeInboxRefresh)clearTimeout(realtimeInboxRefresh);
+  realtimeInboxRefresh=setTimeout(()=>{
+   realtimeInboxRefresh=null;
+   if(['inbox','spam','updates'].includes(view)&&!conversation&&!document.querySelector('#workSearch:focus-within'))
+    renderWorkInbox().catch(err=>{$('#error').textContent=err.message;});
+  },700);
+  return;
+ }
+ $('#notice').textContent='המידע עודכן ברקע. ניתן לרענן את המסך.';
+};socket.onclose=()=>setTimeout(realtime,5000);}catch{setTimeout(realtime,15000);}}
 
 
 
@@ -493,18 +507,18 @@ function workCard(x){
 async function renderWorkInbox(){
  workCursor='';inboxItems=[];
  const [accounts,clients]=await Promise.all([api('/api/accounts'),api('/api/clients')]);
- $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('sync','סנכרון')+button('compose-new','הודעה חדשה')+button('history-sync','סנכרון היסטוריה ברקע')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['priority','חשיבות עסקית'],['time','זמן']],workFilters.sort||'priority')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
+ $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('sync','סנכרון')+button('compose-new','הודעה חדשה')+button('history-sync','סנכרון היסטוריה ברקע')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['time','החדשות ראשונות'],['priority','חשיבות עסקית']],workFilters.sort||'time')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
  await loadWorkBatch();
 }
 async function loadWorkBatch(){
- const params=new URLSearchParams({...workFilters,view:workView,cursor:workCursor,limit:'50'});
+ const params=new URLSearchParams({...workFilters,sort:workFilters.sort||'time',view:workView,cursor:workCursor,limit:'50'});
  if(workFilters.to)params.set('to',new Date(workFilters.to+'T23:59:59.999').toISOString());
  if(workFilters.from)params.set('from',new Date(workFilters.from+'T00:00:00').toISOString());
  $('#workCoverage').textContent='סורק שיחות…';
  const d=await api('/api/inbox/work?'+params);workCursor=d.next_cursor;workDone=d.done;
  const identity=x=>x.rfc_message_id?x.rfc_message_id+'|'+String(x.sender).toLowerCase():x.id;
  const known=new Set(inboxItems.map(identity));inboxItems.push(...d.items.filter(x=>!known.has(identity(x))));
- inboxItems.sort(workFilters.sort==='time'?(a,b)=>String(b.waiting_since).localeCompare(String(a.waiting_since)):(a,b)=>b.priority-a.priority);
+ inboxItems.sort((workFilters.sort||'time')==='time'?(a,b)=>String(b.last_message_at||b.waiting_since).localeCompare(String(a.last_message_at||a.waiting_since)):(a,b)=>b.priority-a.priority);
  $('#inboxItems').innerHTML=inboxItems.map(workCard).join('')||'<p class="empty">'+(d.done?'לא נמצאו פניות בתצוגה הזו בנתונים שסונכרנו.':'לא נמצאו פניות בחלק שנסרק; המשך סריקה.')+'</p>';
  $('#workCoverage').textContent=inboxItems.length+' פניות · '+(d.done?'הסריקה הסתיימה':'נותרו שיחות לסריקה')+' · '+({failed:'הסנכרון האחרון נכשל; ייתכן שחסרות פניות',verified:'הסנכרון האחרון הסתיים ללא שגיאות',stale:'הסנכרון האחרון ישן; מומלץ לסנכרן',unknown:'לא ידוע מתי הסנכרון האחרון הושלם'})[d.sync?.state||'unknown'];
  const more=document.querySelector('[data-action="work-more"]');if(more)more.hidden=d.done;

@@ -105,3 +105,26 @@ test('priority filters preserve only eligible leads and themes reference their e
  const themes=inboxThemes(high.items);assert.ok(themes.length);assert.deepEqual(themes[0].conversation_ids,['a','b']);
  assert.deepEqual(inboxThemes([{id:'spam',message_type:'spam',request_summary:'SMS numbers'}]),[]);
 });
+
+test('recent inbox uses indexed time-first keyset pagination and returns new WhatsApp chats first',async()=>{
+ const recent={...fixtures[5],id:'wa_recent',channel:'whatsapp',direction:'in',last_message_at:'2026-10-14T10:10:00.000Z',waiting_since:'2026-10-14T10:10:00.000Z',message_id:'wa_message_1',sender:'972501234567@s.whatsapp.net'};
+ const older={...fixtures[5],id:'old_mail',channel:'email',last_message_at:'2026-10-12T10:10:00.000Z',waiting_since:'2026-10-12T10:10:00.000Z',message_id:'old_message_1'};
+ const data=[recent,older],seen=[];
+ const db={query:async()=>[testCollations],execute:async(sql,p=[])=>{
+  if(sql.startsWith('SELECT id,last_message_at FROM conversations')){
+   seen.push({sql,p});
+   const matching=data.filter(x=>!p.length||!p[0]||x.last_message_at<p[0]||x.last_message_at===p[0]&&x.id<p[2]);
+   return [matching.slice(0,p.at(-1)).map(x=>({id:x.id,last_message_at:x.last_message_at}))];
+  }
+  if(sql.startsWith('SELECT c.id'))return [data.filter(x=>p.includes(x.id))];
+  throw Error('Unexpected SQL: '+sql);
+ }};
+ const first=await listInboxWork({view:'all',sort:'time'},db);
+ assert.deepEqual(first.items.map(x=>x.id),['wa_recent','old_mail']);
+ assert.ok(seen[0].sql.includes('ORDER BY last_message_at DESC,id DESC'));
+ assert.ok(!seen[0].sql.includes('id>?'));
+ const cursor=first.next_cursor;assert.match(cursor,/^[A-Za-z0-9_-]+$/);
+ const next=await listInboxWork({view:'all',sort:'time',cursor},db);
+ assert.equal(next.items.length,0);assert.ok(seen[1].sql.includes('last_message_at < ?'));
+ await assert.rejects(listInboxWork({view:'all',sort:'time',cursor:'tampered'},db),/invalid_inbox_cursor/);
+});

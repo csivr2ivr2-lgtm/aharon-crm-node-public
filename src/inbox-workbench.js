@@ -18,6 +18,17 @@ export async function migrateInboxWorkbench(database=defaultDb){
 }
 const scalar=(x,n=128)=>{if(x===undefined||x===null)return '';if(typeof x!=='string'||x.length>n)throw Error('invalid_inbox_filter');return x;};
 const folders=['all','needs_reply','waiting_customer','lead','in_progress','done','updates','spam','review','snoozed'];
+
+const encodeTimeCursor=(date,id)=>Buffer.from(JSON.stringify([String(date||''),String(id)]),'utf8').toString('base64url');
+function decodeTimeCursor(value){
+ try{
+  if(!/^[A-Za-z0-9_-]{1,256}$/.test(value))throw Error('invalid');
+  const pair=JSON.parse(Buffer.from(value,'base64url').toString('utf8'));
+  if(!Array.isArray(pair)||pair.length!==2||typeof pair[0]!=='string'||pair[0].length>40||typeof pair[1]!=='string'||!/^[A-Za-z0-9_-]{1,96}$/.test(pair[1]))throw Error('invalid');
+  return pair;
+ }catch{throw Error('invalid_inbox_cursor');}
+}
+
 // Apply COLLATE only to the outer lookup value, preserving the indexed column's
 // native collation and ref index lookups across upgraded production schemas.
 async function inboxJoinCollations(database){
@@ -35,7 +46,7 @@ export function matchesInbox(row,view){
  return row.handling_state===view;
 }
 export async function listInboxWork({cursor='',limit=50,since_visit=false,priority='',message_type='',view='needs_reply',q='',account_id='',client_id='',conversation_id='',channel='',from='',to='',sort='priority',maxBatches=20}={},database=defaultDb){
- conversation_id=scalar(conversation_id,96);cursor=scalar(cursor);q=scalar(q,300);account_id=scalar(account_id);client_id=scalar(client_id);channel=scalar(channel,40);from=scalar(from,40);to=scalar(to,40);
+ conversation_id=scalar(conversation_id,96);cursor=scalar(cursor,256);q=scalar(q,300);account_id=scalar(account_id);client_id=scalar(client_id);channel=scalar(channel,40);from=scalar(from,40);to=scalar(to,40);
  if(priority&&!['high','normal'].includes(priority))throw Error('invalid_inbox_filter');
  let visitKnown=true;
  if(since_visit){const [visits]=await database.execute('SELECT previous_seen FROM inbox_visits WHERE actor=?',['dashboard']);from=visits[0]?.previous_seen||'';visitKnown=Boolean(from);if(!visitKnown)from=new Date(Date.now()-86400000).toISOString();}
@@ -44,14 +55,18 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
  for(const date of [from,to])if(date&&!Number.isFinite(Date.parse(date)))throw Error('invalid_inbox_date');
  const count=Math.max(1,Math.min(100,Math.trunc(Number(limit)||50))),batchSize=200;
  const items=[],seen=new Set();let scanned=0,done=false,next=cursor;
+ const byTime=sort==='time';if(byTime&&cursor)decodeTimeCursor(cursor);
  // Query the actual indexed-key collations rather than applying a forced collation
  // to both join operands, which caused a full scan and timeouts in Hostinger.
  const col=await inboxJoinCollations(database.query?database:defaultDb);
  // Page primary keys before evaluating JSON reply checks and newest-message lookups.
  for(let batch=0;batch<Math.max(1,Math.min(50,maxBatches));batch++){
-  const candidateWhere=['id>?'],candidateParams=[next];
+  const candidateWhere=[],candidateParams=[];
+  if(byTime){
+   if(next){const [lastAt,lastId]=decodeTimeCursor(next);candidateWhere.push('(last_message_at < ? OR (last_message_at = ? AND id < ?))');candidateParams.push(lastAt,lastAt,lastId);}
+  }else{candidateWhere.push('id>?');candidateParams.push(next);}
   for(const [field,value] of [['id',conversation_id],['account_id',account_id],['client_id',client_id],['channel',channel]])if(value){candidateWhere.push(field+'=?');candidateParams.push(value);}
-  const [candidates]=await database.execute('SELECT id FROM conversations WHERE '+candidateWhere.join(' AND ')+' ORDER BY id ASC LIMIT ?',[...candidateParams,batchSize]);
+  const [candidates]=await database.execute('SELECT '+(byTime?'id,last_message_at':'id')+' FROM conversations '+(candidateWhere.length?'WHERE '+candidateWhere.join(' AND '):'')+' ORDER BY '+(byTime?'last_message_at DESC,id DESC':'id ASC')+' LIMIT ?',[...candidateParams,batchSize]);
   if(!Array.isArray(candidates))throw Error('inbox_read_unavailable');
   if(!candidates.length){done=true;break;}
   const ids=candidates.map(c=>c.id);
@@ -70,7 +85,7 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
    FROM conversations c JOIN messages m ON m.conversation_id=c.id COLLATE ${col.message}
    LEFT JOIN accounts a ON a.id=c.account_id COLLATE ${col.account} LEFT JOIN clients cl ON cl.id=c.client_id COLLATE ${col.client} LEFT JOIN conversation_workflow w ON w.conversation_id=c.id COLLATE ${col.workflow}
    WHERE ${where.join(' AND ')} ${meaningful} AND NOT (c.channel='whatsapp' AND c.external_id LIKE '%@newsletter') AND NOT EXISTS(SELECT 1 FROM messages newer WHERE newer.conversation_id=m.conversation_id ${meaningfulNewer} AND (newer.sent_at>m.sent_at OR (newer.sent_at=m.sent_at AND newer.id>m.id)))
-   ORDER BY c.id ASC LIMIT ?`,[...params,batchSize]);
+   ORDER BY '+(byTime?'c.last_message_at DESC,c.id DESC':'c.id ASC')+' LIMIT ?`,[...params,batchSize]);
   if(!Array.isArray(rows))throw Error('inbox_read_unavailable');
   scanned+=rows.length;
   for(const row of rows){
@@ -79,12 +94,14 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
    const key=row.rfc_message_id?row.rfc_message_id+'|'+String(row.sender).toLowerCase():row.id;
    if(seen.has(key))continue;seen.add(key);items.push(item);
   }
-  const last=ids.at(-1);if(last<=next)throw Error('inbox_cursor_not_advancing');next=last;
+  const last=candidates.at(-1);
+  if(byTime){const moved=encodeTimeCursor(last.last_message_at,last.id);if(moved===next)throw Error('inbox_cursor_not_advancing');next=moved;}
+  else{if(last.id<=next)throw Error('inbox_cursor_not_advancing');next=last.id;}
   if(candidates.length<batchSize){done=true;break;}
   // Return every match from the final batch; no matched rows are lost behind the cursor.
   if(items.length>=count)break;
  }
- items.sort(sort==='time'?(a,b)=>String(b.waiting_since).localeCompare(String(a.waiting_since)):(a,b)=>b.priority-a.priority||String(a.waiting_since).localeCompare(String(b.waiting_since)));
+ items.sort(sort==='time'?(a,b)=>String(b.last_message_at||b.waiting_since).localeCompare(String(a.last_message_at||a.waiting_since))||String(b.id).localeCompare(String(a.id)):(a,b)=>b.priority-a.priority||String(a.waiting_since).localeCompare(String(b.waiting_since)));
  return {ok:true,sync:inboxSyncState(),since:from||null,visit_known:visitKnown,themes:inboxThemes(items),items,scanned,next_cursor:next,done,complete:done,scope:'synced_data',ranking_scope:'scanned_conversations',checked_at:now()};
 }
 export async function updateInboxWork(conversationId,change,{database=defaultDb,actor='dashboard'}={}){
