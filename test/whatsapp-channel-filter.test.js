@@ -4,9 +4,9 @@ import {readFile} from 'node:fs/promises';
 import {isWhatsAppChannelJid,whatsappChannelExclusionSql} from '../src/connectors/whatsapp-channel-filter.js';
 
 test('ignore WhatsApp newsletter and status channel events, but keep private and group messages',()=>{
- for(const jid of ['120363197493914012@newsletter','120363355036920303@newsletter','120363288101086546@Newsletter','status@broadcast'])
+ for(const jid of ['120363197493914012@newsletter','120363355036920303@newsletter','120363288101086546@Newsletter','status@broadcast','someone@broadcast','153452123@broadcast'])
   assert.equal(isWhatsAppChannelJid(jid),true,jid);
- for(const jid of ['972501234567@s.whatsapp.net','1234567-89012@g.us','123456@lid','someone@broadcast','','other@newsletter-example.com'])
+ for(const jid of ['972501234567@s.whatsapp.net','1234567-89012@g.us','123456@lid','','other@newsletter-example.com'])
   assert.equal(isWhatsAppChannelJid(jid),false,jid);
 });
 test('both import and all conversation folders exclude channel history',async()=>{
