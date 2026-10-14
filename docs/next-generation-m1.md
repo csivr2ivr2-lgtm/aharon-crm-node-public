@@ -180,3 +180,13 @@ markers and preserved messages remain stored. No live rollback was performed.
 - Added `Heuristic secret scan` as a separate CI release gate using the
   repository's existing scanner. It reports only filenames and line numbers.
   A heuristic clean result does not guarantee there are no secrets.
+
+## Moderate-size SQL regression fixture
+
+- Real MySQL 8 and MariaDB 10.11 CI now construct 300 synthetic conversations
+  with 600 messages. A new conversation arrives between pages; the original
+  snapshot must return all 300 once, and a fresh snapshot must show the newcomer
+  first. The initial snapshot time is emitted in the CI job log.
+- Fixture is isolated in the ephemeral CI database and does not send any messages.
+  This checks correctness at moderate scale, not p95 latency, locking, row growth,
+  or storage requirements on actual production-sized data.

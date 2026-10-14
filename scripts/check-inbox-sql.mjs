@@ -177,6 +177,44 @@ const run=async()=>{
  assert.equal(Number(left.n),1);assert.equal(Number(separated.n),1);
  await assert.rejects(mergeConversations({source_id:'ci-04',target_id:'ci-01'},db),/conversation_account_channel_mismatch/);
  console.log('PASS: transactionally merge/split and cross-account isolation without deleting messages');
+
+ // Moderate-size isolated fixture: exercise multi-page chronological ordering and
+ // immutable pagination with 300 conversations and 600 messages on REAL databases.
+ // This is a functional scale check, not a production latency benchmark.
+ await db.execute("INSERT INTO accounts(id,type,label,identifier,integration_key) VALUES('ci-scale','email','Scale fixture','scale@example.test','ci:scale')");
+ const total=300,block=100,base=Date.parse('2026-10-14T09:00:00.000Z');
+ const conversations=Array.from({length:total},(_,i)=>'ci-scale-'+String(i).padStart(4,'0'));
+ for(let offset=0;offset<total;offset+=block){
+  const ids=conversations.slice(offset,offset+block);
+  await db.execute("INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES "+ids.map(()=>' (?,?,?,?,?,?)').join(','),ids.flatMap(id=>[id,'email','ci-scale',id,'CI load','']));
+ }
+ for(let offset=0;offset<total;offset+=block){
+  const ids=conversations.slice(offset,offset+block);
+  const records=ids.flatMap((cid,j)=>[0,1].map(part=>({
+   id:cid+'-m'+part,cid,stamp:new Date(base+((offset+j)*2+part)*60000).toISOString()
+  })));
+  await db.execute("INSERT INTO messages(id,conversation_id,external_id,direction,sender,subject,body,sent_at,rfc_message_id,references_json,classification) VALUES "+records.map(()=>' (?,?,?,?,?,?,?,?,?,?,?)').join(','),records.flatMap(m=>[m.id,m.cid,m.id,'in','scale@example.test','CI fixture','test inquiry',m.stamp,'','[]','normal']));
+ }
+ const query={view:'all',account_id:'ci-scale',limit:50};
+ const begun=Date.now(),firstLoad=await listInboxWork(query,db);
+ const firstMs=Date.now()-begun;
+ assert.equal(firstLoad.items.length,50,'initial large fixture page must fill all slots');
+ assert.equal(firstLoad.items[0].id,conversations[total-1],'newest conversation should be globally first');
+ await db.execute("INSERT INTO conversations(id,channel,account_id,external_id,title,client_id) VALUES('ci-scale-new','email','ci-scale','ci-scale-new','New during pagination','')");
+ await insert('ci-scale-new-m','ci-scale-new','in','new message mid-page',new Date(base+(total*2+2)*60000).toISOString());
+ let all=firstLoad.items.map(x=>x.id),cursor=firstLoad.next_cursor,done=firstLoad.done,pageCount=1;
+ while(!done&&pageCount<12){
+  const next=await listInboxWork({...query,cursor},db);
+  all.push(...next.items.map(x=>x.id));cursor=next.next_cursor;done=next.done;pageCount++;
+ }
+ assert.equal(done,true,'all snapshot pages should finish');
+ assert.equal(all.length,total,'snapshot must keep original membership without losing rows');
+ assert.equal(new Set(all).size,total,'no duplicates across pages');
+ assert.ok(!all.includes('ci-scale-new'),'new arrival must not shift existing snapshot');
+ const after=await listInboxWork({...query,limit:10},db);
+ assert.equal(after.items[0].id,'ci-scale-new','refreshed snapshot must show newly arrived conversation');
+ console.log('PASS: 300 real SQL conversations, 600 messages, stable paging after concurrent arrivals; initial snapshot ms='+firstMs+'; pages='+pageCount);
+
 };
 try{await run()}catch(e){console.error('REAL SQL INTEGRATION FAILED:',e);process.exitCode=1}finally{await db.end()}
 
