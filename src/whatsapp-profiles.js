@@ -29,9 +29,18 @@ export async function saveWhatsAppProfile({account_id,jid,name='',phone_jid=''}=
  const [profiles]=await database.execute('SELECT display_name,phone_jid FROM whatsapp_peer_profiles WHERE account_key=? AND jid=?',[accountKey,jid]);
  const title=whatsappPeerTitle({jid,name:profiles[0]?.display_name||'',phoneJid:profiles[0]?.phone_jid||''});
  const [accounts]=await database.execute('SELECT id FROM accounts WHERE integration_key=? LIMIT 1',[accountKey]);
- if(accounts[0])await database.execute(`UPDATE conversations SET title=? WHERE account_id=? AND channel='whatsapp' AND external_id=?
- AND (title=external_id OR title LIKE '%@lid' OR title LIKE '%@g.us' OR title LIKE '%@s.whatsapp.net'
- OR title LIKE 'קבוצת WhatsApp%' OR title LIKE 'איש קשר WhatsApp%' OR title=?)`,[title,accounts[0].id,jid,String(profiles[0]?.display_name||'')]);
+ if(accounts[0]){
+  await database.execute(`UPDATE conversations SET title=? WHERE account_id=? AND channel='whatsapp' AND external_id=?
+   AND (title=external_id OR title LIKE '%@lid' OR title LIKE '%@g.us' OR title LIKE '%@s.whatsapp.net'
+   OR title LIKE 'קבוצת WhatsApp%' OR title LIKE 'איש קשר WhatsApp%' OR title=?)`,
+   [title,accounts[0].id,jid,String(profiles[0]?.display_name||'')]);
+  const verifiedPhone=profiles[0]?.phone_jid||'';
+  if(isLidJid(jid)&&safeWhatsAppPn(verifiedPhone)){
+   const [conversations]=await database.execute("SELECT id FROM conversations WHERE account_id=? AND channel='whatsapp' AND external_id=?",[accounts[0].id,jid]);
+   for(const conv of conversations)await database.execute("UPDATE messages SET sender=? WHERE conversation_id=? AND direction='in' AND sender=?",
+    [verifiedPhone,conv.id,jid]);
+  }
+ }
  return {ok:true,updated:true};
 }
 export async function lookupWhatsAppTitle({account_id,jid}={},database=defaultDb){

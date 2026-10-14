@@ -11,7 +11,7 @@ let workView='inbox',workCursor='',workDone=false,workFilters={},workPending=new
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
 function phoneForDisplay(value){
  const original=String(value||'').trim();
-  if(/@lid$/i.test(original))return 'איש קשר WhatsApp (מזהה פרטי · '+original.split('@')[0].slice(-4)+')';
+  if(/@lid$/i.test(original)||original.startsWith('איש קשר WhatsApp (מזהה פרטי'))return 'מספר WhatsApp לא זמין';
   if(/@g\.us$/i.test(original))return 'קבוצת WhatsApp · '+original.split('@')[0].slice(-4);
   const raw=original.replace(/@s\.whatsapp\.net$/i,'');
  if(!/^\+?[0-9 ()\-.]{9,24}$/.test(raw))return String(value||'');

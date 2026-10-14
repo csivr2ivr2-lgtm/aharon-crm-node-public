@@ -24,6 +24,6 @@ export function whatsappPeerTitle({jid,name='',phoneJid=''}={}){
  if(number)return number;
  const short=String(jid||'').split('@')[0].slice(-4);
  if(isGroupJid(jid))return 'קבוצת WhatsApp'+(short?' · '+short:'');
- if(isLidJid(jid))return 'איש קשר WhatsApp (מזהה פרטי'+(short?' · '+short:'')+')';
+ if(isLidJid(jid))return 'מספר WhatsApp לא זמין';
  return 'שיחת WhatsApp';
 }

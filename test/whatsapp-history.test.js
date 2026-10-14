@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {WhatsAppConnector} from '../src/connectors/whatsapp.js';
 import {isWhatsAppConversationJid,isWhatsAppChannelJid,whatsappChannelExclusion} from '../src/connectors/whatsapp-channel-filter.js';
 import {migrateWhatsAppHistory,discoverWhatsAppChat,recordWhatsAppHistoryBatch,listWhatsAppHistory,whatsappHistoryCandidates} from '../src/whatsapp-history.js';
+import {saveWhatsAppProfile} from '../src/whatsapp-profiles.js';
 
 const inbound=(id,jid,text)=>({key:{id,remoteJid:jid,fromMe:false},message:{conversation:text},messageTimestamp:1791972000});
 const outbound=(id,jid,text)=>({key:{id,remoteJid:jid,fromMe:true},message:{conversation:text},messageTimestamp:1791972010});
@@ -115,4 +116,20 @@ test('transient storage error is retried and does not abort other historical mes
  assert.equal(attempts,3);
  assert.equal(c.historyStats.imported,2);
  assert.equal(c.historyStats.failed,0);
+});
+
+test('verified LID mapping repairs stored sender of only the matching old inbound messages',async()=>{
+ const statements=[],database={execute:async(sql,args=[])=>{
+  statements.push({sql,args});
+  if(sql.startsWith('SELECT display_name,phone_jid'))return [[{display_name:'Contact',phone_jid:'972501234567@s.whatsapp.net'}]];
+  if(sql.startsWith('SELECT id FROM accounts'))return [[{id:'acct-1'}]];
+  if(sql.startsWith('SELECT id FROM conversations'))return [[{id:'conv-1'}]];
+  return [{affectedRows:1}];
+ }};
+ await saveWhatsAppProfile({account_id:'whatsapp-main',jid:'123456789012345@lid',name:'Contact',phone_jid:'972501234567@s.whatsapp.net'},database);
+ const stmt=statements.find(x=>x.sql.startsWith('UPDATE messages SET sender='));
+ assert.ok(stmt);
+ assert.deepEqual(stmt.args,['972501234567@s.whatsapp.net','conv-1','123456789012345@lid']);
+ assert.match(stmt.sql,/direction='in' AND sender=\?/);
+ assert.ok(!statements.some(x=>x.sql.includes('DELETE FROM messages')));
 });
