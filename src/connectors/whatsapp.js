@@ -154,13 +154,13 @@ export class WhatsAppConnector{
   if(this.sock!==sock||this.stopped)return {skipped:true};
   const contacts=Array.isArray(history.contacts)?history.contacts:[];
   const chats=Array.isArray(history.chats)?history.chats:[];
-  await this.consumeContacts(sock,contacts);
+  try{await this.consumeContacts(sock,contacts);}catch{this.lastError='history_contact_metadata_failed';}
   // History may contain verified LID -> PN mappings even when chat labels are empty.
   for(const mapping of Array.isArray(history.lidPnMappings)?history.lidPnMappings:[]){
    const jid=String(mapping?.lid||'').toLowerCase(),pn=safeWhatsAppPn(mapping?.pn);
    if(isLidJid(jid)&&pn)await this.rememberPeer(sock,jid,{phoneJid:pn});
   }
-  await this.consumeChats(sock,chats);
+  try{await this.consumeChats(sock,chats);}catch{this.lastError='history_chat_metadata_failed';}
   const grouped=new Map();
   for(const message of Array.isArray(history.messages)?history.messages:[]){
    const jid=String(message?.key?.remoteJid||'').toLowerCase();
@@ -169,7 +169,7 @@ export class WhatsAppConnector{
    grouped.get(jid).push(message);
   }
   for(const [jid,messages] of grouped){
-   await this.onEvent?.({type:'whatsapp.history.chat',account_id:this.sessionId,jid});
+   try{await this.onEvent?.({type:'whatsapp.history.chat',account_id:this.sessionId,jid});}catch{this.lastError='history_chat_discovery_failed';}
    for(let offset=0;offset<messages.length;offset+=100){
     if(this.sock!==sock||this.stopped)return {interrupted:true};
     const chunk=messages.slice(offset,offset+100),result=await this.receiveMessages(sock,{messages:chunk,type:'append'});
@@ -235,7 +235,14 @@ export class WhatsAppConnector{
       conversation_external_id:jid,conversation_title:title,external_id:String(m.key.id||""),direction,
       sender:direction==="in"?actualSender:"me",recipient:direction==="out"?pn||jid:"me",
       subject:"",body,inbox_event_type:eventType,is_read:direction==="out"||Boolean(eventType),sent_at:new Date(timestamp*1000).toISOString()};
-     const result=await this.onEvent?.(event);
+     let result;
+     for(let attempt=0;attempt<3;attempt++){
+      try{result=await this.onEvent?.(event);break;}
+      catch(error){
+       if(attempt===2)throw error;
+       await new Promise(resolve=>setTimeout(resolve,80*(attempt+1)));
+      }
+     }
      if(result?.inserted)summary.imported++;else summary.duplicates++;
      }catch{summary.failed++;this.lastError="message_ingestion_failed";}
     }

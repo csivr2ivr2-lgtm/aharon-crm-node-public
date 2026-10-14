@@ -9,6 +9,7 @@ import {migrateHistorySync} from '../src/historical-sync.js';
 import {migrateThreading,mergeConversations,splitConversation} from '../src/conversation-threading.js';
 import {migrateOwnerMemories,createOwnerMemory,updateOwnerMemory,deleteOwnerMemory,listOwnerMemories} from '../src/owner-memory.js';
 import {migrateWhatsAppProfiles,saveWhatsAppProfile,lookupWhatsAppTitle} from '../src/whatsapp-profiles.js';
+import {migrateWhatsAppHistory,discoverWhatsAppChat,recordWhatsAppHistoryBatch,listWhatsAppHistory} from '../src/whatsapp-history.js';
 
 assert.equal(process.env.NODE_ENV,'test','Only run with NODE_ENV=test');
 assert.equal(process.env.DB_NAME,'crm_ci','Only run against isolated crm_ci database');
@@ -32,6 +33,16 @@ const run=async()=>{
  await migrateOwnerMemories(db);
  await migrateWhatsAppProfiles(db);
  await migrateWhatsAppProfiles(db);
+ await migrateWhatsAppHistory(db);
+ await migrateWhatsAppHistory(db);
+ await discoverWhatsAppChat({account_id:'whatsapp-main',jid:'126509016678653@lid'},db);
+ await recordWhatsAppHistoryBatch({account_id:'whatsapp-main',jid:'126509016678653@lid',imported:2,duplicates:1},db);
+ const waHistory=await listWhatsAppHistory({account_id:'whatsapp-main'},db);
+ assert.equal(Number(waHistory.summary.imported),2);
+ assert.equal(Number(waHistory.summary.duplicates),1);
+ assert.equal(waHistory.coverage,'partial_unverified');
+ console.log('PASS: idempotent WhatsApp history schema and reliable per-chat totals');
+
  const memory=await createOwnerMemory({kind:'decision',subject:'CI memory test',body:'Private manual decision'},db);
  assert.ok((await listOwnerMemories({},db)).items.some(row=>row.id===memory.id));
  await updateOwnerMemory({id:memory.id,revision:1,kind:'decision',subject:'CI memory test',body:'Updated private decision'},db);

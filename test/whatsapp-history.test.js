@@ -96,3 +96,23 @@ test('on-demand candidate list never confuses groups with direct personal chats'
  assert.equal(candidates[0].jid,'123456789012345@lid');
  assert.equal(candidates[0].key.fromMe,true);
 });
+
+test('transient storage error is retried and does not abort other historical messages',async()=>{
+ const jid='972501234567@s.whatsapp.net',sock={},c=new WhatsAppConnector({sessionId:'whatsapp-main'});
+ c.sock=sock;c.statusValue='connected';
+ let attempts=0;const seen=[];
+ c.onEvent=async event=>{
+  if(event.type==='message'){
+   if(event.external_id==='one'&&++attempts<3)throw Error('temporary database outage');
+   seen.push(event.external_id);return {inserted:true};
+  }
+  return {ok:true};
+ };
+ await c.queueHistory(sock,{chats:[{id:jid}],messages:[
+  inbound('one',jid,'first'),outbound('two',jid,'second')
+ ]});
+ assert.deepEqual(seen,['one','two']);
+ assert.equal(attempts,3);
+ assert.equal(c.historyStats.imported,2);
+ assert.equal(c.historyStats.failed,0);
+});

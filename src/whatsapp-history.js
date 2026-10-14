@@ -71,7 +71,7 @@ export async function whatsappHistoryCandidates({account_id='whatsapp-main',limi
  const [accounts]=await database.execute('SELECT id FROM accounts WHERE integration_key=? LIMIT 1',[key]);
  if(!accounts[0])return [];
  const [chats]=await database.execute(`SELECT external_id,id FROM conversations WHERE account_id=? AND channel='whatsapp'
- ORDER BY last_message_at DESC LIMIT 250`,[accounts[0].id]);
+ ORDER BY last_message_at DESC LIMIT 5000`,[accounts[0].id]);
  const cutoff=new Date(Date.now()-24*3600*1000).toISOString(),result=[];
  for(const row of chats){
   if(!isWhatsAppConversationJid(row.external_id))continue;
