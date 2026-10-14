@@ -42,7 +42,17 @@ export async function deleteOwnerMemory({actor='dashboard',id,revision}={},datab
  if(result.affectedRows!==1)throw Error('owner_memory_not_found_or_changed');
  return {ok:true};
 }
-const tokens=s=>[...new Set(String(s||'').normalize('NFKC').toLocaleLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[])].slice(0,32);
+// Match simple Hebrew definite articles/prepositions without using an AI service
+// to read private facts. Keep the original token to avoid losing precise matches.
+const tokens=s=>{
+ const words=String(s||'').normalize('NFKC').toLocaleLowerCase().match(/[\\p{L}\\p{N}]{3,}/gu)||[];
+ const expanded=[];
+ for(const word of words.slice(0,24)){
+  expanded.push(word);
+  if(/^[והבכלמש][א-ת]{4,}$/.test(word))expanded.push(word.slice(1));
+ }
+ return [...new Set(expanded)].slice(0,32);
+};
 export async function retrieveOwnerMemories({actor='dashboard',query='',limit=6,maxChars=2600}={},database=defaultDb){
  actorId(actor);
  const terms=tokens(query),[rows]=await database.execute('SELECT id,kind,subject,body,updated_at FROM owner_memories WHERE actor=? ORDER BY updated_at DESC LIMIT 200',[actor]);
