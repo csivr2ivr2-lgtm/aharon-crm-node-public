@@ -124,7 +124,7 @@ export class Assistant{
   if(explicitMutationRequest(message)&&!actions.some(a=>a.status==='completed'||a.status==='pending')){
    reply='לא נוצרה ולא שונתה רשומה. המודל לא הפיק פעולת CRM תקינה. נסה ניסוח מדויק עם שם במירכאות, למשל: צור משימה בשם "בדיקת AI".';
   }
-  return {ok:true,reply:reply||'לא התקבלה תשובה. נסה לנסח את הבקשה מחדש.',actions,provider,model,memory_sources:ownerFacts.map(({id,kind,evidence,updated_at})=>({id,kind,evidence,updated_at}))};
+  return {ok:true,reply:reply||'לא התקבלה תשובה. נסה לנסח את הבקשה מחדש.',actions,provider,model,memory_sources:ownerFacts.map(({id,revision,kind,evidence,updated_at})=>({id,revision,kind,evidence,updated_at}))};
  }
 }
 export const assistant=new Assistant();

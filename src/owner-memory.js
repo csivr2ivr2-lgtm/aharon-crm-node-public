@@ -60,7 +60,7 @@ export async function retrieveOwnerMemories({actor='dashboard',query='',limit=6,
  // Rank across the entire owner's store BEFORE limiting rows, so an old decision
  // cannot disappear behind 200 unrelated recent edits. Values are always bound.
  const score=terms.map(()=>'(CASE WHEN LOCATE(?,LOWER(subject))>0 THEN 4 ELSE 0 END + CASE WHEN LOCATE(?,LOWER(body))>0 THEN 1 ELSE 0 END)').join('+');
- const [rows]=await database.execute(`SELECT id,kind,subject,body,source,updated_at,(${score}) AS relevance FROM owner_memories WHERE actor=? AND (kind<>'temporary' OR updated_at>?) HAVING relevance>0 ORDER BY relevance DESC,updated_at DESC,id DESC LIMIT 60`,[...terms.flatMap(t=>[t,t]),actor,new Date(Date.now()-7*86400000).toISOString()]);
+ const [rows]=await database.execute(`SELECT id,kind,subject,body,revision,source,updated_at,(${score}) AS relevance FROM owner_memories WHERE actor=? AND (kind<>'temporary' OR updated_at>?) HAVING relevance>0 ORDER BY relevance DESC,updated_at DESC,id DESC LIMIT 60`,[...terms.flatMap(t=>[t,t]),actor,new Date(Date.now()-7*86400000).toISOString()]);
  const scored=rows.map(row=>{
   const title=String(row.subject||'').normalize('NFKC').toLocaleLowerCase(),body=String(row.body||'').normalize('NFKC').toLocaleLowerCase();
   const hits=terms.reduce((n,t)=>n+(title.includes(t)?4:0)+(body.includes(t)?1:0),0);
@@ -71,7 +71,7 @@ export async function retrieveOwnerMemories({actor='dashboard',query='',limit=6,
  const output=[];const budget=Math.max(200,Math.min(4000,Number(maxChars)||2600));let used=2;
  for(const {row} of scored){
   if(output.length>=Math.min(10,Math.max(1,Number(limit)||6)))break;
-  const item={id:row.id,kind:row.kind,subject:row.subject,body:row.body,updated_at:row.updated_at,source:row.source||'owner_manual',evidence:row.kind==='inference'?'unverified_inference':row.kind==='preference'?'owner_preference':row.kind==='temporary'?'temporary_owner_note':'owner_assertion'};
+  const item={id:row.id,revision:row.revision,kind:row.kind,subject:row.subject,body:row.body,updated_at:row.updated_at,source:row.source||'owner_manual',evidence:row.kind==='inference'?'unverified_inference':row.kind==='preference'?'owner_preference':row.kind==='temporary'?'temporary_owner_note':'owner_assertion'};
   const n=JSON.stringify(item).length+2;
   if(used+n>budget)continue;
   output.push(item);used+=n;

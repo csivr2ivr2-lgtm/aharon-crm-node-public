@@ -11,6 +11,7 @@ export async function migrateAssistantChats(database=defaultDb){
  await database.query("CREATE TABLE IF NOT EXISTS assistant_chat_sessions (id VARCHAR(64) PRIMARY KEY,actor VARCHAR(64) NOT NULL,title VARCHAR(180),created_at VARCHAR(40),updated_at VARCHAR(40),archived_at VARCHAR(40),INDEX(actor,updated_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  await database.query("CREATE TABLE IF NOT EXISTS assistant_chat_turns (id VARCHAR(64) PRIMARY KEY,session_id VARCHAR(64) NOT NULL,role VARCHAR(12) NOT NULL,body LONGTEXT NOT NULL,request_id VARCHAR(64) NOT NULL,created_at VARCHAR(40),UNIQUE KEY uq_turn_request(session_id,request_id,role),INDEX(session_id,created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  await database.query("CREATE TABLE IF NOT EXISTS assistant_chat_actions (action_id VARCHAR(64) PRIMARY KEY,session_id VARCHAR(64) NOT NULL,turn_id VARCHAR(64) NOT NULL,tool VARCHAR(80),args_json LONGTEXT,preview_json LONGTEXT,dismissed_at VARCHAR(40),INDEX(session_id,turn_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ await database.query("CREATE TABLE IF NOT EXISTS assistant_chat_memory_sources (turn_id VARCHAR(64) NOT NULL,memory_id VARCHAR(64) NOT NULL,memory_revision INT NOT NULL,evidence VARCHAR(40) NOT NULL,source_updated_at VARCHAR(40),PRIMARY KEY(turn_id,memory_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
 const parse=s=>{try{return JSON.parse(s||'{}')}catch{return {}}};
 export class AssistantChatHistory{
@@ -53,6 +54,14 @@ export class AssistantChatHistory{
   await this.ensure(sessionId,actor);
   const [turns]=await this.database.execute("SELECT id,role,body,request_id,created_at FROM assistant_chat_turns WHERE session_id=? ORDER BY created_at DESC,CASE WHEN role='user' THEN 0 ELSE 1 END DESC,id DESC LIMIT 400",[sessionId]);
   const [links]=await this.database.execute('SELECT l.action_id,l.turn_id,l.tool,l.args_json,l.preview_json,l.dismissed_at,a.state,a.expires_at FROM assistant_chat_actions l LEFT JOIN ai_actions a ON a.id=l.action_id WHERE l.session_id=?',[sessionId]);
+  // Join through the authorized chat and actor; never persist a copy of private memory text.
+  const [sources]=await this.database.execute('SELECT s.turn_id,s.memory_id,s.memory_revision,s.evidence,s.source_updated_at,m.id AS current_id,m.subject,m.revision AS current_revision FROM assistant_chat_memory_sources s JOIN assistant_chat_turns t ON t.id=s.turn_id LEFT JOIN owner_memories m ON m.id=s.memory_id AND m.actor=? WHERE t.session_id=?',[actor,sessionId]);
+  const sourceIndex=new Map();
+  for(const s of sources){
+   const items=sourceIndex.get(s.turn_id)||[];
+   items.push({id:s.memory_id,revision:s.memory_revision,evidence:s.evidence,updated_at:s.source_updated_at,subject:s.current_id?s.subject:'',status:!s.current_id?'unavailable':Number(s.current_revision)!==Number(s.memory_revision)?'changed':'current'});
+   sourceIndex.set(s.turn_id,items);
+  }
   const indexed=new Map(),visibleTurns=new Set(turns.map(t=>t.id));
   for(const link of links){
    if(!visibleTurns.has(link.turn_id))continue;
@@ -67,7 +76,7 @@ export class AssistantChatHistory{
    actions.push({id:link.action_id,tool:link.tool,args:parse(link.args_json),preview:parse(link.preview_json),status,...(confirmation_token?{confirmation_token}:{})});
    indexed.set(link.turn_id,actions);
   }
-  return {ok:true,id:sessionId,messages:turns.reverse().map(t=>({id:t.id,role:t.role,text:t.body,created_at:t.created_at,actions:indexed.get(t.id)||[]}))};
+  return {ok:true,id:sessionId,messages:turns.reverse().map(t=>({id:t.id,role:t.role,text:t.body,created_at:t.created_at,actions:indexed.get(t.id)||[],memory_sources:sourceIndex.get(t.id)||[]}))};
  }
  async send({sessionId,message,requestId,actor='dashboard',context}){
   await this.ensure(sessionId,actor);
@@ -92,6 +101,11 @@ export class AssistantChatHistory{
   try{
    await c.beginTransaction();
    await c.execute('INSERT INTO assistant_chat_turns(id,session_id,role,body,request_id,created_at) VALUES(?,?,?,?,?,?)',[replyId,sessionId,'assistant',result,requestId,this.clock()]);
+   for(const source of (Array.isArray(response.memory_sources)?response.memory_sources:[]).slice(0,10)){
+    if(!/^mem_[a-f0-9-]{36}$/.test(String(source.id))||!Number.isSafeInteger(source.revision)||source.revision<1)continue;
+    if(!['owner_assertion','owner_preference','temporary_owner_note','unverified_inference'].includes(source.evidence))continue;
+    await c.execute('INSERT IGNORE INTO assistant_chat_memory_sources(turn_id,memory_id,memory_revision,evidence,source_updated_at) VALUES(?,?,?,?,?)',[replyId,source.id,source.revision,source.evidence,String(source.updated_at||'').slice(0,40)]);
+   }
    for(const action of response.actions||[]){
     if(!action.id||!/^act_[a-z0-9_-]{12,63}$/i.test(action.id))continue;
     const {confirmation_token,...safe}=action;
@@ -101,7 +115,7 @@ export class AssistantChatHistory{
    await c.execute('UPDATE assistant_chat_sessions SET title=IF(title=?,?,title),updated_at=? WHERE id=? AND actor=?',['שיחה חדשה',title(message.trim()),this.clock(),sessionId,actor]);
    await c.commit();
   }catch(error){await c.rollback();throw error;}finally{c.release();}
-  return {ok:true,id:replyId,reply:result,actions:response.actions||[],provider:response.provider,model:response.model};
+  return {ok:true,id:replyId,reply:result,actions:response.actions||[],provider:response.provider,model:response.model,memory_sources:response.memory_sources||[]};
  }
 }
 
