@@ -1,5 +1,6 @@
 // Isolated integration test: only the CI database set through DB_* is modified.
 import assert from 'node:assert/strict';
+import {migrateActions} from '../src/ai/actions.js';
 import {AssistantChatHistory,migrateAssistantChats} from '../src/assistant-chat-history.js';
 import {db,migrate} from '../src/db.js';
 import {migrateExtras} from '../src/extra-schema.js';
@@ -62,6 +63,7 @@ const run=async()=>{
  assert.equal(memories.find(m=>m.id===inference.id).evidence,'unverified_inference');
  for(const id of memoryIds)await deleteOwnerMemory({id,revision:1},db);
  console.log('PASS: real SQL relevance before limit, old Hebrew decisions and temporary/inference separation');
+ await migrateActions(db);await migrateActions(db);
  await migrateAssistantChats(db);await migrateAssistantChats(db);
  let recalledChat;
  const chat=new AssistantChatHistory({database:db,assistant:{chat:async input=>{recalledChat=input;return {reply:'נבדק',actions:[]};}}});
