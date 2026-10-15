@@ -5,7 +5,7 @@ export const isLidJid=value=>/^\d{5,20}@lid$/i.test(String(value||''));
 export const isGroupJid=value=>/^\d{5,20}(?:-\d{5,20})?@g\.us$/i.test(String(value||''));
 export function safeWhatsAppName(value){
  const name=String(value||'').replace(/[\x00-\x1f\x7f]/g,' ').trim().slice(0,160);
- if(!name||/@(?:lid|g\.us|s\.whatsapp\.net|newsletter|broadcast)$/i.test(name)||/^\d{9,20}$/.test(name))return '';
+ if(!name||name==='מספר WhatsApp לא זמין'||name.startsWith('איש קשר WhatsApp (מזהה פרטי')||/@(?:lid|g\.us|s\.whatsapp\.net|newsletter|broadcast)$/i.test(name)||/^\d{9,20}$/.test(name))return '';
  return name;
 }
 export function safeWhatsAppPn(value){
