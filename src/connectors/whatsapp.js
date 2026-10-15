@@ -149,6 +149,22 @@ export class WhatsAppConnector{
   try{const info=await sock.groupMetadata(jid);if(info?.subject)await this.rememberPeer(sock,jid,{name:info.subject});}
   catch{/* Group metadata might be unavailable. Preserve the group JID. */}
  }
+ async refreshPhoneMappings(jids=[]){
+  const sock=this.sock;
+  if(!sock||this.statusValue!=='connected')return {ok:false,error:'whatsapp_not_connected'};
+  const candidates=[...new Set([...jids,...this.knownChats])].filter(isLidJid).slice(0,150);
+  let resolved=0,unresolved=0,failed=0;
+  for(const jid of candidates){
+   if(this.sock!==sock||this.stopped)break;
+   try{
+    const pn=await this.knownPhone(sock,jid,'');
+    if(pn){await this.rememberPeer(sock,jid,{phoneJid:pn});resolved++;}
+    else unresolved++;
+   }catch{failed++;}
+  }
+  return {ok:true,examined:resolved+unresolved+failed,resolved,unresolved,failed,
+   note:'Only locally known PN mappings can be recovered; no phone number is inferred from LID digits.'};
+ }
  async knownPhone(sock,jid,alt){
   // A canonical PN wins over conflicting alternatives; only LIDs need resolution.
   if(!isLidJid(jid))return safeWhatsAppPn(jid);

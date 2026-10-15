@@ -160,7 +160,7 @@ async function loadWa(){
   const code=s.pairing_code?'<p role="status">קוד קישור: <strong dir="ltr">'+esc(s.pairing_code)+'</strong></p>':'';
   const qr=s.qr&&s.qr.startsWith('data:image/png;base64,')?'<img alt="QR לקישור" width="220" src="'+esc(s.qr)+'">':'';
   const error=s.last_error?'<p class="error">'+esc(userError(s.last_error))+'</p>':'';
-  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-history','השלמת היסטוריה',s.id)+button('wa-history-status','סטטוס היסטוריה',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
+  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-identities','זיהוי מספרים',s.id)+button('wa-history','השלמת היסטוריה',s.id)+button('wa-history-status','סטטוס היסטוריה',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
  }).join('')||'<p>אין עדיין חשבונות WhatsApp מחוברים.</p>';
 }
 
@@ -212,6 +212,10 @@ document.addEventListener('click',async e=>{
   if(action==='google-disconnect'&&confirm('לנתק את חשבון Google הזה מהמערכת?')){await api('/api/google/accounts/'+encodeURIComponent(b.dataset.id),{method:'DELETE'});await render('connectors');}
   if(action==='hostinger-disconnect'&&confirm('לנתק את חשבון הדואר של Hostinger?')){await post('/api/hostinger/disconnect');await render('connectors');}
   if(action==='wa-refresh')await loadWa();
+  if(action==='wa-identities'){
+   const result=await post('/api/whatsapp/identities/refresh',{session_id:id});
+   $('#notice').textContent='בדיקת זהויות WhatsApp: '+String(result.resolved||0)+' מיפויים נמצאו, '+String(result.unresolved||0)+' ללא מספר זמין, '+String(result.failed||0)+' שגיאות. הפעולה לא שולחת הודעות.';
+  }
   if(action==='wa-history-status'){
    const info=await api('/api/whatsapp/history/status?session_id='+encodeURIComponent(id));
    const c=info.summary||{};
