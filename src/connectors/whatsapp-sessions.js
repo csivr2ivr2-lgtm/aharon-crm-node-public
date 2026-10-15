@@ -103,6 +103,10 @@ export class WhatsAppSessions {
   await this.initialize();
   return this.get(sessionId).historyAnchorCandidates(limit);
  }
+ async refreshIdentities(sessionId,jids){
+  await this.initialize();
+  return this.get(sessionId).refreshPhoneMappings(jids);
+ }
  async requestHistory(sessionId,candidates){
   await this.initialize();
   return this.get(sessionId).requestHistory(candidates);

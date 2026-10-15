@@ -84,6 +84,10 @@ export class WhatsAppConnector{
    for(const event of ['chats.upsert','chats.update'])
     sock.ev.on(event,items=>{void this.consumeChats(sock,items).catch(()=>{this.lastError='chat_metadata_failed';});});
    sock.ev.on('messaging-history.set',history=>{void this.queueHistory(sock,history);});
+   // Best-effort: newer Baileys builds emit this event for some, not all mappings.
+   sock.ev.on('lid-mapping.update',mapping=>{
+    void this.consumeLidMappings(sock,mapping).catch(()=>{this.lastError='lid_mapping_metadata_failed';});
+   });
   }catch{this.lastError="connection_failed";this.statusValue="error";throw Error("whatsapp_connection_failed");}finally{this.connecting=false}
  }
 
@@ -95,6 +99,14 @@ export class WhatsAppConnector{
   if(pn)this.peerPhones.set(jid,pn);
   await this.onEvent?.({type:'whatsapp.profile',source:'whatsapp.baileys',account_id:this.sessionId,
    jid,name:cleanName,phone_jid:pn});
+ }
+ async consumeLidMappings(sock,mapping){
+  if(this.sock!==sock||this.stopped)return;
+  const entries=Array.isArray(mapping)?mapping:Array.isArray(mapping?.mappings)?mapping.mappings:[mapping];
+  for(const item of entries){
+   const lid=String(item?.lid||'').toLowerCase(),phone=safeWhatsAppPn(item?.pn);
+   if(isLidJid(lid)&&phone)await this.rememberPeer(sock,lid,{phoneJid:phone});
+  }
  }
  async consumeContacts(sock,contacts){
   if(this.sock!==sock||!Array.isArray(contacts))return;
@@ -137,6 +149,22 @@ export class WhatsAppConnector{
   try{const info=await sock.groupMetadata(jid);if(info?.subject)await this.rememberPeer(sock,jid,{name:info.subject});}
   catch{/* Group metadata might be unavailable. Preserve the group JID. */}
  }
+ async refreshPhoneMappings(jids=[]){
+  const sock=this.sock;
+  if(!sock||this.statusValue!=='connected')return {ok:false,error:'whatsapp_not_connected'};
+  const candidates=[...new Set([...jids,...this.knownChats])].filter(isLidJid).slice(0,150);
+  let resolved=0,unresolved=0,failed=0;
+  for(const jid of candidates){
+   if(this.sock!==sock||this.stopped)break;
+   try{
+    const pn=await this.knownPhone(sock,jid,'');
+    if(pn){await this.rememberPeer(sock,jid,{phoneJid:pn});resolved++;}
+    else unresolved++;
+   }catch{failed++;}
+  }
+  return {ok:true,examined:resolved+unresolved+failed,resolved,unresolved,failed,
+   note:'Only locally known PN mappings can be recovered; no phone number is inferred from LID digits.'};
+ }
  async knownPhone(sock,jid,alt){
   // A canonical PN wins over conflicting alternatives; only LIDs need resolution.
   if(!isLidJid(jid))return safeWhatsAppPn(jid);
@@ -161,10 +189,8 @@ export class WhatsAppConnector{
   const chats=Array.isArray(history.chats)?history.chats:[];
   try{await this.consumeContacts(sock,contacts);}catch{this.lastError='history_contact_metadata_failed';}
   // History may contain verified LID -> PN mappings even when chat labels are empty.
-  for(const mapping of Array.isArray(history.lidPnMappings)?history.lidPnMappings:[]){
-   const jid=String(mapping?.lid||'').toLowerCase(),pn=safeWhatsAppPn(mapping?.pn);
-   if(isLidJid(jid)&&pn)try{await this.rememberPeer(sock,jid,{phoneJid:pn});}catch{this.lastError='history_contact_metadata_failed';}
-  }
+  try{await this.consumeLidMappings(sock,history.lidPnMappings||[]);}
+  catch{this.lastError='history_contact_metadata_failed';}
   try{await this.consumeChats(sock,chats);}catch{this.lastError='history_chat_metadata_failed';}
   const grouped=new Map();
   for(const message of Array.isArray(history.messages)?history.messages:[]){

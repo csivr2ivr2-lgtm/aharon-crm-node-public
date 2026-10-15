@@ -107,6 +107,18 @@ app.get("/api/conversations/:id/drafts",async(req,reply)=>{if(!uiAuth(req,reply)
 app.post("/api/conversations/:id/send",async(req,reply)=>{if(!uiAuth(req,reply))return;if(req.body?.confirmed!==true)throw Error("confirmation_required");const body=String(req.body?.body||"").trim();if(!body)return reply.code(422).send({ok:false,error:"body_required"});const sent=await sendConversationReply({conversationId:req.params.id,body,draftId:String(req.body?.draft_id||""),requestId:String(req.body?.request_id||"")});hub.publish("message.sent",{conversation_id:req.params.id});return sent;});
 app.get("/api/connectors",async(req,reply)=>{if(!uiAuth(req,reply))return;return connectors.status()});
 app.get("/api/whatsapp/status",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.initialize();return {ok:true,...whatsapp.status({includeSecrets:true})}});
+app.post('/api/whatsapp/identities/refresh',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const sessionId=String(req.body?.session_id||'whatsapp-main');
+ if(!/^(?:whatsapp-main|wa_[a-f0-9]{16})$/.test(sessionId))throw Error('invalid_whatsapp_session');
+ const [accounts]=await db.execute('SELECT id FROM accounts WHERE integration_key=? LIMIT 1',['whatsapp:'+sessionId]);
+ let jids=[];
+ if(accounts[0]){
+  const [rows]=await db.execute("SELECT external_id FROM conversations WHERE account_id=? AND channel='whatsapp' AND external_id LIKE '%@lid' ORDER BY last_message_at DESC LIMIT 150",[accounts[0].id]);
+  jids=rows.map(x=>x.external_id);
+ }
+ return whatsapp.refreshIdentities(sessionId,jids);
+});
 app.get('/api/whatsapp/history/status',async(req,reply)=>{
  if(!uiAuth(req,reply))return;
  return listWhatsAppHistory({account_id:String(req.query?.session_id||'whatsapp-main')});
