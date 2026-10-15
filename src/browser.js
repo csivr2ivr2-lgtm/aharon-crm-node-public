@@ -366,6 +366,11 @@ function currentAction(id){
  for(const message of assistantMessages){const action=(message.actions||[]).find(a=>a.id===id);if(action)return action;}
  return pendingActions.find(a=>a.id===id);
 }
+function memorySourceCards(sources){
+ const labels={owner_assertion:'דיווח בעלים — לא אימות עצמאי',owner_preference:'העדפה',temporary_owner_note:'מידע זמני',unverified_inference:'השערה לא מאומתת'};
+ if(!Array.isArray(sources)||!sources.length)return '';
+ return '<details class="note"><summary>זיכרונות שנמסרו למודל ('+sources.length+')</summary><p>מקורות הקשר, לא הוכחה שכל פרט בתשובה אומת.</p><ul>'+sources.slice(0,10).map(s=>'<li>'+esc(s.subject||s.id)+' · '+esc(labels[s.evidence]||'מקור זיכרון')+' · גרסה '+esc(s.revision||'')+(s.status==='changed'?' · עודכן מאז התשובה — יש לבדוק מחדש':s.status==='unavailable'?' · המקור נמחק או אינו זמין':'')+'</li>').join('')+'</ul></details>';
+}
 function renderChat({preserveScroll=false}={}){
  const log=$('#chatLog');if(!log)return;
  const previousTop=log.scrollTop;
@@ -374,7 +379,7 @@ function renderChat({preserveScroll=false}={}){
  log.innerHTML=(!assistantMessages.length?'<div class="assistant-empty"><i class="bi bi-chat-square-dots" aria-hidden="true"></i><h3>אפשר להתחיל בכל שאלה עסקית</h3><p>למשל סיכום פניות, איתור משימה או הכנת תשובה.</p></div>':'')+assistantMessages.map((m,i)=>{
   // Legacy in-memory actions, if any, are attached to the assistant turn instead of the timeline end.
   const actions=[...(m.actions||[]),...(i===lastAssistant?pendingActions:[])];
-  return '<article class="chat-turn '+(m.role==='user'?'mine':'theirs')+'"><span class="chat-speaker">'+esc(m.role==='user'?'אתה':'העוזר')+'</span><div class="chat-bubble">'+esc(m.text).replace(/\/#conversation=([a-zA-Z0-9_%.-]+)/g,'<a href="/#conversation=$1">פתח שיחת מקור</a>')+'</div>'+actions.map(actionCard).join('')+'</article>';
+  return '<article class="chat-turn '+(m.role==='user'?'mine':'theirs')+'"><span class="chat-speaker">'+esc(m.role==='user'?'אתה':'העוזר')+'</span><div class="chat-bubble">'+esc(m.text).replace(/\/#conversation=([a-zA-Z0-9_%.-]+)/g,'<a href="/#conversation=$1">פתח שיחת מקור</a>')+'</div>'+memorySourceCards(m.memory_sources)+actions.map(actionCard).join('')+'</article>';
  }).join('')+(assistantBusy?'<div class="chat-turn theirs"><span class="chat-speaker">העוזר</span><div class="chat-bubble typing">מכין תשובה…</div></div>':'');
  log.scrollTop=preserveScroll?previousTop:log.scrollHeight;
 }
@@ -503,7 +508,7 @@ document.addEventListener('submit',async e=>{
    const selectedSession=assistantSession;assistantMessages.push({role:'user',text:fields.message,actions:[]});assistantBusy=true;form.reset();renderChat();
    try{
     const d=await post('/api/assistant/sessions/'+encodeURIComponent(selectedSession)+'/chat',{message:fields.message,request_id:crypto.randomUUID()});
-    assistantMessages.push({id:d.id,role:'assistant',text:d.reply||'לא התקבלה תשובה.',actions:d.actions||[]});
+    assistantMessages.push({id:d.id,role:'assistant',text:d.reply||'לא התקבלה תשובה.',actions:d.actions||[],memory_sources:d.memory_sources||[]});
     if(assistantSessions.find(x=>x.id===selectedSession)?.title==='שיחה חדשה')assistantSessions.find(x=>x.id===selectedSession).title=fields.message.slice(0,180);
     renderAssistantSessions();
    }catch(error){assistantMessages.push({role:'assistant',text:'לא הצלחתי להשלים את הבקשה: '+error.message,actions:[]});}

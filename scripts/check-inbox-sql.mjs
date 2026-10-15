@@ -66,7 +66,8 @@ const run=async()=>{
  await migrateActions(db);await migrateActions(db);
  await migrateAssistantChats(db);await migrateAssistantChats(db);
  let recalledChat;
- const chat=new AssistantChatHistory({database:db,assistant:{chat:async input=>{recalledChat=input;return {reply:'נבדק',actions:[]};}}});
+ const sourceMemory=await createOwnerMemory({kind:'fact',subject:'מקור לתשובה',body:'תוכן פרטי'},db);
+ const chat=new AssistantChatHistory({database:db,assistant:{chat:async input=>{recalledChat=input;return {reply:'נבדק',actions:[],memory_sources:[{id:sourceMemory.id,revision:1,evidence:'owner_assertion',updated_at:new Date().toISOString()}]};}}});
  const chatId=(await chat.create()).id,otherChatId=(await chat.create()).id;
  const turn=async(id,session,body,at)=>db.execute('INSERT INTO assistant_chat_turns(id,session_id,role,body,request_id,created_at) VALUES(?,?,?,?,?,?)',[id,session,'user',body,id,at]);
  await turn('sql_old_decision',chatId,'מחירון אוריון תשעה שקלים','2020-01-01T00:00:00.000Z');
@@ -76,6 +77,12 @@ const run=async()=>{
  await chat.send({sessionId:chatId,message:'מה מחירון אוריון?',requestId:'sql_recall_request',context:{}});
  assert.ok(recalledChat.recalledHistory.some(t=>t.text.includes('תשעה')));
  assert.ok(!recalledChat.recalledHistory.some(t=>t.text.includes('חסוי')));
+ let sourceView=(await chat.load(chatId)).messages.at(-1).memory_sources[0];assert.equal(sourceView.status,'current');
+ await updateOwnerMemory({id:sourceMemory.id,revision:1,kind:'fact',subject:'מקור מעודכן',body:'עודכן'},db);
+ sourceView=(await chat.load(chatId)).messages.at(-1).memory_sources[0];assert.equal(sourceView.status,'changed');
+ await deleteOwnerMemory({id:sourceMemory.id,revision:2},db);
+ sourceView=(await chat.load(chatId)).messages.at(-1).memory_sources[0];assert.equal(sourceView.status,'unavailable');assert.equal(sourceView.subject,'');
+ console.log('PASS: persistent source revisions, changed/deleted source labels without copying memory content');
  for(const id of [chatId,otherChatId]){await db.execute('DELETE FROM assistant_chat_turns WHERE session_id=?',[id]);await db.execute('DELETE FROM assistant_chat_sessions WHERE id=?',[id]);}
  console.log('PASS: real SQL long-chat latest window and session-isolated relevant recall');
 

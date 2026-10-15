@@ -6,7 +6,7 @@ import {AssistantChatHistory,migrateAssistantChats} from '../src/assistant-chat-
 import {backfillInboxHistory} from '../src/ai/historical-triage.js';
 
 function historyFixture(){
- const sessions=new Map(),turns=[],links=[],actions=new Map(),statements=[];
+ const sessions=new Map(),turns=[],links=[],sources=[],memories=new Map(),actions=new Map(),statements=[];
  const database={
   query:async q=>{statements.push(q);return [];},
   execute:async(sql,p=[])=>{
@@ -20,6 +20,8 @@ function historyFixture(){
    if(sql.startsWith('SELECT role,body FROM assistant_chat_turns'))return [turns.filter(t=>t.session_id===p[0]&&t.request_id!==p[1]).slice(-12).map(t=>({role:t.role,body:t.body})).reverse()];
    if(sql.startsWith('SELECT id,role,body'))return [turns.filter(t=>t.session_id===p[0]).slice(-400).reverse()];
    if(sql.startsWith('INSERT INTO assistant_chat_actions')){links.push({action_id:p[0],session_id:p[1],turn_id:p[2],tool:p[3],args_json:p[4],preview_json:p[5],dismissed_at:null});return [{affectedRows:1}]}
+   if(sql.startsWith('INSERT IGNORE INTO assistant_chat_memory_sources')){sources.push({turn_id:p[0],memory_id:p[1],memory_revision:p[2],evidence:p[3],source_updated_at:p[4]});return [{affectedRows:1}]}
+   if(sql.startsWith('SELECT s.turn_id'))return [sources.filter(s=>turns.some(t=>t.id===s.turn_id&&t.session_id===p[1])).map(s=>{const m=memories.get(s.memory_id);return {...s,...(m?.actor===p[0]?{current_id:m.id,subject:m.subject,current_revision:m.revision}:{})}})];
    if(sql.startsWith('SELECT l.action_id'))return [links.filter(l=>l.session_id===p[0]).map(l=>({...l,state:actions.get(l.action_id)||'pending',expires_at:'2099-01-01'}))];
    if(sql.startsWith('SELECT action_id FROM assistant_chat_actions'))return [links.filter(l=>l.action_id===p[0]&&l.session_id===p[1]&&!l.dismissed_at).map(l=>({action_id:l.action_id}))];
    if(sql.startsWith('UPDATE assistant_chat_sessions SET title')){const s=sessions.get(p[3]);if(s&&s.title===p[0])s.title=p[1];return [{affectedRows:1}]}
@@ -33,11 +35,11 @@ function historyFixture(){
   reissuePendingToken:async()=> 'ROTATED_TEST_TOKEN',
   dismissPending:async(id)=>{actions.set(id,'dismissed');return {ok:true}}
  };
- return {database,engine,sessions,turns,links,statements,actions};
+ return {database,engine,sessions,turns,links,statements,actions,sources,memories};
 }
 test('history schema contains distinct sessions, turns and action bindings',async()=>{
  const f=historyFixture();await migrateAssistantChats(f.database);
- assert.equal(f.statements.filter(x=>x.startsWith('CREATE TABLE')).length,3);
+ assert.equal(f.statements.filter(x=>x.startsWith('CREATE TABLE')).length,4);
 });
 test('assistant actions are anchored in their assistant turn and reload after later messages',async()=>{
  const f=historyFixture();let calls=0;
@@ -94,6 +96,9 @@ test('UI keeps approvals by the original assistant turn, not the bottom',async()
  assert.ok(html.indexOf('ממתין לאישור')<html.indexOf('data-action="assistant-confirm"'));
  assert.ok(html.indexOf('data-action="assistant-confirm"')<html.indexOf('מה התאריך?'));
  assert.ok(!html.includes('SECRET'));
+ const provenance=vm.runInContext("memorySourceCards([{id:'mem-test',subject:'<img src=x onerror=alert(1)>',revision:1,evidence:'unverified_inference',status:'changed'}])",context);
+ assert.ok(!provenance.includes('<img'));assert.ok(provenance.includes('&lt;img'));
+ assert.ok(provenance.includes('השערה לא מאומתת'));assert.ok(provenance.includes('עודכן מאז התשובה'));
 });
 
 
@@ -109,4 +114,19 @@ test('long chats load the newest 400 turns and recall old relevant turns only wi
  await svc.send({sessionId:a,message:'מה מחירון אוריון?',requestId:'recall_request',context:{}});
  assert.ok(captured.recalledHistory.some(x=>x.text.includes('תשעה')));
  assert.ok(!captured.recalledHistory.some(x=>x.text.includes('לקוח אחר')));
+});
+
+test('memory provenance survives reload without copying content and flags changed or unavailable sources',async()=>{
+ const f=historyFixture(),memoryId='mem_00000000-0000-0000-0000-000000000001';
+ f.memories.set(memoryId,{id:memoryId,actor:'dashboard',subject:'מחירון',revision:1});
+ const assistant={chat:async()=>({reply:'תשובה',actions:[],memory_sources:[{id:memoryId,revision:1,evidence:'owner_assertion',updated_at:'2026-10-15'}]})};
+ const svc=new AssistantChatHistory({database:f.database,engine:f.engine,assistant});const sessionId=(await svc.create()).id;
+ await svc.send({sessionId,message:'מה המחירון?',requestId:'source_request',context:{}});
+ let loaded=await svc.load(sessionId);assert.equal(loaded.messages.at(-1).memory_sources[0].status,'current');
+ assert.ok(!JSON.stringify(f.sources).includes('מחירון'),'no memory text persisted in chat provenance');
+ f.memories.get(memoryId).revision=2;
+ loaded=await svc.load(sessionId);assert.equal(loaded.messages.at(-1).memory_sources[0].status,'changed');
+ f.memories.get(memoryId).actor='other';
+ loaded=await svc.load(sessionId);assert.equal(loaded.messages.at(-1).memory_sources[0].status,'unavailable');assert.equal(loaded.messages.at(-1).memory_sources[0].subject,'');
+ f.memories.delete(memoryId);assert.equal((await svc.load(sessionId)).messages.at(-1).memory_sources[0].status,'unavailable');
 });

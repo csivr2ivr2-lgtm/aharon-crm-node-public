@@ -45,3 +45,10 @@ The branch's workflow accepts pushes to work/ai-continuity-20261014, allowing CI
 
 Remaining: typed client/project/account scope for owner memories; independently verified fact provenance; semantic retrieval and evaluation on a Hebrew business corpus; configurable TTL and conflict/supersession workflows; persisted memory citations; live inbox/WhatsApp/Hostinger verification; real SQL gate and main promotion for this AI branch.
 Existing scoped CRM/file context, triage, business inbox and background actions were inspected and retained, with their regressions in the full suite; they were not replaced or claimed as newly implemented.
+
+
+## Verified release — 2026-10-15
+Supersedes the earlier SQL-blocked status. Public run 38750858284 identified ER_NO_SUCH_TABLE in AssistantChatHistory.load: the integration harness omitted migrateActions, although server startup already invokes it. Commit 4c26589 adds that prerequisite twice to verify idempotency. No production migration was missing or removed.
+Run https://github.com/csivr2ivr2-lgtm/aharon-crm-node-public/actions/runs/38751046338 completed successfully on 4c26589: Node 20/22, owner-memory, secret scan, high+ audit, real MySQL 8.0 and MariaDB 10.11. Local npm test: 363/363.
+Failure diagnostics now publish only an allowlisted error code and repository source locations; no credentials or SQL values are included in public annotations.
+Main was rechecked at ffef2a1 before promotion. Live CRM rendered its password gate; authenticated functionality and Hostinger deployment version remain unverified.
