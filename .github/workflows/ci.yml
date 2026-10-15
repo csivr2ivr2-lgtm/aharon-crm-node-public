@@ -2,7 +2,7 @@ name: CRM validation
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, work/ai-continuity-20261014]
 permissions:
   contents: read
 jobs:
@@ -117,3 +117,4 @@ jobs:
         run: npm ci
       - name: Verify real database migrations, JSON, queue, and EXPLAIN
         run: node scripts/check-inbox-sql.mjs
+

@@ -11,7 +11,7 @@ function fixture(){
    if(sql.startsWith('INSERT INTO owner_memories')){rows.push({id:args[0],actor:args[1],kind:args[2],subject:args[3],body:args[4],revision:1,updated_at:args[6],created_at:args[5],source:'owner_manual'});return [{affectedRows:1}];}
    if(sql.startsWith('UPDATE owner_memories')){const row=rows.find(r=>r.id===args[4]&&r.actor===args[5]&&r.revision===args[6]);if(!row)return [{affectedRows:0}];Object.assign(row,{kind:args[0],subject:args[1],body:args[2],revision:row.revision+1,updated_at:args[3]});return [{affectedRows:1}];}
    if(sql.startsWith('DELETE FROM owner_memories')){const i=rows.findIndex(r=>r.id===args[0]&&r.actor===args[1]&&r.revision===args[2]);if(i<0)return [{affectedRows:0}];rows.splice(i,1);return [{affectedRows:1}];}
-   if(sql.startsWith('SELECT '))return [rows.filter(r=>r.actor===args[0])];
+   if(sql.startsWith('SELECT '))return [rows.filter(r=>r.actor===(sql.includes('AS relevance')?args.at(-2):args[0]))];
    throw Error('Unexpected query: '+sql);
   }
  };return {database,rows,queries};
@@ -54,4 +54,23 @@ test('unrelated user memories are never sent to an unrelated query',async()=>{
  await createOwnerMemory({kind:'preference',subject:'קוד סודי לפרויקט אחר',body:'מידע פרטי שאינו קשור לשאלה'},f.database);
  assert.deepEqual(await retrieveOwnerMemories({query:'מזג האוויר היום'},f.database),[]);
  assert.deepEqual(await retrieveOwnerMemories({query:''},f.database),[]);
+});
+
+
+test('old relevant decisions survive hundreds of recent unrelated memories',async()=>{
+ const f=fixture();const old=await createOwnerMemory({kind:'decision',subject:'מחירון',body:'ההחלטה המקורית'},f.database);
+ f.rows[0].updated_at='2020-01-01T00:00:00.000Z';
+ for(let i=0;i<230;i++)await createOwnerMemory({kind:'fact',subject:'נושא אחר '+i,body:'מידע לא קשור'},f.database);
+ const result=await retrieveOwnerMemories({query:'מחירון'},f.database);
+ assert.equal(result[0].id,old.id);assert.equal(result[0].evidence,'owner_assertion');
+ assert.match(f.queries.at(-1),/HAVING relevance>0 ORDER BY relevance DESC/);
+ assert.ok(!f.queries.at(-1).includes('LIMIT 200'));
+});
+test('inferences remain labelled and temporary notes expire without being deleted',async()=>{
+ const f=fixture();await createOwnerMemory({kind:'inference',subject:'הצעת מחיר',body:'ייתכן שהלקוח מעוניין'},f.database);
+ await createOwnerMemory({kind:'temporary',subject:'הצעת מחיר',body:'לבדיקה השבוע'},f.database);
+ f.rows[1].updated_at='2020-01-01T00:00:00.000Z';
+ const result=await retrieveOwnerMemories({query:'הצעת מחיר'},f.database);
+ assert.equal(result.length,1);assert.equal(result[0].evidence,'unverified_inference');assert.equal(f.rows.length,2);
+ f.rows[1].updated_at=new Date().toISOString();assert.equal((await retrieveOwnerMemories({query:'הצעת מחיר'},f.database)).length,2);
 });

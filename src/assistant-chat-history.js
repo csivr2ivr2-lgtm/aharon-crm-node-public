@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {db as defaultDb,now} from './db.js';
+import {memoryTerms} from './owner-memory.js';
 
 // The database is the source of truth; client-supplied chat/action identifiers grant no authority.
 const id=prefix=>prefix+randomUUID();
@@ -50,10 +51,11 @@ export class AssistantChatHistory{
  }
  async load(sessionId,actor='dashboard'){
   await this.ensure(sessionId,actor);
-  const [turns]=await this.database.execute("SELECT id,role,body,request_id,created_at FROM assistant_chat_turns WHERE session_id=? ORDER BY created_at ASC,CASE WHEN role='user' THEN 0 ELSE 1 END ASC,id ASC LIMIT 400",[sessionId]);
+  const [turns]=await this.database.execute("SELECT id,role,body,request_id,created_at FROM assistant_chat_turns WHERE session_id=? ORDER BY created_at DESC,CASE WHEN role='user' THEN 0 ELSE 1 END DESC,id DESC LIMIT 400",[sessionId]);
   const [links]=await this.database.execute('SELECT l.action_id,l.turn_id,l.tool,l.args_json,l.preview_json,l.dismissed_at,a.state,a.expires_at FROM assistant_chat_actions l LEFT JOIN ai_actions a ON a.id=l.action_id WHERE l.session_id=?',[sessionId]);
-  const indexed=new Map();
+  const indexed=new Map(),visibleTurns=new Set(turns.map(t=>t.id));
   for(const link of links){
+   if(!visibleTurns.has(link.turn_id))continue;
    const actions=indexed.get(link.turn_id)||[];
    let status=link.dismissed_at?'dismissed':link.state||'unknown',confirmation_token;
    if(status==='pending'){
@@ -65,7 +67,7 @@ export class AssistantChatHistory{
    actions.push({id:link.action_id,tool:link.tool,args:parse(link.args_json),preview:parse(link.preview_json),status,...(confirmation_token?{confirmation_token}:{})});
    indexed.set(link.turn_id,actions);
   }
-  return {ok:true,id:sessionId,messages:turns.map(t=>({id:t.id,role:t.role,text:t.body,created_at:t.created_at,actions:indexed.get(t.id)||[]}))};
+  return {ok:true,id:sessionId,messages:turns.reverse().map(t=>({id:t.id,role:t.role,text:t.body,created_at:t.created_at,actions:indexed.get(t.id)||[]}))};
  }
  async send({sessionId,message,requestId,actor='dashboard',context}){
   await this.ensure(sessionId,actor);
@@ -76,7 +78,14 @@ export class AssistantChatHistory{
   await this.database.execute('INSERT INTO assistant_chat_turns(id,session_id,role,body,request_id,created_at) VALUES(?,?,?,?,?,?)',[userId,sessionId,'user',message.trim(),requestId,ts]);
   const [prior]=await this.database.execute("SELECT role,body FROM assistant_chat_turns WHERE session_id=? AND request_id<>? ORDER BY created_at DESC,id DESC LIMIT 12",[sessionId,requestId]);
   const history=prior.reverse().map(t=>({role:t.role,text:String(t.body||'').slice(0,1400)}));
-  const response=await this.assistant.chat({message:message.trim(),context,requestId,history});
+  const terms=memoryTerms(message).slice(0,12);
+  let recalledHistory=[];
+  if(terms.length){
+   const score=terms.map(()=>'(CASE WHEN LOCATE(?,LOWER(body))>0 THEN 1 ELSE 0 END)').join('+');
+   const [recalled]=await this.database.execute(`SELECT role,body,(${score}) AS relevance FROM assistant_chat_turns WHERE session_id=? AND request_id<>? HAVING relevance>0 ORDER BY relevance DESC,created_at DESC,id DESC LIMIT 6`,[...terms,sessionId,requestId]);
+   recalledHistory=recalled.filter(t=>!history.some(h=>h.role===t.role&&h.text===String(t.body||'').slice(0,1400))).map(t=>({role:t.role,text:String(t.body||'').slice(0,1000)}));
+  }
+  const response=await this.assistant.chat({message:message.trim(),context,requestId,history,recalledHistory});
   const replyId=id('turn_');
   const result=response.reply||'לא התקבלה תשובה.';
   const c=await this.database.getConnection();
@@ -95,3 +104,4 @@ export class AssistantChatHistory{
   return {ok:true,id:replyId,reply:result,actions:response.actions||[],provider:response.provider,model:response.model};
  }
 }
+
