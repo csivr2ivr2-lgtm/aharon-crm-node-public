@@ -266,6 +266,12 @@ const run=async()=>{
  console.log('PASS: 300 real SQL conversations, 600 messages, stable paging after concurrent arrivals; initial snapshot ms='+firstMs+'; pages='+pageCount);
 
 };
-try{await run()}catch(e){console.error('REAL SQL INTEGRATION FAILED:',e);process.exitCode=1}finally{await db.end()}
+try{await run()}catch(e){
+ // Public CI annotations must never contain SQL values, credentials or raw errors.
+ const code=/^[A-Z_0-9]{1,80}$/.test(String(e.code||''))?e.code:'SQL_TEST_FAILED';
+ const frames=String(e.stack||'').match(/(?:src|scripts)\/[a-zA-Z0-9_./-]+\.(?:js|mjs):[0-9]+:[0-9]+/g)||[];
+ console.error('::error title=SQL integration failure::'+code+'; '+frames.slice(0,3).join(' > '));
+ console.error('REAL SQL INTEGRATION FAILED:',e);process.exitCode=1;
+}finally{await db.end()}
 
 
