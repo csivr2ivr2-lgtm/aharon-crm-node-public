@@ -69,3 +69,21 @@ test('conflicting verified PN is never overwritten by a later contradicting mapp
  assert.match(update.sql,/display_name=IF\(phone_jid<>''/);
  assert.equal(update.args[4],'972501111111@s.whatsapp.net');
 });
+
+test('on-demand identity refresh recovers only known LID mappings without messaging peers',async()=>{
+ const calls=[],seen=[];
+ const sock={signalRepository:{lidMapping:{getPNForLID:async lid=>{
+  calls.push(lid);return lid==='126509016678653@lid'?'972501234567@s.whatsapp.net':null;
+ }}}};
+ const c=new WhatsAppConnector({sessionId:'whatsapp-main'});
+ c.sock=sock;c.statusValue='connected';c.onEvent=async e=>{seen.push(e);return {ok:true}};
+ const result=await c.refreshPhoneMappings(['126509016678653@lid','123456789012345@lid',
+  '120363204708382556@g.us']);
+ assert.equal(result.examined,2);
+ assert.equal(result.resolved,1);
+ assert.equal(result.unresolved,1);
+ assert.equal(seen.length,1);
+ assert.equal(seen[0].phone_jid,'972501234567@s.whatsapp.net');
+ assert.equal(typeof sock.sendMessage,'undefined');
+ assert.equal(c.peerPhones.get('126509016678653@lid'),'972501234567@s.whatsapp.net');
+});
