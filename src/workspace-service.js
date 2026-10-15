@@ -6,7 +6,7 @@ import {db,now} from "./db.js";
 import {enqueueJob} from "./platform/jobs.js";
 import {phoneOf,emailOf} from "./message-format.js";
 import {isWhatsAppChannelJid,whatsappChannelExclusionSql} from "./connectors/whatsapp-channel-filter.js";
-import {lookupWhatsAppTitle,saveWhatsAppProfile} from './whatsapp-profiles.js';
+import {lookupWhatsAppTitle,saveWhatsAppProfile,resolveWhatsAppDisplay} from './whatsapp-profiles.js';
 import {safeWhatsAppName} from './connectors/whatsapp-identity.js';
 const id=p=>p+"_"+randomBytes(8).toString("hex");
 const lim=(v,d=50,m=200)=>Math.max(1,Math.min(m,Number.parseInt(String(v??d),10)||d));
@@ -161,7 +161,27 @@ export class WorkspaceService{
   if(op==="client.get"){const [r]=await db.execute("SELECT * FROM clients WHERE id=?",[String(p.id||"")]);if(!r[0])return {ok:false,error:"client_not_found"};r[0].project_ids=await relIds("client",r[0].id,"project");return {ok:true,item:r[0]};}
   if(op==="system.get"){const [r]=await db.execute("SELECT * FROM systems WHERE did=?",[String(p.did||"")]);return r[0]?{ok:true,item:r[0]}:{ok:false,error:"system_not_found"};}
   if(op==="activity.list"){const [items]=await db.query(`SELECT * FROM activities ORDER BY id DESC LIMIT ${lim(p.limit,50,100)}`);return {ok:true,items};}
-  if(op==="conversation.get"){const [c]=await db.execute("SELECT * FROM conversations WHERE id=?",[String(p.id||"")]);if(!c[0])return {ok:false,error:"conversation_not_found"};const [messages]=await db.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY sent_at ASC,id ASC",[String(p.id||"")]);return {ok:true,item:c[0],messages};}
+  if(op==="conversation.get"){
+    const [c]=await db.execute("SELECT * FROM conversations WHERE id=?",[String(p.id||"")]);
+    if(!c[0])return {ok:false,error:"conversation_not_found"};
+    const [messages]=await db.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY sent_at ASC,id ASC",[String(p.id||"")]);
+    if(c[0].channel==='whatsapp'){
+     const [accounts]=await db.execute('SELECT integration_key FROM accounts WHERE id=? LIMIT 1',[c[0].account_id]);
+     const key=String(accounts[0]?.integration_key||'');
+     if(key.startsWith('whatsapp:')){
+      const display=await resolveWhatsAppDisplay({account_id:key.slice(9),jid:c[0].external_id});
+      if(display){
+       const old=String(c[0].title||'');
+       if(old==='מספר WhatsApp לא זמין'||/@lid$/i.test(old)||old.startsWith('איש קשר WhatsApp (מזהה פרטי'))c[0].title=display.title;
+       for(const message of messages){
+        if(message.direction==='in'&&message.sender===c[0].external_id)
+         message.sender_display=display.phone_jid||display.name||'מספר WhatsApp לא זמין';
+       }
+      }
+     }
+    }
+    return {ok:true,item:c[0],messages};
+   }
   if(op==="project.create"||op==="project.update"){const key=await saveProject(p);if(p.client_id)await replaceRelations("client",String(p.client_id),"project",[...await relIds("client",String(p.client_id),"project"),key]);return {ok:true,id:key};}
   if(op==="client.create"||op==="client.update")return {ok:true,id:await saveClient(p)};
   if(op==="task.create"||op==="task.update"){const key=await saveTask(p);for(const [field,type] of [["client_id","client"],["system_id","system"],["source_message_id","message"]])if(p[field]!==undefined)await replaceRelations("task",key,type,p[field]?[String(p[field])]:[]);if(p.reset_worker)await db.execute("UPDATE tasks SET worker_attempts=0,worker_claim=NULL,worker_retry_at=NULL WHERE id=?",[key]);return {ok:true,id:key};}

@@ -1,5 +1,6 @@
 import {migrateInboxTimePages,openTimePage,timeCursor} from './inbox-time-pages.js';
 import {whatsappChannelExclusion} from './connectors/whatsapp-channel-filter.js';
+import {enrichWhatsAppInboxItems} from './whatsapp-profiles.js';
 import {createHash} from 'node:crypto';
 import {inboxSyncState} from './inbox-sync-state.js';
 import {db as defaultDb,now,ensureColumn} from './db.js';
@@ -99,6 +100,7 @@ export async function listInboxWork({cursor='',limit=50,since_visit=false,priori
   // Return every match from the final batch; no matched rows are lost behind the cursor.
   if(items.length>=count)break;
  }
+ await enrichWhatsAppInboxItems(items,database);
  if(!page)items.sort((a,b)=>b.priority-a.priority||String(a.waiting_since).localeCompare(String(b.waiting_since)));
  return {ok:true,sync:inboxSyncState(),since:from||null,visit_known:visitKnown,themes:inboxThemes(items),items,scanned,next_cursor:next,done,complete:done,scope:'synced_data',ranking_scope:page?'snapshot_time':'scanned_conversations',checked_at:now()};
 }
