@@ -5,7 +5,7 @@ import {readdir,readFile,writeFile,mkdir,rename,copyFile,chmod,stat,rm} from 'no
 import {basename,join,resolve} from 'node:path';
 
 export const recoveryHome=sessionDir=>resolve(sessionDir)+'.recovery';
-const fileName=/^[A-Za-z0-9_().@+-]{1,200}\.json$/;
+const fileName=name=>typeof name==='string'&&name.length<=240&&name.endsWith('.json')&&name!=='sessions.json'&&!name.startsWith('.');
 const iso=()=>new Date().toISOString();
 async function secureDir(dir){await mkdir(dir,{recursive:true,mode:0o700});await chmod(dir,0o700);}
 async function writeAtomic(file,value){
@@ -73,7 +73,7 @@ export async function backupAuthState(sessionDir,{maximum=5,maximumBytes=80*1024
  if(previous.length>=maximum)return {ok:false,reason:'snapshot_limit',backups:previous.length};
  const entries=await readdir(sessionDir,{withFileTypes:true});
  // Never recurse into 'sessions/', and never copy symlinks, temp files or registry.
- const files=entries.filter(e=>e.isFile()&&fileName.test(e.name)&&e.name!=='sessions.json');
+ const files=entries.filter(e=>e.isFile()&&fileName(e.name));
  if(!files.some(f=>f.name==='creds.json')||files.length>5000)return {ok:false,reason:'auth_files_unavailable'};
  const stamp='snapshot-'+Date.now()+'-'+randomBytes(4).toString('hex'),stage=join(home,'.pending-'+stamp),destination=join(home,stamp);
  await mkdir(stage,{mode:0o700});
