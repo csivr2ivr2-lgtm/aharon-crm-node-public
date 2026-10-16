@@ -22,6 +22,7 @@ import {SyncScheduler} from "./scheduler.js";
 import {SmartTaskWorker} from "./worker.js";
 import {createDraft,listDrafts,sendConversationReply} from "./inbox.js";
 import {listSentMessages} from "./sent-messages.js";
+import {listOpenDrafts} from "./draft-overview.js";
 import {handleMcp} from "./mcp.js";
 import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
@@ -102,6 +103,7 @@ app.get("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return work
 app.post("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.create",{status:"open",priority:"normal",worker_state:"idle",...(req.body||{})})});
 app.get("/api/inbox",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.list",{...req.query,limit:100})});
 app.get("/api/sent",async(req,reply)=>{if(!uiAuth(req,reply))return;return listSentMessages({cursor:req.query?.cursor||"",limit:req.query?.limit||30})});
+app.get("/api/drafts/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return listOpenDrafts({limit:req.query?.limit||60})});
 app.get("/api/conversations/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;const r=await workspace.call("conversation.get",{id:req.params.id});if(!r.ok)return reply.code(404).send(r);return r});
 app.post("/api/conversations/:id/read",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.read",{id:req.params.id})});
 app.post("/api/conversations/:id/draft",async(req,reply)=>{if(!uiAuth(req,reply))return;return createDraft({conversationId:req.params.id,instruction:String(req.body?.instruction||""),tone:String(req.body?.tone||"")})});
