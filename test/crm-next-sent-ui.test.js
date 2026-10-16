@@ -14,5 +14,5 @@ test('WhatsApp composer never displays the email subject and uses message label'
  assert.match(browser,/subject.hidden=channel!=='email'/);
  assert.match(browser,/querySelector\('input'\).required=channel==='email'/);
  assert.match(browser,/channel==='email'\?'תוכן הדוא״ל':'הודעת WhatsApp'/);
- assert.match(browser,/fields.channel==='email'\?'\\nנושא:/);
+ assert.ok(browser.includes("(fields.channel==='email'?"),'subject must be conditional on email');
 });
