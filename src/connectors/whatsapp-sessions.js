@@ -2,6 +2,7 @@ import {randomBytes} from 'node:crypto';
 import {readFile,writeFile,rename,mkdir,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {config} from '../config.js';
+import {recoverySummary} from './whatsapp-recovery.js';
 import {pairingPhoneNumber} from './whatsapp-phone.js';
 
 const validId=id=>typeof id==='string'&&/^(?:whatsapp-main|wa_[a-f0-9]{16})$/.test(id);
@@ -110,6 +111,14 @@ export class WhatsAppSessions {
  async requestHistory(sessionId,candidates){
   await this.initialize();
   return this.get(sessionId).requestHistory(candidates);
+ }
+ async recoveryStatus(id='whatsapp-main'){
+  await this.initialize();const connector=this.get(id);
+  return {ok:true,session:connector.status(),...(await recoverySummary(connector.sessionDir))};
+ }
+ async recoveryProbe(id='whatsapp-main',onEvent=this.onEvent){
+  await this.initialize();this.onEvent=onEvent;
+  return this.get(id).recoveryProbe(onEvent);
  }
  async deleteForEveryone(payload){await this.initialize();if(!payload?.account_id)throw Error('whatsapp_account_id_required');return this.get(payload.account_id).deleteForEveryone(payload);}
  async send(payload){
