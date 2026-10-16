@@ -26,7 +26,7 @@ export const textFrom=m=>{
 };
 
 export class WhatsAppConnector{
- constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set();this.historyQueue=Promise.resolve();this.knownChats=new Set();this.historyAnchors=new Map();this.historyStats={batches:0,chats:0,imported:0,duplicates:0,failed:0,last_at:null};this.lastDisconnectCode=null;this.lastDisconnectReason=null;this.lastDisconnectAt=null;this.recoveryBackupStatus="not_checked";this.recoveryBackupCount=0;this.reconnectAttempts=0}
+ constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set();this.historyQueue=Promise.resolve();this.knownChats=new Set();this.historyAnchors=new Map();this.historyStats={batches:0,chats:0,imported:0,duplicates:0,failed:0,last_at:null};this.lastDisconnectCode=null;this.lastDisconnectReason=null;this.lastDisconnectAt=null;this.recoveryBackupStatus="not_checked";this.recoveryBackupCount=0;this.reconnectAttempts=0;this.closingSocket=null}
  configured(){return config.whatsappEnabled}
  status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError,history:{...this.historyStats,known_chats:this.knownChats.size,anchor_chats:this.historyAnchors.size},recovery:{disconnect_code:this.lastDisconnectCode,disconnect_reason:this.lastDisconnectReason,disconnect_at:this.lastDisconnectAt,backup_status:this.recoveryBackupStatus,backup_count:this.recoveryBackupCount,requires_primary_device:this.statusValue==="logged_out"}}}
  async pairWithPhone(number,onEvent=this.onEvent){
@@ -66,7 +66,12 @@ export class WhatsAppConnector{
    if(this.stopped){sock.end?.(new Error("shutdown"));return;}
    this.sock=sock;this.statusValue="connecting";
    this.groupRequests.clear();
-   sock.ev.on("creds.update",()=>{this.credentialWrites=this.credentialWrites.then(async()=>{if(this.sock===sock&&!this.stopped)await saveCreds();}).catch(()=>{this.lastError="credentials_save_failed";});});
+   sock.ev.on("creds.update",()=>{
+    this.credentialWrites=this.credentialWrites.then(async()=>{
+     // Flush pending auth writes for the socket being closed, not just the active socket.
+     if(!this.stopped&&(this.sock===sock||this.closingSocket===sock))await saveCreds();
+    }).catch(()=>{this.lastError="credentials_save_failed";});
+   });
    sock.ev.on("connection.update",async update=>{
     if(this.sock!==sock||this.stopped)return;
     if(update.qr){
@@ -88,7 +93,11 @@ export class WhatsAppConnector{
      }catch{this.recoveryBackupStatus='backup_failed';}
     }
     if(update.connection==="close"){
-     this.sock=null;this.qrReady=false;
+     this.closingSocket=sock;this.sock=null;this.qrReady=false;
+     // Drain auth writes queued immediately before the disconnect.
+     await this.credentialWrites;
+     this.closingSocket=null;
+     if(this.stopped)return;
      const decision=interpretDisconnect(update.lastDisconnect);
      this.lastDisconnectCode=decision.code;this.lastDisconnectReason=decision.reason;this.lastDisconnectAt=new Date().toISOString();
      this.statusValue=decision.reason==='logged_out'?'logged_out':decision.needsReview?'recovery_required':'disconnected';
