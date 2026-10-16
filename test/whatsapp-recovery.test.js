@@ -10,7 +10,7 @@ test('real Boom status is preserved, logout and replaced sessions are quarantine
  assert.equal(interpretDisconnect({error:{output:{statusCode:515}}}).autoRetry,true);
  assert.equal(interpretDisconnect({error:{message:'unexpected'}}).code,null);
 });
-async function dir(){const home=await mkdtemp(join(tmpdir(),'crm-wa-recovery-'));const auth=join(home,'auth');await mkdir(auth);await writeFile(join(auth,'creds.json'),JSON.stringify({registered:true,me:{id:'PRIVATE_SECRET'}}));await writeFile(join(auth,'session-1.json'),'{"key":"PRIVATE_KEY"}');await writeFile(join(auth,'sessions.json'),'[{"id":"no-copy"}]');return {home,auth};}
+async function dir(){const home=await mkdtemp(join(tmpdir(),'crm-wa-recovery-'));const auth=join(home,'auth');await mkdir(auth);await writeFile(join(auth,'creds.json'),JSON.stringify({registered:true,me:{id:'PRIVATE_SECRET'}}));await writeFile(join(auth,'session-1.json'),'{"key":"PRIVATE_KEY"}');await writeFile(join(auth,'session-abc=+.json'),'{"key":"SPECIAL_KEY"}');await writeFile(join(auth,'sessions.json'),'[{"id":"no-copy"}]');return {home,auth};}
 test('only owned credential files are preserved in a restricted non-public sibling',async()=>{
  const x=await dir();try{
   assert.equal(await registeredAuthPresent(x.auth),true);
@@ -19,7 +19,7 @@ test('only owned credential files are preserved in a restricted non-public sibli
   const folders=(await readdir(x.auth+'.recovery')).filter(x=>x.startsWith('snapshot-'));
   assert.equal(folders.length,1);
   const files=await readdir(join(x.auth+'.recovery',folders[0]));
-  assert.ok(files.includes('creds.json'));assert.ok(files.includes('session-1.json'));assert.ok(!files.includes('sessions.json'));
+  assert.ok(files.includes('creds.json'));assert.ok(files.includes('session-1.json'));assert.ok(files.includes('session-abc=+.json'));assert.ok(!files.includes('sessions.json'));
   assert.match(await readFile(join(x.auth+'.recovery',folders[0],'creds.json'),'utf8'),/PRIVATE_SECRET/);
   assert.equal((await backupAuthState(x.auth,{maximum:1})).reason,'snapshot_limit');
  }finally{await rm(x.home,{recursive:true,force:true});}
