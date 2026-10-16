@@ -1,7 +1,7 @@
 /* Browser-only UI. Record data is escaped and never inserted into executable attributes. */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const labels={followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'ראשי',inbox:'תיבת הודעות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
+const labels={followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'ראשי',inbox:'תיבת הודעות',sent:'נשלחו',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
 const entityNames={clients:'client',projects:'project',tasks:'task',systems:'system',accounts:'account'};
 let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
@@ -9,6 +9,7 @@ let assistantMessages=[], pendingActions=[], showArchived=false, showArchivedFil
 let visitRecorded=false;
 let workView='inbox',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
+let sentCursor='',sentItems=[],sentDone=false;
 function phoneForDisplay(value){
  const original=String(value||'').trim();
   if(/@lid$/i.test(original)||original.startsWith('איש קשר WhatsApp (מזהה פרטי'))return 'מספר WhatsApp לא זמין';
@@ -39,6 +40,7 @@ async function render(next){
   await renderWorkDashboard();return;
  }
  if(await renderIntelligence(view))return;
+ if(view==='sent'){await renderSentMessages();return;}
  if(view==='inbox'||view==='spam'||view==='updates'){
   if(view==='spam')workView='spam';else if(view==='updates')workView='updates';else if(['spam','updates'].includes(workView))workView='inbox';
   await renderWorkInbox();return;
@@ -105,13 +107,13 @@ async function showCompose(){
  const available=(accounts.items||[]).filter(a=>a.status==='active'&&/^(google|hostinger|whatsapp):/.test(String(a.integration_key||'')));
  // The dialog must open even if there are no CRM clients or connected sending accounts.
  const chooser=optionHtml([['','בחר חשבון שולח'],...available.map(a=>[a.id,(a.label||a.identifier)+' · '+a.identifier])],'');
- const html='<style>#outboundDialog{width:min(94vw,570px);max-height:90vh;overflow:auto;padding:24px;border:1px solid #ccc;border-radius:16px;box-shadow:0 18px 65px #0004;background:var(--panel,#fff);color:var(--text,#222)}#outboundDialog::backdrop{background:#0b1629aa;backdrop-filter:blur(3px)}#outboundDialog form{display:grid;gap:12px}#outboundDialog input,#outboundDialog select,#outboundDialog textarea{display:block;width:100%;padding:10px;border-radius:8px}#outboundDialog .composer-actions{display:flex;flex-wrap:wrap;gap:8px}</style>'+
+ const html='<style>#outboundDialog [hidden]{display:none!important}#outboundDialog{width:min(94vw,570px);max-height:90vh;overflow:auto;padding:24px;border:1px solid #ccc;border-radius:16px;box-shadow:0 18px 65px #0004;background:var(--panel,#fff);color:var(--text,#222)}#outboundDialog::backdrop{background:#0b1629aa;backdrop-filter:blur(3px)}#outboundDialog form{display:grid;gap:12px}#outboundDialog input,#outboundDialog select,#outboundDialog textarea{display:block;width:100%;padding:10px;border-radius:8px}#outboundDialog .composer-actions{display:flex;flex-wrap:wrap;gap:8px}</style>'+
  '<dialog id="outboundDialog" aria-labelledby="composeTitle"><form id="outboundForm"><h2 id="composeTitle">הודעה חדשה</h2>'+
  '<label>ערוץ<select name="channel" id="composeChannel"><option value="email">דוא״ל</option><option value="whatsapp">WhatsApp</option></select></label>'+
  '<label>חשבון שולח<select name="account_id" id="composeAccount" required>'+chooser+'</select></label>'+
  '<label id="composeRecipientLabel">כתובת דוא״ל של הנמען<input name="recipient" type="email" maxlength="255" autocomplete="off" placeholder="name@example.com" required></label>'+
  '<label id="composeSubjectLabel">נושא<input name="subject" maxlength="500" required></label>'+
- '<label>תוכן ההודעה<textarea name="body" maxlength="20000" rows="7" required></textarea></label>'+
+ '<label id="composeBodyLabel">תוכן הדוא״ל<textarea name="body" maxlength="20000" rows="7" required></textarea></label>'+
  '<p class="muted">שום הודעה לא תישלח לפני הצגת הנמען, החשבון והתוכן ואישור מפורש שלך.</p>'+
  '<div class="composer-actions"><button type="submit" class="btn primary">בדיקה והמשך לאישור</button>'+button('compose-close','ביטול')+'</div><p id="composeStatus" role="status"></p></form></dialog>';
  $('#content').insertAdjacentHTML('beforeend',html);
@@ -128,6 +130,8 @@ function refreshCompose(){
  dialog.querySelector('#composeRecipientLabel').firstChild.textContent=channel==='email'?'כתובת דוא״ל של הנמען':'מספר WhatsApp של הנמען';
  recipient.type=channel==='email'?'email':'tel';recipient.placeholder=channel==='email'?'name@example.com':'0501234567 או +972501234567';
  subject.hidden=channel!=='email';subject.querySelector('input').required=channel==='email';
+ dialog.querySelector('#composeTitle').textContent=channel==='email'?'דוא״ל חדש':'הודעת WhatsApp חדשה';
+ dialog.querySelector('#composeBodyLabel').firstChild.textContent=channel==='email'?'תוכן הדוא״ל':'הודעת WhatsApp';
 }
 async function showMergeDialog(){
  const current=await api('/api/conversations/'+encodeURIComponent(conversation)),available=await api('/api/conversations?limit=200');
@@ -189,6 +193,8 @@ document.addEventListener('click',async e=>{
   if(action==='inbox-filter'){inboxFilter=b.dataset.id;renderInboxItems();}
   if(action==='assistant-prompt'){const examples={waiting:'מי מהלקוחות מחכה לתשובה ממני?',urgent:'אילו משימות דחופות עדיין פתוחות?',new:'סכם את הפניות החדשות שקיבלתי'};const t=$('#assistantMessage');if(t){t.value=examples[b.dataset.id]||'';t.focus();}}
   if(action==='compose-new'){await showCompose();return;}
+  if(action==='sent-more'){await loadSentBatch();return;}
+  if(action==='sent-refresh'){await renderSentMessages();return;}
    if(action==='history-sync'){
     await post('/api/history-sync/start');
     const info=await api('/api/history-sync/status');
@@ -496,10 +502,10 @@ document.addEventListener('submit',async e=>{
   const prepared=await post('/api/outgoing/prepare',fields);
   if(prepared.status!=='pending'||!prepared.confirmation_token)throw Error('לא התקבל אישור שליחה תקף.');
   const details=prepared.preview||{};
-  if(!confirm('לאשר שליחה?\\nנמען: '+(details.recipient||'')+'\\nחשבון: '+(details.account||'')+'\\nנושא: '+(details.subject||'')+'\\n\\n'+(details.body||'')))return;
+  if(!confirm('לאשר שליחה?\\nנמען: '+(details.recipient||'')+'\\nחשבון: '+(details.account||'')+(fields.channel==='email'?'\\nנושא: '+(details.subject||''):'')+'\\n\\n'+(details.body||'')))return;
   const sent=await post('/api/assistant/actions/'+encodeURIComponent(prepared.id)+'/confirm',{confirmed:true,confirmation_token:prepared.confirmation_token});
   if(sent.status!=='completed')throw Error('לא ניתן לוודא שההודעה נשלחה. בדוק פעילות לפני ניסיון נוסף.');
-  document.querySelector('#outboundDialog')?.remove();$('#notice').textContent='ההודעה נשלחה ואומתה בשרת.';
+  document.querySelector('#outboundDialog')?.remove();location.hash='sent';await render('sent');$('#notice').textContent='השליחה התקבלה אצל הספק. מצב המסירה והקריאה עדיין לא אומת.';
  }catch(err){document.querySelector('#composeStatus').textContent=err.message;}finally{btn.disabled=false;}
 });
 document.addEventListener('submit',async e=>{if(e.target.id!=='workSearch')return;e.preventDefault();try{workFilters=Object.fromEntries(new FormData(e.target));await renderWorkInbox();}catch(error){$('#error').textContent=error.message;}});
@@ -582,6 +588,30 @@ async function renderWorkDashboard(){
 function workCard(x){
  return '<article class="work-card"><div class="work-card-head"><strong>'+esc(displayContact(x.contact_name||x.sender||x.title,x.channel))+'</strong><span class="tag">'+esc(workLabels[x.handling_state]||x.handling_state)+'</span></div><h3>'+esc(x.channel==='whatsapp'?displayContact(x.title||x.conversation_external_id||'שיחת WhatsApp','whatsapp'):x.subject||x.title||'ללא נושא')+'</h3><p class="work-request">'+esc(x.request_summary)+'</p><p class="muted">'+esc(channel(x))+' · '+esc(x.account_label||'')+' · '+esc(formatDate(x.waiting_since))+' · '+(Number(x.unread_count)>0?Number(x.unread_count)+' לא נקראו':'נקרא')+'</p><p>'+esc(x.next_action)+'</p><details><summary>למה הפנייה כאן?</summary><p>'+esc(x.reason)+'</p><p>'+esc(x.priority_reason)+' · ביטחון '+Math.round(x.confidence*100)+'%</p></details><div class="actions">'+button('conversation','פתח שיחה',x.id)+button('work-draft','הצע תשובה',x.id)+button('work-done','טופל',x.id)+button('work-spam','ספאם',x.id)+'<details><summary>פעולות נוספות</summary>'+button('work-waiting','מחכה ללקוח',x.id)+button('work-progress','בטיפול',x.id)+button('work-noaction','לא דורש תשובה',x.id)+button('work-lead','זה לקוח / ליד',x.id)+button('work-task','צור משימה',x.id)+button('work-snooze','דחה למועד',x.id)+button('work-updates','עדכון',x.id)+button('work-auto','איפוס החלטות ידניות',x.id)+'</details></div><div id="workAction-'+esc(x.id)+'" role="status"></div></article>';
 }
+
+async function renderSentMessages(){
+ sentItems=[];sentCursor='';sentDone=false;
+ $('#content').innerHTML='<section class="panel sent-hub"><header class="section-heading"><div><h2>נשלחו</h2><p class="muted">הודעות יוצאות מ־WhatsApp ומכל חשבונות הדוא״ל. קבלה אצל הספק אינה אישור מסירה או קריאה.</p></div><div class="actions">'+button('sent-refresh','רענן')+button('compose-new','הודעה חדשה')+'</div></header><div id="sentList" class="sent-list" aria-live="polite"></div><p id="sentStatus" role="status"></p>'+button('sent-more','הצג עוד')+'</section>';
+ await loadSentBatch();
+}
+function sentCard(item){
+ const whatsapp=item.channel==='whatsapp',recipient=displayContact(item.recipient||item.conversation_title||'לא ידוע',item.channel);
+ const title=whatsapp?'WhatsApp · '+(item.conversation_title||recipient):item.subject||'דוא״ל ללא נושא';
+ return '<article class="sent-card"><header class="sent-card-head"><strong>'+esc(title)+'</strong><time class="muted">'+esc(formatDate(item.sent_at))+'</time></header>'+
+  '<p class="muted">'+esc(whatsapp?'WhatsApp':'דוא״ל')+' · אל '+esc(recipient)+' · '+esc(item.account_label||'חשבון לא מזוהה')+'</p>'+
+  '<p class="sent-preview">'+esc(String(item.snippet||'').slice(0,250))+'</p>'+
+  '<footer class="sent-actions"><span class="sent-note">הודעה יוצאת · סטטוס מסירה/קריאה לא אומת</span>'+button('conversation','פתח שיחה',item.conversation_id)+'</footer></article>';
+}
+async function loadSentBatch(){
+ const params=new URLSearchParams({limit:'30'});if(sentCursor)params.set('cursor',sentCursor);
+ const d=await api('/api/sent?'+params);
+ const found=new Set(sentItems.map(x=>x.id));sentItems.push(...d.items.filter(x=>!found.has(x.id)));
+ sentCursor=d.next_cursor||'';sentDone=Boolean(d.done);
+ $('#sentList').innerHTML=sentItems.map(sentCard).join('')||'<p class="empty">אין עדיין הודעות יוצאות שנקלטו במערכת.</p>';
+ $('#sentStatus').textContent=sentItems.length+' הודעות נטענו'+(sentDone?' · סוף הרשימה':' · ניתן להציג עוד');
+ const more=document.querySelector('[data-action="sent-more"]');if(more)more.hidden=sentDone;
+}
+
 async function renderWorkInbox(){
  workCursor='';inboxItems=[];
  const [accounts,clients]=await Promise.all([api('/api/accounts'),api('/api/clients')]);
