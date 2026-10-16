@@ -18,7 +18,7 @@ test('sent displays both channels from real outgoing rows and paginates without 
  assert.deepEqual(a.items.map(x=>x.channel),['whatsapp','email']);
  assert.deepEqual(a.items.map(x=>x.delivery_status),['unverified','unverified']);
  assert.equal(a.items[1].account_label,'Gmail');
- assert.equal(a.items[0].can_delete_for_everyone,false); // timestamp from fixture is historical
+ assert.equal(a.items[0].can_delete_for_everyone,true); // recent outgoing WhatsApp message with verified key
  const b=await listSentMessages({limit:2,cursor:a.next_cursor},db);
  assert.deepEqual(b.items.map(x=>x.id),['msg_1']);assert.equal(b.done,true);
 });
