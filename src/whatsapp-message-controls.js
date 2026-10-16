@@ -1,4 +1,8 @@
 // Verified WhatsApp receipts and safe, explicitly confirmed revoke requests.
+// SAFETY CIRCUIT BREAKER: deliberately fail closed until full original Baileys
+// message keys can be persisted and a provider-live revoke regression is verified.
+// An HTTP request cannot override this switch.
+export const WHATSAPP_REVOKE_SUSPENDED=true;
 // No message is erased locally merely because the revoke request was accepted.
 import {db as defaultDb} from './db.js';
 const validSession=x=>/^(?:whatsapp-main|wa_[a-f0-9]{16})$/.test(String(x||''));
@@ -59,10 +63,11 @@ export async function outgoingControls(items,database=defaultDb,clock=Date.now()
   const age=clock-Date.parse(x.sent_at||'');
   return {...x,delivery_status:x.channel==='whatsapp'?receiptLabel(level):'unverified',deletion_status,
    can_delete_for_everyone:x.channel==='whatsapp'&&validSession(x.session_id)&&validJid(x.jid)&&validProviderId(x.provider_message_id)
-     &&Number.isFinite(age)&&age>=0&&age<47*3600*1000&&!deletion_status};
+     &&Number.isFinite(age)&&age>=0&&age<47*3600*1000&&!deletion_status&&!WHATSAPP_REVOKE_SUSPENDED};
  });
 }
 export async function requestWhatsAppDelete(messageId,{database=defaultDb,send,clock=Date.now}={}){
+ if(WHATSAPP_REVOKE_SUSPENDED)throw Error('whatsapp_delete_paused_safety_review');
  if(typeof messageId!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(messageId))throw Error('invalid_message_id');
  if(typeof send!=='function')throw Error('whatsapp_delete_provider_missing');
  const [rows]=await database.execute(`SELECT m.id,m.external_id AS provider_message_id,m.sent_at,m.direction,
