@@ -23,7 +23,7 @@ import {SmartTaskWorker} from "./worker.js";
 import {createDraft,listDrafts,sendConversationReply} from "./inbox.js";
 import {listSentMessages} from "./sent-messages.js";
 import {listOpenDrafts} from "./draft-overview.js";
-import {migrateWhatsAppMessageControls,recordWhatsAppReceipt,requestWhatsAppDelete} from "./whatsapp-message-controls.js";
+import {migrateWhatsAppMessageControls,recordWhatsAppReceipt,requestWhatsAppDelete,outgoingControls} from "./whatsapp-message-controls.js";
 import {handleMcp} from "./mcp.js";
 import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
@@ -112,7 +112,25 @@ app.post("/api/sent/:id/delete-for-everyone",async(req,reply)=>{
  return result;
 });
 app.get("/api/drafts/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return listOpenDrafts({limit:req.query?.limit||60})});
-app.get("/api/conversations/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;const r=await workspace.call("conversation.get",{id:req.params.id});if(!r.ok)return reply.code(404).send(r);return r});
+app.get("/api/conversations/:id",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const r=await workspace.call("conversation.get",{id:req.params.id});
+ if(!r.ok)return reply.code(404).send(r);
+ if(r.item?.channel==='whatsapp'&&Array.isArray(r.messages)){
+  const [accounts]=await db.execute('SELECT integration_key FROM accounts WHERE id=? LIMIT 1',[r.item.account_id]);
+  const key=String(accounts[0]?.integration_key||''),session_id=key.startsWith('whatsapp:')?key.slice(9):'';
+  const outgoing=r.messages.filter(m=>m.direction==='out').map(m=>({...m,channel:'whatsapp',
+   session_id,jid:r.item.external_id,provider_message_id:m.external_id}));
+  const control=await outgoingControls(outgoing,db);
+  const byId=new Map(control.map(m=>[m.id,m]));
+  r.messages=r.messages.map(m=>{
+   const c=byId.get(m.id);
+   return c?{...m,delivery_status:c.delivery_status,deletion_status:c.deletion_status,
+    can_delete_for_everyone:c.can_delete_for_everyone}:m;
+  });
+ }
+ return r;
+});
 app.post("/api/conversations/:id/read",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.read",{id:req.params.id})});
 app.post("/api/conversations/:id/draft",async(req,reply)=>{if(!uiAuth(req,reply))return;return createDraft({conversationId:req.params.id,instruction:String(req.body?.instruction||""),tone:String(req.body?.tone||"")})});
 app.get("/api/conversations/:id/drafts",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,items:await listDrafts(req.params.id)}});

@@ -10,6 +10,7 @@ let visitRecorded=false;
 let workView='inbox',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
 let sentCursor='',sentItems=[],sentDone=false;
+let conversationOutbox=new Map();
 function phoneForDisplay(value){
  const original=String(value||'').trim();
   if(/@lid$/i.test(original)||original.startsWith('איש קשר WhatsApp (מזהה פרטי'))return 'מספר WhatsApp לא זמין';
@@ -146,12 +147,12 @@ async function showMergeDialog(){
 async function openConversation(id){
  const [d,clients,projects,drafts]=await Promise.all([api('/api/conversations/'+encodeURIComponent(id)),api('/api/clients'),api('/api/projects'),api('/api/conversations/'+encodeURIComponent(id)+'/drafts')]);
  conversationWork=(await api('/api/inbox/work/'+encodeURIComponent(id))).item;
- conversation=id;requestId=crypto.randomUUID();$('#title').textContent=d.item.title||'שיחה';
+ conversation=id;requestId=crypto.randomUUID();conversationOutbox=new Map((d.messages||[]).filter(m=>m.direction==='out').map(m=>[m.id,m]));$('#title').textContent=d.item.title||'שיחה';
  const newestInbound=[...(d.messages||[])].reverse().find(m=>m.direction==='in');
  conversationReplyEligible=!['spam','suspicious','marketing','system','reaction'].includes(conversationWork.message_type);
 
  const options=(items,selected)=>'<option value="">ללא שיוך</option>'+items.map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(x.name)+'</option>').join('');
- const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+displayContact(m.sender_display||m.sender,d.item.channel))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools"><label><input type="checkbox" class="thread-pick" value="'+esc(m.id)+'">בחר להפרדה</label>'+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
+ const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+displayContact(m.sender_display||m.sender,d.item.channel))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools"><label><input type="checkbox" class="thread-pick" value="'+esc(m.id)+'">בחר להפרדה</label>'+(m.direction==='out'&&d.item.channel==='whatsapp'?'<span class="muted">'+esc(({server:'נשלח לשרת',delivered:'נמסר',read:'נקרא',played:'נוגן'})[m.delivery_status]||'קריאה לא אומתה')+'</span>':'')+(m.deletion_status?'<span class="muted">'+esc(m.deletion_status==='requested'?'בקשת מחיקה נשלחה · לא אומת אצל הלקוח':'מצב המחיקה דורש בדיקה')+'</span>':'')+(m.can_delete_for_everyone?button('conversation-delete-for-all','מחק לכולם',m.id):'')+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
  $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+button('thread-merge','אחד עם שיחה אחרת')+button('thread-split','הפרד הודעות מסומנות')+'<h2>'+esc(displayContact(d.item.title||d.item.external_id||'שיחה',d.item.channel))+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מקצועית','professional')+button('reply-suggestion','ידידותית','friendly')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
  $('.conversation-sidebar').insertAdjacentHTML('beforeend','<div class="workflow-controls"><p>'+esc(workLabels[conversationWork.handling_state]||'דורש בדיקה')+'</p>'+button('work-done','טופל',id)+button('work-waiting','מחכה ללקוח',id)+button('work-noaction','לא דורש תשובה',id)+button('work-auto','איפוס החלטות ידניות',id)+'</div>');
  const draft=(drafts.items||[]).find(x=>x.status==='draft');if(draft){$('#reply').value=draft.body;$('#reply').dataset.draftId=draft.id;}
@@ -197,6 +198,7 @@ document.addEventListener('click',async e=>{
   if(action==='sent-more'){await loadSentBatch();return;}
   if(action==='sent-refresh'){await renderSentMessages();return;}
   if(action==='sent-delete-for-all'){await requestSentDeletion(id);return;}
+  if(action==='conversation-delete-for-all'){await deleteConversationMessage(id);return;}
   if(action==='draft-refresh'){await renderDraftOverview();return;}
    if(action==='history-sync'){
     await post('/api/history-sync/start');
@@ -605,6 +607,15 @@ async function renderDraftOverview(){
  '</div><p class="muted">'+items.length+' טיוטות פעילות או שליחות הדורשות אימות</p></section>';
 }
 
+async function deleteConversationMessage(id){
+ const m=conversationOutbox.get(id);
+ if(!m||m.can_delete_for_everyone!==true)throw Error('לא ניתן לבקש מחיקה לכולם עבור הודעה זו.');
+ if(!confirm('מחיקה לכולם של ההודעה הזו?\\nחשבון: '+String(m.sender||'לא ידוע')+'\\nנמען: '+String(m.recipient||'לא ידוע')+'\\n'+String(m.body||'').slice(0,150)+'\\n\\nהמחיקה עשויה לא להסיר התראות או הודעות שכבר נצפו.'))return;
+ const target=conversation;
+ const result=await post('/api/sent/'+encodeURIComponent(id)+'/delete-for-everyone',{confirmed:true});
+ await openConversation(target);
+ $('#notice').textContent=result.status==='requested'?'בקשת המחיקה נשלחה דרך החשבון המקורי. אין אישור שההודעה הוסרה אצל הלקוח.':'מצב המחיקה לא ודאי.';
+}
 async function requestSentDeletion(id){
  const message=sentItems.find(x=>x.id===id);
  if(!message||message.channel!=='whatsapp'||message.can_delete_for_everyone!==true)throw Error('הודעה זו אינה זכאית למחיקה לכולם.');
