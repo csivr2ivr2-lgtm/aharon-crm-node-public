@@ -23,8 +23,8 @@ export async function recordWhatsAppReceipt({account_id,jid,provider_message_id,
   return {ok:true,skipped:'invalid_receipt'};
  const level=receiptLevels[status],timestamp=new Date().toISOString();
  await database.execute(`INSERT INTO whatsapp_message_receipts(account_key,jid,provider_message_id,status_level,updated_at)
- VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE status_level=GREATEST(status_level,VALUES(status_level)),
- updated_at=IF(VALUES(status_level)>status_level,VALUES(updated_at),updated_at)`,
+ VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE updated_at=IF(VALUES(status_level)>status_level,VALUES(updated_at),updated_at),
+ status_level=GREATEST(status_level,VALUES(status_level))`,
  ['whatsapp:'+account_id,jid,provider_message_id,level,timestamp]);
  return {ok:true,status};
 }

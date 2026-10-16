@@ -351,7 +351,7 @@ export class WhatsAppConnector{
  async deleteForEveryone({to,message_id}={}){
   if(!this.sock||this.statusValue!=='connected')throw Error('whatsapp_not_connected');
   const jid=whatsappDestination(to),id=String(message_id||'');
-  if(!/^[a-zA-Z0-9._:-]{1,128}$/.test(id)||!/@(?:s\\.whatsapp\\.net|lid)$/.test(jid))throw Error('invalid_whatsapp_message_key');
+  if(!/^[a-zA-Z0-9._:-]{1,128}$/.test(id)||!/@(?:s\.whatsapp\.net|lid)$/.test(jid))throw Error('invalid_whatsapp_message_key');
   const r=await this.sock.sendMessage(jid,{delete:{remoteJid:jid,id,fromMe:true}});
   if(!r?.key?.id)throw Error('whatsapp_delete_not_acknowledged');
   return {ok:true,message_id:id,request_id:String(r.key.id)};
