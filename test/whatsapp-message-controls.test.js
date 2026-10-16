@@ -15,26 +15,18 @@ test('receipt reject malformed account and preserves monotonic updates',async()=
  await recordWhatsAppReceipt({account_id:'whatsapp-main',jid:'972501234567@s.whatsapp.net',provider_message_id:'ABC',status:'read'},db);
  assert.match(sql,/GREATEST\(status_level/);assert.equal(args[3],4);
 });
-test('delete is strictly scoped to a recent outgoing WhatsApp message and original account',async()=>{
- const m={id:'msg_1',provider_message_id:'ABC123',sent_at:new Date(Date.now()-30000).toISOString(),direction:'out',channel:'whatsapp',jid:'972501234567@s.whatsapp.net',integration_key:'whatsapp:wa_abcdef0123456789'};
- let calls=0;let sent;
- const db={execute:async(sql,p)=>{
-  if(sql.includes('FROM messages m'))return [[m]];
-  if(sql.includes('INSERT IGNORE'))return [{affectedRows:++calls===1?1:0}];
-  if(sql.includes('UPDATE whatsapp_delete_requests'))return [{affectedRows:1}];
-  throw Error(sql);
- }};
- const first=await requestWhatsAppDelete('msg_1',{database:db,send:async v=>{sent=v;return {ok:true,message_id:v.message_id}}});
- assert.equal(first.status,'requested');
- assert.deepEqual(sent,{account_id:'wa_abcdef0123456789',to:m.jid,message_id:'ABC123'});
- await assert.rejects(requestWhatsAppDelete('msg_1',{database:db,send:async()=>{throw Error('should not call')}}),/already_requested/);
+test('revoke circuit breaker fails closed before any database lookup or provider operation',async()=>{
+ let touched=false;
+ const database={execute:async()=>{touched=true;throw Error('database must not be queried')}};
+ await assert.rejects(requestWhatsAppDelete('msg_1',{database,send:async()=>{touched=true;throw Error('network must not be touched')}}),/whatsapp_delete_paused_safety_review/);
+ assert.equal(touched,false);
 });
-test('delete never touches email and never deletes old or inbound messages',async()=>{
- const base={id:'msg_1',provider_message_id:'ABC123',sent_at:new Date(Date.now()-5000).toISOString(),direction:'out',channel:'whatsapp',jid:'972501234567@s.whatsapp.net',integration_key:'whatsapp:whatsapp-main'};
- for(const changes of [{channel:'email'},{direction:'in'},{sent_at:new Date(Date.now()-48*3600*1000).toISOString()}]){
-  const database={execute:async(sql)=>{if(sql.includes('FROM messages m'))return [[{...base,...changes}]];throw Error('mutation reached')}};
-  await assert.rejects(requestWhatsAppDelete('msg_1',{database,send:async()=>{throw Error('sent')}}),/not_allowed|window_expired/);
- }
+test('revoke is hidden even for a recent valid outbound WhatsApp message',async()=>{
+ const m={id:'msg_2',channel:'whatsapp',session_id:'whatsapp-main',jid:'972501234567@s.whatsapp.net',provider_message_id:'XYZ',sent_at:new Date(Date.now()-1000).toISOString()};
+ const database={execute:async sql=>sql.includes('FROM whatsapp_message_receipts')?[[{account_key:'whatsapp:whatsapp-main',jid:m.jid,provider_message_id:'XYZ',status_level:4}]]:[[]]};
+ const [result]=await outgoingControls([m],database);
+ assert.equal(result.delivery_status,'read');
+ assert.equal(result.can_delete_for_everyone,false);
 });
 test('outbox status never lies about read receipts and hides repeated delete',async()=>{
  const m={id:'msg_1',channel:'whatsapp',session_id:'whatsapp-main',jid:'972501234567@s.whatsapp.net',provider_message_id:'ABC',sent_at:new Date().toISOString()};
