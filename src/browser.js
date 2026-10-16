@@ -54,7 +54,7 @@ async function render(next){
  }
  if(view==='files'){await renderFiles();return;}
  if(view==='connectors'){
-  const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('gmail-folders','תוויות ותיקיות',a.id)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-folders','תיקיות דואר')+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חשבונות מקושרים</h2><p>לכל מספר סשן נפרד. קוד הקישור מוצג כאן ומוזן בטלפון הראשי.</p><div id="wa"></div><form id="waPairForm"><label>מספר WhatsApp חדש עם קידומת מדינה וללא +<input name="phone_number" inputmode="numeric" pattern="[1-9][0-9]{7,14}" required autocomplete="tel" placeholder="972501234567"></label><button class="btn primary" type="submit">הוסף חשבון וקבל קוד קישור</button><p class="muted">בטלפון: WhatsApp ← מכשירים מקושרים ← קישור מכשיר ← קישור באמצעות מספר טלפון.</p></form></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<section id="providerFolders" class="panel" role="region" aria-label="תיקיות ספק דואר" hidden></section>');$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
+  const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('gmail-folders','תוויות ותיקיות',a.id)+' '+button('google-calendar','יומן Google',a.id)+' '+button('google-drive','חיפוש Drive',a.id)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-folders','תיקיות דואר')+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חשבונות מקושרים</h2><p>לכל מספר סשן נפרד. קוד הקישור מוצג כאן ומוזן בטלפון הראשי.</p><div id="wa"></div><form id="waPairForm"><label>מספר WhatsApp חדש עם קידומת מדינה וללא +<input name="phone_number" inputmode="numeric" pattern="[1-9][0-9]{7,14}" required autocomplete="tel" placeholder="972501234567"></label><button class="btn primary" type="submit">הוסף חשבון וקבל קוד קישור</button><p class="muted">בטלפון: WhatsApp ← מכשירים מקושרים ← קישור מכשיר ← קישור באמצעות מספר טלפון.</p></form></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<section id="providerFolders" class="panel" role="region" aria-label="תיקיות ספק דואר" hidden></section>');$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
  }
  if(view==='ai'){await renderLocalAi();return;}
  $('#content').innerHTML='<div class="panel"><h2>הגדרות מערכת</h2><p>סיסמאות, חיבור למסד הנתונים והגדרות הספקים מנוהלים במשתני הסביבה של Hostinger.</p><p>חיבורי Google ו־WhatsApp מנוהלים במסך החיבורים. הגדרות המודל מוצגות במסך הבינה המלאכותית.</p><p>הודעות נשלחות רק בלחיצה מפורשת על שליחה. גם משימות AI יוצרות תוצאה לבדיקה בלבד.</p></div>';
@@ -175,6 +175,33 @@ async function showProviderFolders(provider,accountId=''){
    '<div><span>'+esc(count(f.messages_total))+' הודעות</span> · <strong>'+esc(count(f.messages_unread))+' לא נקראו</strong></div></article>'
   ).join('')+'</div>'+(result.limited?'<p class="muted">הרשימה מוגבלת; יש תיקיות נוספות שלא הוצגו.</p>':'');
 }
+async function showGoogleCalendar(accountId){
+ const root=$('#providerFolders');if(!root)return;
+ root.hidden=false;root.textContent='טוען אירועים מהיומן…';
+ const result=await api('/api/google/calendar?account_id='+encodeURIComponent(accountId));
+ root.innerHTML='<h3>יומן Google · אירועים קרובים</h3>'+
+  '<p class="muted">קריאה בלבד, מהחשבון שנבחר. יצירה או שינוי אירועים אינם מופעלים.</p>'+
+  ((result.events||[]).length?(result.events||[]).map(e=>'<article class="row"><div><strong>'+esc(e.summary||'אירוע ללא כותרת')+
+   '</strong><p class="muted">'+esc(formatDate(e.start))+' · '+esc(e.location||'ללא מיקום')+'</p></div></article>').join(''):'<p class="muted">לא נמצאו אירועים בתקופה שנבדקה.</p>');
+}
+function prepareDriveSearch(accountId){
+ const root=$('#providerFolders');if(!root)return;
+ root.hidden=false;
+ root.innerHTML='<h3>חיפוש קבצים ב־Google Drive</h3><p class="muted">מחפש שמות קבצים בלבד בהרשאות הקריאה הקיימות. לא מעתיק או משנה קבצים.</p>'+
+  '<label>שם קובץ<input id="driveQuery" maxlength="100" autocomplete="off" placeholder="הקלד לפחות שתי אותיות"></label>'+
+  button('drive-search-run','חפש ב־Drive',accountId)+'<div id="driveResults" role="status"></div>';
+ $('#driveQuery')?.focus();
+}
+async function showDriveSearch(accountId){
+ const q=String($('#driveQuery')?.value||'').trim();
+ if(q.length<2||q.length>100)throw Error('יש להזין 2–100 תווים לחיפוש.');
+ const result=await api('/api/google/drive-search?account_id='+encodeURIComponent(accountId)+'&q='+encodeURIComponent(q));
+ const root=$('#driveResults');if(!root)return;
+ root.innerHTML=(result.files||[]).length?(result.files||[]).map(f=>'<article class="row"><div><strong>'+esc(f.name||'קובץ')+
+  '</strong><p class="muted">'+esc(f.mimeType||'')+' · '+esc(formatDate(f.modifiedTime))+'</p></div></article>').join(''):
+  '<p class="muted">לא נמצאו קבצים מתאימים או שאין גישה אליהם בחשבון הנבחר.</p>';
+}
+
 async function showClient360(clientId){
  const info=await api('/api/clients/'+encodeURIComponent(clientId)+'/overview');
  document.querySelector('#client360Dialog')?.remove();
@@ -237,6 +264,9 @@ document.addEventListener('click',async e=>{
   if(action==='client-360'){await showClient360(id);return;}
   if(action==='client-360-close'){document.querySelector('#client360Dialog')?.close();document.querySelector('#client360Dialog')?.remove();return;}
   if(action==='gmail-folders'){await showProviderFolders('gmail',id);return;}
+  if(action==='google-calendar'){await showGoogleCalendar(id);return;}
+  if(action==='google-drive'){prepareDriveSearch(id);return;}
+  if(action==='drive-search-run'){await showDriveSearch(id);return;}
   if(action==='hostinger-folders'){await showProviderFolders('hostinger');return;}
   if(action==='back-inbox'){location.hash='inbox';await render('inbox');}
   if(action==='inbox-filter'){inboxFilter=b.dataset.id;renderInboxItems();}

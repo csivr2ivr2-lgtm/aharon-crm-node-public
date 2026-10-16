@@ -144,6 +144,13 @@ app.get("/api/conversations/:id/drafts",async(req,reply)=>{if(!uiAuth(req,reply)
 app.post("/api/conversations/:id/send",async(req,reply)=>{if(!uiAuth(req,reply))return;if(req.body?.confirmed!==true)throw Error("confirmation_required");const body=String(req.body?.body||"").trim();if(!body)return reply.code(422).send({ok:false,error:"body_required"});const sent=await sendConversationReply({conversationId:req.params.id,body,draftId:String(req.body?.draft_id||""),requestId:String(req.body?.request_id||"")});hub.publish("message.sent",{conversation_id:req.params.id});return sent;});
 app.get("/api/connectors",async(req,reply)=>{if(!uiAuth(req,reply))return;return connectors.status()});
 app.get("/api/google/folders",async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.gmailFolders({account_id:String(req.query?.account_id||'')});});
+app.get("/api/google/calendar",async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.calendarUpcoming({account_id:String(req.query?.account_id||''),max_results:20});});
+app.get("/api/google/drive-search",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const q=String(req.query?.q||'').trim();
+ if(q.length<2||q.length>100)throw Error('invalid_drive_query');
+ return googleConnector.driveSearch({account_id:String(req.query?.account_id||''),q,max_results:20});
+});
 app.get("/api/hostinger/folders",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.folders();});
 app.get("/api/whatsapp/status",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.initialize();return {ok:true,...whatsapp.status({includeSecrets:true})}});
 app.get("/api/whatsapp/recovery/status",async(req,reply)=>{
