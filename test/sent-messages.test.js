@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {listSentMessages,decodeSentCursor,encodeSentCursor} from '../src/sent-messages.js';
+const hoursAgo=hours=>new Date(Date.now()-hours*3600000).toISOString();
 const rows=[
- {id:'msg_3',conversation_id:'c1',external_id:'WAMESSAGE3',recipient:'972501234567@s.whatsapp.net',subject:'',snippet:'היי',sent_at:'2026-10-15T10:00:00.000Z'},
- {id:'msg_2',conversation_id:'c2',external_id:'EMAILMESSAGE2',recipient:'buyer@example.com',subject:'פרטים',snippet:'בוקר טוב',sent_at:'2026-10-15T09:00:00.000Z'},
- {id:'msg_1',conversation_id:'c1',external_id:'WAMESSAGE1',recipient:'972501234567@s.whatsapp.net',subject:'',snippet:'שלום',sent_at:'2026-10-15T08:00:00.000Z'}
+ {id:'msg_3',conversation_id:'c1',external_id:'WAMESSAGE3',recipient:'972501234567@s.whatsapp.net',subject:'',snippet:'היי',sent_at:hoursAgo(1)},
+ {id:'msg_2',conversation_id:'c2',external_id:'EMAILMESSAGE2',recipient:'buyer@example.com',subject:'פרטים',snippet:'בוקר טוב',sent_at:hoursAgo(2)},
+ {id:'msg_1',conversation_id:'c1',external_id:'WAMESSAGE1',recipient:'972501234567@s.whatsapp.net',subject:'',snippet:'שלום',sent_at:hoursAgo(3)}
 ];
 const db={execute:async(sql,p)=>{
  if(sql.includes('FROM messages')){assert.match(sql,/direction='out'/);const c=p.length>1?{t:p[0],id:p[2]}:null;return [rows.filter(x=>!c||x.sent_at<c.t||x.sent_at===c.t&&x.id<c.id).slice(0,p.at(-1))];}

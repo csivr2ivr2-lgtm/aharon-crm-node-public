@@ -119,7 +119,7 @@ async function showCompose(){
  '<p class="muted">שום הודעה לא תישלח לפני הצגת הנמען, החשבון והתוכן ואישור מפורש שלך.</p>'+
  '<div class="composer-actions"><button type="submit" class="btn primary">בדיקה והמשך לאישור</button>'+button('compose-close','ביטול')+'</div><p id="composeStatus" role="status"></p></form></dialog>';
  $('#content').insertAdjacentHTML('beforeend',html);
- const dialog=$('#outboundDialog');dialog.dataset.accounts=JSON.stringify(available.map(a=>({id:a.id,kind:String(a.integration_key||'').split(':')[0],label:a.label||a.identifier})));
+ const dialog=$('#outboundDialog');dialog.dataset.accounts=JSON.stringify(available.map(a=>({id:a.id,kind:String(a.integration_key||'').split(':')[0],label:a.label||a.identifier,identifier:a.identifier||''})));
  dialog.showModal();refreshCompose();
 }
 function refreshCompose(){
@@ -127,7 +127,7 @@ function refreshCompose(){
  const channel=dialog.querySelector('#composeChannel').value,account=dialog.querySelector('#composeAccount');
  const available=JSON.parse(dialog.dataset.accounts||'[]').filter(a=>channel==='email'?['google','hostinger'].includes(a.kind):a.kind==='whatsapp');
  const previous=account.value;
- account.innerHTML=optionHtml([['','בחר חשבון שולח'],...available.map(a=>[a.id,a.label])],previous);
+ account.innerHTML=optionHtml([['','בחר חשבון שולח'],...available.map(a=>[a.id,a.identifier&&a.identifier!==a.label?a.label+' · '+a.identifier:a.label])],previous);
  const recipient=dialog.querySelector('[name="recipient"]'),subject=dialog.querySelector('#composeSubjectLabel');
  dialog.querySelector('#composeRecipientLabel').firstChild.textContent=channel==='email'?'כתובת דוא״ל של הנמען':'מספר WhatsApp של הנמען';
  recipient.type=channel==='email'?'email':'tel';recipient.placeholder=channel==='email'?'name@example.com':'0501234567 או +972501234567';
@@ -507,7 +507,9 @@ document.addEventListener('submit',async e=>{
   const prepared=await post('/api/outgoing/prepare',fields);
   if(prepared.status!=='pending'||!prepared.confirmation_token)throw Error('לא התקבל אישור שליחה תקף.');
   const details=prepared.preview||{};
-  if(!confirm('לאשר שליחה?\\nנמען: '+(details.recipient||'')+'\\nחשבון: '+(details.account||'')+(fields.channel==='email'?'\\nנושא: '+(details.subject||''):'')+'\\n\\n'+(details.body||'')))return;
+  const selected=JSON.parse(document.querySelector('#outboundDialog')?.dataset.accounts||'[]').find(x=>x.id===fields.account_id);
+  const selectedAccount=selected?(selected.label+(selected.identifier&&selected.identifier!==selected.label?' · '+selected.identifier:'')):(details.account||'');
+  if(!confirm('לאשר שליחה?\\n\u26a0 בדוק היטב את החשבון השולח — ייתכן שזהו החשבון האישי שלך.\\n\u05d7\u05e9\u05d1\u05d5\u05df: '+selectedAccount+'\\nנמען: '+(details.recipient||'')+(fields.channel==='email'?'\\nנושא: '+(details.subject||''):'')+'\\n\\n'+(details.body||'')))return;
   const sent=await post('/api/assistant/actions/'+encodeURIComponent(prepared.id)+'/confirm',{confirmed:true,confirmation_token:prepared.confirmation_token});
   if(sent.status!=='completed')throw Error('לא ניתן לוודא שההודעה נשלחה. בדוק פעילות לפני ניסיון נוסף.');
   document.querySelector('#outboundDialog')?.remove();location.hash='sent';await render('sent');$('#notice').textContent='השליחה התקבלה אצל הספק. מצב המסירה והקריאה עדיין לא אומת.';
