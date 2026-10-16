@@ -48,11 +48,11 @@ async function render(next){
   await renderWorkInbox();return;
  }
  if(entityNames[view]){
-  const d=await api('/api/'+view+(showArchived?'?include_archived=1':''));records=d.items;$('#content').innerHTML='<div class="panel">'+button('create','הוספה')+(['projects','systems'].includes(view)?button('toggle-archived',showArchived?'הסתר ארכיון':'הצג ארכיון'):'')+'</div><div class="panel">'+(records.map(x=>'<div class="row"><div><b>'+esc(x.name||x.title||x.did||x.label)+'</b><div class="muted">'+esc([statusLabel(x.status),x.email,x.phone,x.identifier,statusLabel(x.automation_mode),statusLabel(x.worker_state)].filter(Boolean).join(' · '))+'</div><div class="note">'+esc(x.description||x.notes||'')+'</div>'+(x.next_step?'<p>הצעד הבא: '+esc(x.next_step)+'</p>':'')+(x.worker_result?'<p class="draft note">'+esc(x.worker_result)+'</p>':'')+'</div><div>'+button('edit','עריכה',x.id||x.did)+button('notes','הערות',x.id||x.did)+(['projects','systems'].includes(view)?lifecycleButtons(x):'')+'</div></div>').join('')||'<p class="empty">אין רשומות.</p>')+'</div>';return;
+  const d=await api('/api/'+view+(showArchived?'?include_archived=1':''));records=d.items;$('#content').innerHTML='<div class="panel">'+button('create','הוספה')+(['projects','systems'].includes(view)?button('toggle-archived',showArchived?'הסתר ארכיון':'הצג ארכיון'):'')+'</div><div class="panel">'+(records.map(x=>'<div class="row"><div><b>'+esc(x.name||x.title||x.did||x.label)+'</b><div class="muted">'+esc([statusLabel(x.status),x.email,x.phone,x.identifier,statusLabel(x.automation_mode),statusLabel(x.worker_state)].filter(Boolean).join(' · '))+'</div><div class="note">'+esc(x.description||x.notes||'')+'</div>'+(x.next_step?'<p>הצעד הבא: '+esc(x.next_step)+'</p>':'')+(x.worker_result?'<p class="draft note">'+esc(x.worker_result)+'</p>':'')+'</div><div>'+(view==='clients'?button('client-360','תיק לקוח 360°',x.id):'')+button('edit','עריכה',x.id||x.did)+button('notes','הערות',x.id||x.did)+(['projects','systems'].includes(view)?lifecycleButtons(x):'')+'</div></div>').join('')||'<p class="empty">אין רשומות.</p>')+'</div>';return;
  }
  if(view==='files'){await renderFiles();return;}
  if(view==='connectors'){
-  const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חשבונות מקושרים</h2><p>לכל מספר סשן נפרד. קוד הקישור מוצג כאן ומוזן בטלפון הראשי.</p><div id="wa"></div><form id="waPairForm"><label>מספר WhatsApp חדש עם קידומת מדינה וללא +<input name="phone_number" inputmode="numeric" pattern="[1-9][0-9]{7,14}" required autocomplete="tel" placeholder="972501234567"></label><button class="btn primary" type="submit">הוסף חשבון וקבל קוד קישור</button><p class="muted">בטלפון: WhatsApp ← מכשירים מקושרים ← קישור מכשיר ← קישור באמצעות מספר טלפון.</p></form></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
+  const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('gmail-folders','תוויות ותיקיות',a.id)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-folders','תיקיות דואר')+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חשבונות מקושרים</h2><p>לכל מספר סשן נפרד. קוד הקישור מוצג כאן ומוזן בטלפון הראשי.</p><div id="wa"></div><form id="waPairForm"><label>מספר WhatsApp חדש עם קידומת מדינה וללא +<input name="phone_number" inputmode="numeric" pattern="[1-9][0-9]{7,14}" required autocomplete="tel" placeholder="972501234567"></label><button class="btn primary" type="submit">הוסף חשבון וקבל קוד קישור</button><p class="muted">בטלפון: WhatsApp ← מכשירים מקושרים ← קישור מכשיר ← קישור באמצעות מספר טלפון.</p></form></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<section id="providerFolders" class="panel" role="region" aria-label="תיקיות ספק דואר" hidden></section>');$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
  }
  if(view==='ai'){await renderLocalAi();return;}
  $('#content').innerHTML='<div class="panel"><h2>הגדרות מערכת</h2><p>סיסמאות, חיבור למסד הנתונים והגדרות הספקים מנוהלים במשתני הסביבה של Hostinger.</p><p>חיבורי Google ו־WhatsApp מנוהלים במסך החיבורים. הגדרות המודל מוצגות במסך הבינה המלאכותית.</p><p>הודעות נשלחות רק בלחיצה מפורשת על שליחה. גם משימות AI יוצרות תוצאה לבדיקה בלבד.</p></div>';
@@ -160,6 +160,43 @@ async function openConversation(id){
  const timeline=$('.conversation');if(timeline)timeline.scrollTop=timeline.scrollHeight;
 }
 
+async function showProviderFolders(provider,accountId=''){
+ const path=provider==='gmail'?'/api/google/folders?account_id='+encodeURIComponent(accountId):'/api/hostinger/folders';
+ const root=$('#providerFolders');if(!root)return;
+ root.hidden=false;root.textContent='טוען תיקיות ממקור הדואר…';
+ const result=await api(path);
+ const count=n=>n===null||n===undefined?'לא דווח':Number(n).toLocaleString('he-IL');
+ const names={inbox:'דואר נכנס',sent:'נשלחו',drafts:'טיוטות',trash:'אשפה',spam:'ספאם',unread:'לא נקראו',custom:'תיקייה'};
+ root.innerHTML='<h3>'+esc(provider==='gmail'?'תוויות Gmail':'תיקיות Hostinger')+'</h3><p class="muted">נתוני הספק בלבד · קריאה בלבד · ספירת לא נקראו אינה זהה למצב הקריאה ב־CRM</p>'+
+  '<div class="folder-grid">'+(result.folders||[]).map(f=>
+   '<article class="row"><div><strong>'+esc(f.name)+'</strong><p class="muted">'+esc(names[f.kind]||'תיקייה')+'</p></div>'+
+   '<div><span>'+esc(count(f.messages_total))+' הודעות</span> · <strong>'+esc(count(f.messages_unread))+' לא נקראו</strong></div></article>'
+  ).join('')+'</div>'+(result.limited?'<p class="muted">הרשימה מוגבלת; יש תיקיות נוספות שלא הוצגו.</p>':'');
+}
+async function showClient360(clientId){
+ const info=await api('/api/clients/'+encodeURIComponent(clientId)+'/overview');
+ document.querySelector('#client360Dialog')?.remove();
+ const client=info.client;
+ const groups=[
+  ['conversations','שיחות',x=>(x.title||x.external_id||'שיחה')+' · '+(x.channel||'')+' · '+formatDate(x.last_message_at)],
+  ['projects','פרויקטים',x=>(x.name||'פרויקט')+' · '+(x.status||'')],
+  ['tasks','משימות',x=>(x.title||'משימה')+' · '+(x.status||'')+(x.due_date?' · יעד '+x.due_date:'')],
+  ['files','קבצים',x=>x.name||'קובץ'],
+  ['reminders','תזכורות',x=>(x.title||'תזכורת')+' · '+(x.status||'')+' · '+formatDate(x.due_at)],
+  ['notes','הערות',x=>x.body||''],
+  ['activities','פעילות',x=>(x.title||x.event||'אירוע')+' · '+formatDate(x.created_at)]
+ ];
+ const sections=groups.map(([key,title,format])=>'<section class="panel"><h3>'+esc(title)+' · '+(info[key]||[]).length+'</h3>'+
+  ((info[key]||[]).length?'<ul>'+(info[key]||[]).map(x=>'<li>'+esc(format(x))+'</li>').join('')+'</ul>':'<p class="muted">אין פריטים משויכים ישירות.</p>')+'</section>').join('');
+ const html='<dialog id="client360Dialog" aria-label="כרטיס לקוח 360" style="width:min(94vw,1040px);max-height:90vh;overflow:auto;border-radius:18px;padding:18px">'+
+ '<header class="row"><div><h2>'+esc(client.name||'כרטיס לקוח')+'</h2><p class="muted">'+esc([client.company,client.email,client.phone].filter(Boolean).join(' · '))+'</p></div>'+
+ button('client-360-close','סגירה')+'</header><p class="muted">מידע מתוך CRM, עם שיוך מפורש בלבד. אין זיהוי אוטומטי לפי שם דומה או מספר חלקי.</p>'+
+ '<div class="client-360-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">'+sections+'</div>'+
+ '<p class="muted">עד 20–40 פריטים מכל סוג מוצגים בכרטיס. לא מוצגים כאן נתוני ספק שטרם סונכרנו.</p></dialog>';
+ document.body.insertAdjacentHTML('beforeend',html);
+ $('#client360Dialog').showModal();
+}
+
 async function loadWa(){
  const d=await api('/api/whatsapp/status');
  $('#wa').innerHTML=(d.sessions||[]).map(s=>{
@@ -195,6 +232,10 @@ document.addEventListener('click',async e=>{
   if(action==='create'||action==='edit')await editRecord(b.dataset.id);
   if(action==='notes')await showNotes(b.dataset.id);
   if(action==='conversation')await openConversation(b.dataset.id);
+  if(action==='client-360'){await showClient360(id);return;}
+  if(action==='client-360-close'){document.querySelector('#client360Dialog')?.close();document.querySelector('#client360Dialog')?.remove();return;}
+  if(action==='gmail-folders'){await showProviderFolders('gmail',id);return;}
+  if(action==='hostinger-folders'){await showProviderFolders('hostinger');return;}
   if(action==='back-inbox'){location.hash='inbox';await render('inbox');}
   if(action==='inbox-filter'){inboxFilter=b.dataset.id;renderInboxItems();}
   if(action==='assistant-prompt'){const examples={waiting:'מי מהלקוחות מחכה לתשובה ממני?',urgent:'אילו משימות דחופות עדיין פתוחות?',new:'סכם את הפניות החדשות שקיבלתי'};const t=$('#assistantMessage');if(t){t.value=examples[b.dataset.id]||'';t.focus();}}
