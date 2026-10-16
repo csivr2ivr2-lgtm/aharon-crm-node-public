@@ -196,6 +196,7 @@ document.addEventListener('click',async e=>{
   if(action==='compose-new'){await showCompose();return;}
   if(action==='sent-more'){await loadSentBatch();return;}
   if(action==='sent-refresh'){await renderSentMessages();return;}
+  if(action==='sent-delete-for-all'){await requestSentDeletion(id);return;}
   if(action==='draft-refresh'){await renderDraftOverview();return;}
    if(action==='history-sync'){
     await post('/api/history-sync/start');
@@ -604,6 +605,17 @@ async function renderDraftOverview(){
  '</div><p class="muted">'+items.length+' טיוטות פעילות או שליחות הדורשות אימות</p></section>';
 }
 
+async function requestSentDeletion(id){
+ const message=sentItems.find(x=>x.id===id);
+ if(!message||message.channel!=='whatsapp'||message.can_delete_for_everyone!==true)throw Error('הודעה זו אינה זכאית למחיקה לכולם.');
+ const account=message.account_identifier||message.account_label||'לא ידוע';
+ const target=displayContact(message.recipient||message.conversation_title||'',message.channel);
+ if(!confirm('בקשת מחיקה לכולם ב־WhatsApp?\\n\\nחשבון שולח: '+account+'\\nנמען: '+target+'\\nהודעה: '+String(message.snippet||'').slice(0,140)+'\\n\\nהפעולה תישלח מחשבון ה־WhatsApp המקורי. הלקוח עלול כבר לראות את ההודעה; אין התחייבות להסרתה אצלו.'))return;
+ // A provider reply only confirms the revoke request, not removal from the recipient.
+ const result=await post('/api/sent/'+encodeURIComponent(id)+'/delete-for-everyone',{confirmed:true});
+ await renderSentMessages();
+ $('#notice').textContent=result.status==='requested'?'בקשת מחיקה לכולם נשלחה דרך החשבון המקורי. לא ניתן לאמת שהלקוח לא ראה אותה.':'מצב המחיקה לא ודאי.';
+}
 async function renderSentMessages(){
  sentItems=[];sentCursor='';sentDone=false;
  $('#content').innerHTML='<section class="panel sent-hub"><header class="section-heading"><div><h2>נשלחו</h2><p class="muted">הודעות יוצאות מ־WhatsApp ומכל חשבונות הדוא״ל. קבלה אצל הספק אינה אישור מסירה או קריאה.</p></div><div class="actions">'+button('sent-refresh','רענן')+button('compose-new','הודעה חדשה')+'</div></header><div id="sentList" class="sent-list" aria-live="polite"></div><p id="sentStatus" role="status"></p>'+button('sent-more','הצג עוד')+'</section>';
@@ -615,7 +627,10 @@ function sentCard(item){
  return '<article class="sent-card"><header class="sent-card-head"><strong>'+esc(title)+'</strong><time class="muted">'+esc(formatDate(item.sent_at))+'</time></header>'+
   '<p class="muted">'+esc(whatsapp?'WhatsApp':'דוא״ל')+' · אל '+esc(recipient)+' · '+esc(item.account_label||'חשבון לא מזוהה')+'</p>'+
   '<p class="sent-preview">'+esc(String(item.snippet||'').slice(0,250))+'</p>'+
-  '<footer class="sent-actions"><span class="sent-note">הודעה יוצאת · סטטוס מסירה/קריאה לא אומת</span>'+button('conversation','פתח שיחה',item.conversation_id)+'</footer></article>';
+  '<footer class="sent-actions"><span class="sent-note">'+esc(item.channel==='whatsapp'?({server:'נשלח לשרת WhatsApp',delivered:'נמסר למכשיר',read:'נקרא',played:'נוגן',unverified:'אין אישור מסירה/קריאה'}[item.delivery_status]||'אין אישור מסירה/קריאה'):'דוא״ל · אישור קריאה אינו זמין')+'</span>'+
+  (item.deletion_status?'<span class="sent-note">'+esc(({requested:'בקשת מחיקה לכולם נשלחה — לא אומת אצל הנמען',uncertain:'מצב בקשת המחיקה לא ודאי',sending:'בקשת מחיקה מתבצעת'})[item.deletion_status]||'בקשת מחיקה דורשת בדיקה')+'</span>':'')+
+  (item.can_delete_for_everyone?button('sent-delete-for-all','מחק לכולם',item.id):'')+
+  button('conversation','פתח שיחה',item.conversation_id)+'</footer></article>';
 }
 async function loadSentBatch(){
  const params=new URLSearchParams({limit:'30'});if(sentCursor)params.set('cursor',sentCursor);
