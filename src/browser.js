@@ -1,7 +1,7 @@
 /* Browser-only UI. Record data is escaped and never inserted into executable attributes. */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const labels={followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'ראשי',inbox:'תיבת הודעות',sent:'נשלחו',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
+const labels={followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'ראשי',inbox:'תיבת הודעות',sent:'נשלחו',drafts:'טיוטות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
 const entityNames={clients:'client',projects:'project',tasks:'task',systems:'system',accounts:'account'};
 let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
@@ -41,6 +41,7 @@ async function render(next){
  }
  if(await renderIntelligence(view))return;
  if(view==='sent'){await renderSentMessages();return;}
+ if(view==='drafts'){await renderDraftOverview();return;}
  if(view==='inbox'||view==='spam'||view==='updates'){
   if(view==='spam')workView='spam';else if(view==='updates')workView='updates';else if(['spam','updates'].includes(workView))workView='inbox';
   await renderWorkInbox();return;
@@ -195,6 +196,7 @@ document.addEventListener('click',async e=>{
   if(action==='compose-new'){await showCompose();return;}
   if(action==='sent-more'){await loadSentBatch();return;}
   if(action==='sent-refresh'){await renderSentMessages();return;}
+  if(action==='draft-refresh'){await renderDraftOverview();return;}
    if(action==='history-sync'){
     await post('/api/history-sync/start');
     const info=await api('/api/history-sync/status');
@@ -587,6 +589,19 @@ async function renderWorkDashboard(){
 }
 function workCard(x){
  return '<article class="work-card"><div class="work-card-head"><strong>'+esc(displayContact(x.contact_name||x.sender||x.title,x.channel))+'</strong><span class="tag">'+esc(workLabels[x.handling_state]||x.handling_state)+'</span></div><h3>'+esc(x.channel==='whatsapp'?displayContact(x.title||x.conversation_external_id||'שיחת WhatsApp','whatsapp'):x.subject||x.title||'ללא נושא')+'</h3><p class="work-request">'+esc(x.request_summary)+'</p><p class="muted">'+esc(channel(x))+' · '+esc(x.account_label||'')+' · '+esc(formatDate(x.waiting_since))+' · '+(Number(x.unread_count)>0?Number(x.unread_count)+' לא נקראו':'נקרא')+'</p><p>'+esc(x.next_action)+'</p><details><summary>למה הפנייה כאן?</summary><p>'+esc(x.reason)+'</p><p>'+esc(x.priority_reason)+' · ביטחון '+Math.round(x.confidence*100)+'%</p></details><div class="actions">'+button('conversation','פתח שיחה',x.id)+button('work-draft','הצע תשובה',x.id)+button('work-done','טופל',x.id)+button('work-spam','ספאם',x.id)+'<details><summary>פעולות נוספות</summary>'+button('work-waiting','מחכה ללקוח',x.id)+button('work-progress','בטיפול',x.id)+button('work-noaction','לא דורש תשובה',x.id)+button('work-lead','זה לקוח / ליד',x.id)+button('work-task','צור משימה',x.id)+button('work-snooze','דחה למועד',x.id)+button('work-updates','עדכון',x.id)+button('work-auto','איפוס החלטות ידניות',x.id)+'</details></div><div id="workAction-'+esc(x.id)+'" role="status"></div></article>';
+}
+
+
+async function renderDraftOverview(){
+ const d=await api('/api/drafts/overview?limit=80');
+ const items=d.items||[];
+ const statusLabelDraft=s=>({draft:'טיוטה — לא נשלחה',sending:'בבדיקת שליחה — אין לשלוח שוב ללא אימות',uncertain:'שליחה לא ודאית — יש לבדוק אצל הספק לפני ניסיון חוזר'})[s]||'דורש בדיקה';
+ $('#content').innerHTML='<section class="panel sent-hub"><header class="section-heading"><div><h2>טיוטות תשובה</h2><p class="muted">טיוטות שנוצרו בשיחות. הודעה חדשה שלא נשמרה כטיוטה אינה מופיעה כאן. טיוטות אינן נשלחות אוטומטית.</p></div><div class="actions">'+button('draft-refresh','רענן')+button('compose-new','הודעה חדשה')+'</div></header><div class="sent-list">'+
+  (items.map(x=>'<article class="sent-card"><header class="sent-card-head"><strong>'+esc(x.conversation_title||'שיחה')+'</strong><span class="tag">'+esc(statusLabelDraft(x.status))+'</span></header>'+
+   '<p class="muted">'+esc(x.channel==='whatsapp'?'WhatsApp':'דוא״ל')+' · '+esc(x.account_label||'חשבון לא מזוהה')+' · '+esc(formatDate(x.updated_at))+'</p>'+
+   '<p class="sent-preview">'+esc(String(x.snippet||'').slice(0,350))+'</p>'+
+   '<footer class="sent-actions">'+button('conversation','פתח שיחה לטיפול',x.conversation_id)+'</footer></article>').join('')||'<p class="empty">אין טיוטות תשובה ממתינות.</p>')+
+ '</div><p class="muted">'+items.length+' טיוטות פעילות או שליחות הדורשות אימות</p></section>';
 }
 
 async function renderSentMessages(){
