@@ -18,7 +18,8 @@ Updated main directly through GitHub MCP Repo, without PR. No WhatsApp connectio
 ## M5 — Client 360 (partial)
 - Authenticated GET /api/clients/:id/overview and a Hebrew client detail panel.
 - Directly linked conversations/projects/tasks/files/reminders/notes/activities only, with bounded results and explicit data provenance. No matching by similar name or partial phone.
-- Still open: Calendar, Drive, Contacts, multi-provider identity reconciliation, paginated details.
+- Added read-only Google Calendar upcoming events and Google Drive filename search per connected Google account, through GET /api/google/calendar and GET /api/google/drive-search, reusing current scopes and connector methods.
+- Still open: Calendar/Drive change cursors and push, Google People Contacts, multi-provider identity reconciliation, paginated details.
 
 ## M6 — Operations summary (partial)
 - Authenticated GET /api/insights/changes?hours=24 with validated 1–168 hour window.
