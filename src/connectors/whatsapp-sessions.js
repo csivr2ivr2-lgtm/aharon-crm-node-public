@@ -111,6 +111,7 @@ export class WhatsAppSessions {
   await this.initialize();
   return this.get(sessionId).requestHistory(candidates);
  }
+ async deleteForEveryone(payload){await this.initialize();if(!payload?.account_id)throw Error('whatsapp_account_id_required');return this.get(payload.account_id).deleteForEveryone(payload);}
  async send(payload){
   await this.initialize();
   const id=payload.account_id;

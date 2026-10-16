@@ -77,6 +77,23 @@ export class WhatsAppConnector{
     }
    });
    sock.ev.on("messages.upsert",batch=>this.receiveMessages(sock,batch));
+   for(const name of ['messages.update','message-receipt.update']){
+    sock.ev.on(name,updates=>{
+     for(const item of Array.isArray(updates)?updates:[]){
+      if(this.sock!==sock||this.stopped||item?.key?.fromMe!==true)continue;
+      let status;
+      if(name==='messages.update')status=({2:'server',3:'delivered',4:'read',5:'played'})[Number(item?.update?.status)];
+      else{
+       const r=item.receipt||{},present=x=>x!==undefined&&x!==null&&String(x)!=='0'&&String(x)!=='';
+       status=present(r.playedTimestamp)?'played':present(r.readTimestamp)?'read':present(r.receiptTimestamp)?'delivered':null;
+      }
+      if(!status)continue;
+      Promise.resolve(this.onEvent?.({type:'whatsapp.receipt',account_id:this.sessionId,
+       jid:String(item.key.remoteJid||'').toLowerCase(),provider_message_id:String(item.key.id||''),status}))
+       .catch(()=>{this.lastError='whatsapp_receipt_save_failed';});
+     }
+    });
+   }
    for(const event of ['contacts.upsert','contacts.update'])
     sock.ev.on(event,items=>{void this.consumeContacts(sock,items).catch(()=>{this.lastError='contact_metadata_failed';});});
    for(const event of ['groups.upsert','groups.update'])
@@ -331,6 +348,14 @@ export class WhatsAppConnector{
   await rm(this.sessionDir,{recursive:true,force:true});this.knownChats.clear();this.historyAnchors.clear();this.statusValue="logged_out";this.lastError=null;
  }
  async deleteSession(){await this.logout();return {ok:true,...this.status()};}
+ async deleteForEveryone({to,message_id}={}){
+  if(!this.sock||this.statusValue!=='connected')throw Error('whatsapp_not_connected');
+  const jid=whatsappDestination(to),id=String(message_id||'');
+  if(!/^[a-zA-Z0-9._:-]{1,128}$/.test(id)||!/@(?:s\\.whatsapp\\.net|lid)$/.test(jid))throw Error('invalid_whatsapp_message_key');
+  const r=await this.sock.sendMessage(jid,{delete:{remoteJid:jid,id,fromMe:true}});
+  if(!r?.key?.id)throw Error('whatsapp_delete_not_acknowledged');
+  return {ok:true,message_id:id,request_id:String(r.key.id)};
+ }
  async send({to,body}){if(!this.sock||this.statusValue!=="connected")throw Error("WhatsApp is not connected");const jid=whatsappDestination(to);if(!String(body||"").trim())throw Error("body_required");const r=await this.sock.sendMessage(jid,{text:String(body)});if(!r?.key?.id)throw Error("send_not_confirmed");return {ok:true,message_id:String(r.key.id),jid};}
 }
 

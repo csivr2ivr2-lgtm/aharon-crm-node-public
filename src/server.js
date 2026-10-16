@@ -23,6 +23,7 @@ import {SmartTaskWorker} from "./worker.js";
 import {createDraft,listDrafts,sendConversationReply} from "./inbox.js";
 import {listSentMessages} from "./sent-messages.js";
 import {listOpenDrafts} from "./draft-overview.js";
+import {migrateWhatsAppMessageControls,recordWhatsAppReceipt,requestWhatsAppDelete} from "./whatsapp-message-controls.js";
 import {handleMcp} from "./mcp.js";
 import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
@@ -45,7 +46,7 @@ import {migrateWhatsAppHistory,discoverWhatsAppChat,recordWhatsAppHistoryBatch,l
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -103,6 +104,13 @@ app.get("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return work
 app.post("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.create",{status:"open",priority:"normal",worker_state:"idle",...(req.body||{})})});
 app.get("/api/inbox",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.list",{...req.query,limit:100})});
 app.get("/api/sent",async(req,reply)=>{if(!uiAuth(req,reply))return;return listSentMessages({cursor:req.query?.cursor||"",limit:req.query?.limit||30})});
+app.post("/api/sent/:id/delete-for-everyone",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ if(req.body?.confirmed!==true)throw Error('confirmation_required');
+ const result=await requestWhatsAppDelete(req.params.id,{send:payload=>whatsapp.deleteForEveryone(payload)});
+ hub.publish('whatsapp.delete.requested',{message_id:req.params.id});
+ return result;
+});
 app.get("/api/drafts/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return listOpenDrafts({limit:req.query?.limit||60})});
 app.get("/api/conversations/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;const r=await workspace.call("conversation.get",{id:req.params.id});if(!r.ok)return reply.code(404).send(r);return r});
 app.post("/api/conversations/:id/read",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("conversation.read",{id:req.params.id})});
@@ -213,6 +221,11 @@ app.post("/v1/sync",async(req,reply)=>{if(!apiAuth(req,reply))return;return sche
 app.all("/mcp",handleMcp);
 
 async function onWhatsAppEvent(event){
+ if(event?.type==='whatsapp.receipt'){
+  const r=await recordWhatsAppReceipt(event);
+  if(!r.skipped)hub.publish('whatsapp.receipt',{account_id:event.account_id});
+  return r;
+ }
  if(event?.type==='whatsapp.profile'){
   const result=await workspace.call('whatsapp.profile',event);
   if(result.updated)hub.publish('whatsapp.profile',{account_id:event.account_id});
