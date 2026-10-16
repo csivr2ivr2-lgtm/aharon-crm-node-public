@@ -166,7 +166,11 @@ async function loadWa(){
   const code=s.pairing_code?'<p role="status">קוד קישור: <strong dir="ltr">'+esc(s.pairing_code)+'</strong></p>':'';
   const qr=s.qr&&s.qr.startsWith('data:image/png;base64,')?'<img alt="QR לקישור" width="220" src="'+esc(s.qr)+'">':'';
   const error=s.last_error?'<p class="error">'+esc(userError(s.last_error))+'</p>':'';
-  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(statusLabel(s.status))+'</p>'+code+qr+error+'<div class="actions">'+button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id)+button('wa-refresh','רענן מצב',s.id)+button('wa-identities','זיהוי מספרים',s.id)+button('wa-history','השלמת היסטוריה',s.id)+button('wa-history-status','סטטוס היסטוריה',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
+  const held=['logged_out','recovery_required'].includes(s.status);
+  const recovery=s.recovery||{};
+  const recoveryInfo=held?'<p class="error"><strong>חיבור WhatsApp דורש התאוששות.</strong> קוד ניתוק: '+esc(recovery.disconnect_code??'לא ידוע')+'. נתוני האימות נשמרים; אין למחוק סשן או לנסות להתחבר שוב ושוב. גיבויים: '+Number(recovery.backup_count||0)+'.</p>':'';
+  const recoverButtons=held?button('wa-recovery-status','בדוק מצב וגיבויים',s.id)+(s.status==='logged_out'?button('wa-recovery-probe','ניסיון התאוששות חד־פעמי',s.id):''):button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id);
+  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(held?(s.status==='logged_out'?'ההרשאה נדחתה ב־WhatsApp':'נדרש בירור סשן'):statusLabel(s.status))+'</p>'+recoveryInfo+code+qr+error+'<div class="actions">'+recoverButtons+button('wa-refresh','רענן מצב',s.id)+button('wa-identities','זיהוי מספרים',s.id)+button('wa-history-status','סטטוס היסטוריה',s.id)+(held?'':button('wa-history','השלמת היסטוריה',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id))+'</div></div>';
  }).join('')||'<p>אין עדיין חשבונות WhatsApp מחוברים.</p>';
 }
 
@@ -222,6 +226,20 @@ document.addEventListener('click',async e=>{
   if(action==='wa-delete-session'&&confirm('למחוק לצמיתות את פרטי הקישור של הסשן הזה בלבד?')){await api('/api/whatsapp/session',{method:'DELETE',body:JSON.stringify({session_id:id})});await loadWa();}
   if(action==='google-disconnect'&&confirm('לנתק את חשבון Google הזה מהמערכת?')){await api('/api/google/accounts/'+encodeURIComponent(b.dataset.id),{method:'DELETE'});await render('connectors');}
   if(action==='hostinger-disconnect'&&confirm('לנתק את חשבון הדואר של Hostinger?')){await post('/api/hostinger/disconnect');await render('connectors');}
+  if(action==='wa-recovery-status'){
+   const info=await api('/api/whatsapp/recovery/status?session_id='+encodeURIComponent(id));
+   const hold=info.quarantine;
+   $('#notice').textContent='מצב התאוששות WhatsApp: '+(info.registered_auth_present?'נתוני אימות רשומים קיימים':'לא נמצאו נתוני אימות רשומים')+' · '+String(info.backup_count||0)+' גיבויים מקומיים · '+(hold?'הסגר '+String(hold.reason)+' (קוד '+String(hold.code||'לא ידוע')+')':'אין רישום הסגר')+'. גיבוי לא מחזיר הרשאה ש־WhatsApp ביטלה.';
+   await loadWa();
+  }
+  if(action==='wa-recovery-probe'){
+   const info=await api('/api/whatsapp/recovery/status?session_id='+encodeURIComponent(id));
+   if(!info.registered_auth_present)throw Error('אין נתוני אימות רשומים שאפשר לנסות לשחזר מהם ללא מכשיר ראשי.');
+   if(!confirm('לנסות חיבור חד־פעמי באמצעות נתוני האימות הקיימים?\\n\\nלא יימחקו קבצים, לא יישלחו הודעות ולא תתבצע סריקת QR. אם WhatsApp ביטלה את ההרשאה בפועל, הניסיון לא יצליח ולא ניתן יהיה לחזור עליו שוב אוטומטית.'))return;
+   const result=await post('/api/whatsapp/recovery/probe',{session_id:id,confirmed:true});
+   $('#notice').textContent=result.started?'ניסיון התאוששות חד־פעמי התחיל. רענן מצב כדי לבדוק את התשובה מ־WhatsApp.':'לא התחיל ניסיון התאוששות.';
+   await loadWa();
+  }
   if(action==='wa-refresh')await loadWa();
   if(action==='wa-identities'){
    const result=await post('/api/whatsapp/identities/refresh',{session_id:id});
