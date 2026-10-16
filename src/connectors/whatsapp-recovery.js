@@ -1,7 +1,7 @@
 // Auth recovery metadata is stored OUTSIDE the Baileys auth directory.
 // Never upload, log or return credentials or Signal keys. Never auto-restore a revoked session.
 import {randomBytes} from 'node:crypto';
-import {readdir,readFile,writeFile,mkdir,rename,copyFile,chmod,stat} from 'node:fs/promises';
+import {readdir,readFile,writeFile,mkdir,rename,copyFile,chmod,stat,rm} from 'node:fs/promises';
 import {basename,join,resolve} from 'node:path';
 
 export const recoveryHome=sessionDir=>resolve(sessionDir)+'.recovery';
@@ -65,7 +65,7 @@ export async function reserveSingleRecoveryProbe(sessionDir){
  catch(e){if(e.code==='EEXIST')throw Error('whatsapp_recovery_probe_already_used');throw e;}
  return {ok:true,attempted:true};
 }
-export async function backupAuthState(sessionDir,{maximum=5}={}){
+export async function backupAuthState(sessionDir,{maximum=5,maximumBytes=80*1024*1024}={}){
  const home=recoveryHome(sessionDir);
  if(!await registeredAuthPresent(sessionDir))return {ok:false,reason:'auth_not_registered'};
  await secureDir(home);
@@ -77,10 +77,12 @@ export async function backupAuthState(sessionDir,{maximum=5}={}){
  if(!files.some(f=>f.name==='creds.json')||files.length>5000)return {ok:false,reason:'auth_files_unavailable'};
  const stamp='snapshot-'+Date.now()+'-'+randomBytes(4).toString('hex'),stage=join(home,'.pending-'+stamp),destination=join(home,stamp);
  await mkdir(stage,{mode:0o700});
+ let totalBytes=0;
  try{
   for(const entry of files){
    const from=join(sessionDir,entry.name),size=(await stat(from)).size;
-   if(size<1||size>2*1024*1024)throw Error('whatsapp_auth_snapshot_bad_size');
+   totalBytes+=size;
+   if(size<1||size>2*1024*1024||totalBytes>maximumBytes)throw Error('whatsapp_auth_snapshot_bad_size');
    const to=join(stage,entry.name);
    await copyFile(from,to);await chmod(to,0o600);
   }
@@ -88,8 +90,8 @@ export async function backupAuthState(sessionDir,{maximum=5}={}){
   await rename(stage,destination);
   return {ok:true,backups:previous.length+1,file_count:files.length};
  }catch(e){
-  // Leave a partially written snapshot isolated from valid snapshots; do not
-  // erase or move original authentication data.
+  // Only the temporary staging copy is removed; original auth and good snapshots are untouched.
+  await rm(stage,{recursive:true,force:true}).catch(()=>{});
   throw Error('whatsapp_auth_snapshot_failed');
  }
 }
