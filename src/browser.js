@@ -38,7 +38,9 @@ async function render(next){
  document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
  $('#content').innerHTML='<div class="panel">טוען…</div>';
  if(view==='home'){
-  await renderWorkDashboard();return;
+  await renderWorkDashboard();
+  try{await renderRecentChangesBrief();}catch{ $('#content').insertAdjacentHTML('beforeend','<section class="panel"><p class="muted">סקירת 24 השעות האחרונות אינה זמינה כרגע. תור העבודה עדיין פועל.</p></section>'); }
+  return;
  }
  if(await renderIntelligence(view))return;
  if(view==='sent'){await renderSentMessages();return;}
@@ -646,6 +648,25 @@ async function renderLocalAi(){
 
 async function navigateHash(){if(!visitRecorded){await post('/api/inbox/visit');visitRecorded=true;}const hash=location.hash.slice(1);if(hash.startsWith('conversation=')){await openConversation(decodeURIComponent(hash.slice(13)));return;}await render(hash||'home');}
 const workLabels={inbox:'תיבה ראשית',needs_reply:'דורש טיפול',waiting_customer:'ממתין ללקוח',lead:'לידים',in_progress:'בטיפול',done:'הושלם',review:'דורש בדיקה',snoozed:'נדחה',updates:'עדכונים',spam:'ספאם',all:'כל השיחות',no_action:'לא דורש תשובה'};
+async function renderRecentChangesBrief(){
+ const d=await api('/api/insights/changes?hours=24');
+ const c=d.counts||{};
+ const entries=(d.messages||[]).slice(0,8).map(m=>'<article class="row"><div>'+
+  '<strong>'+esc(m.conversation_title||'שיחה')+'</strong><p class="muted">'+esc(m.channel==='whatsapp'?'WhatsApp':'דוא״ל')+
+  ' · '+esc(m.direction==='in'?'נכנסה':'נשלחה')+' · '+esc(formatDate(m.sent_at))+'</p>'+
+  '<p>'+esc(m.snippet||m.subject||'ללא תוכן טקסטואלי')+'</p></div>'+
+  button('conversation','פתח מקור',m.conversation_id)+'</article>').join('');
+ $('#content').insertAdjacentHTML('beforeend','<section class="panel" aria-label="פעילות אחרונה עם מקורות">'+
+  '<h2>מה השתנה ב־24 השעות האחרונות?</h2>'+
+  '<p class="muted">סיכום מבוסס רשומות CRM שסונכרנו, לא תוצר AI. המקור לכל הודעה הוא שיחה קיימת.</p>'+
+  '<div class="grid"><div class="card"><strong>'+Number(c.incoming||0)+'</strong><p>הודעות נכנסות</p></div>'+
+  '<div class="card"><strong>'+Number(c.outgoing||0)+'</strong><p>הודעות יוצאות</p></div>'+
+  '<div class="card"><strong>'+Number(c.tasks_updated||0)+'</strong><p>משימות שעודכנו</p></div>'+
+  '<div class="card"><strong>'+Number(c.clients_added||0)+'</strong><p>לקוחות חדשים</p></div></div>'+
+  '<h3>מקורות אחרונים</h3>'+(entries||'<p class="muted">לא נמצאו שינויים בחלון הזמן שנבדק.</p>')+
+  '<p class="muted">תוצאה מוגבלת לפריטים האחרונים בלבד. נתונים שעדיין לא הסתנכרנו מהספק אינם כלולים.</p></section>');
+}
+
 async function renderWorkDashboard(){
  const d=await api('/api/inbox/work?view=all&limit=100');
  const counts=Object.fromEntries(['needs_reply','review','waiting_customer','in_progress'].map(k=>[k,d.items.filter(x=>x.handling_state===k).length]));

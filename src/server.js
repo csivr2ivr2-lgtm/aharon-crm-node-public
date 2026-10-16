@@ -17,6 +17,7 @@ import {aiStatus,localDiagnostics,closeLocalAi} from "./ai/local-ai.js";
 import {migrateExtras} from "./extra-schema.js";
 import {WorkspaceService} from "./workspace-service.js";
 import {loadClient360} from "./client-360.js";
+import {loadRecentChanges} from "./ai/changes-brief.js";
 import {ConnectorsClient,googleConnector,hostingerMail,whatsapp} from "./clients/connectors.js";
 import {RealtimeHub} from "./realtime.js";
 import {SyncScheduler} from "./scheduler.js";
@@ -97,6 +98,10 @@ app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=n
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
 
 app.get("/api/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("status")});
+app.get("/api/insights/changes",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ return loadRecentChanges({hours:req.query?.hours??24,database:db});
+});
 app.get("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.list",{...req.query,limit:100})});
 app.post("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.create",req.body||{})});
 app.get("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.list",{limit:100})});
