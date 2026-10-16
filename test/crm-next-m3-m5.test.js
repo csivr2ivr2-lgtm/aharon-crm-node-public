@@ -49,7 +49,7 @@ test('IMAP native folders report only values confirmed by server, no flag mutati
  ];}};
  const result=await imapFolderOverview(client);
  assert.equal(result.folders.length,3);assert.equal(result.folders[0].messages_unread,3);
- assert.equal(result.folders[1].kind,'sent');assert.equal(result.folders[2].messages_unread,null);
+ assert.equal(result.folders.find(f=>f.id==='Sent').kind,'sent');assert.equal(result.folders.find(f=>f.id==='Archive').messages_unread,null);
  assert.equal(result.folders[0].uid_validity,'45');
  assert.equal(listing.statusQuery.unseen,true);
 });
