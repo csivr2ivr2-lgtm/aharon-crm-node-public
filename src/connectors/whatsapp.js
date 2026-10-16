@@ -1,5 +1,5 @@
 import makeWASocket,{DisconnectReason,useMultiFileAuthState,getContentType,normalizeMessageContent} from "@whiskeysockets/baileys";
-import {Boom} from "@hapi/boom";
+import {readRecoveryHold,interpretDisconnect,holdSession,clearHoldOnConnected,backupAuthState,reserveSingleRecoveryProbe} from "./whatsapp-recovery.js";
 import QRCode from "qrcode";
 import {mkdir,rm} from "node:fs/promises";
 import {config} from "../config.js";
@@ -26,9 +26,9 @@ export const textFrom=m=>{
 };
 
 export class WhatsAppConnector{
- constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set();this.historyQueue=Promise.resolve();this.knownChats=new Set();this.historyAnchors=new Map();this.historyStats={batches:0,chats:0,imported:0,duplicates:0,failed:0,last_at:null}}
+ constructor({sessionId="whatsapp-main",sessionDir=config.whatsappSessionDir,label="WhatsApp"}={}){this.sessionId=sessionId;this.sessionDir=sessionDir;this.label=label;this.sock=null;this.statusValue="disabled";this.qrDataUrl=null;this.onEvent=null;this.connecting=false;this.stopped=false;this.retryTimer=null;this.lastError=null;this.credentialWrites=Promise.resolve();this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.qrReady=false;this.peerNames=new Map();this.peerPhones=new Map();this.groupRequests=new Set();this.historyQueue=Promise.resolve();this.knownChats=new Set();this.historyAnchors=new Map();this.historyStats={batches:0,chats:0,imported:0,duplicates:0,failed:0,last_at:null};this.lastDisconnectCode=null;this.lastDisconnectReason=null;this.lastDisconnectAt=null;this.recoveryBackupStatus="not_checked";this.recoveryBackupCount=0;this.reconnectAttempts=0}
  configured(){return config.whatsappEnabled}
- status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError,history:{...this.historyStats,known_chats:this.knownChats.size,anchor_chats:this.historyAnchors.size}}}
+ status(){return {key:"whatsapp",id:this.sessionId,label:this.label,configured:this.configured(),status:this.statusValue,qr:this.qrDataUrl,pairing_code:this.pairingCode,last_error:this.lastError,history:{...this.historyStats,known_chats:this.knownChats.size,anchor_chats:this.historyAnchors.size},recovery:{disconnect_code:this.lastDisconnectCode,disconnect_reason:this.lastDisconnectReason,disconnect_at:this.lastDisconnectAt,backup_status:this.recoveryBackupStatus,backup_count:this.recoveryBackupCount,requires_primary_device:this.statusValue==="logged_out"}}}
  async pairWithPhone(number,onEvent=this.onEvent){
   if(!this.configured())throw Error("whatsapp_not_enabled");
   const phone=pairingPhoneNumber(number);
@@ -49,8 +49,15 @@ export class WhatsAppConnector{
    if(this.sock===sock&&!this.stopped){this.pairingRequested=false;this.statusValue="error";this.lastError="whatsapp_pairing_failed";}
   }
  }
- async start(onEvent){
+ async start(onEvent,{recoveryProbe=false}={}){
   this.stopped=false;this.onEvent=onEvent;if(!this.configured()||this.sock||this.connecting)return;
+  const hold=await readRecoveryHold(this.sessionDir);
+  if(hold&&!recoveryProbe){
+   this.statusValue=hold.reason==='logged_out'?'logged_out':'recovery_required';
+   this.lastDisconnectCode=hold.code;this.lastDisconnectReason=hold.reason;this.lastDisconnectAt=hold.since;
+   this.lastError='whatsapp_session_quarantined';
+   return;
+  }
   this.connecting=true;this.qrReady=false;clearTimeout(this.retryTimer);this.statusValue="connecting";this.lastError=null;
   try{
    await mkdir(this.sessionDir,{recursive:true,mode:0o700});
@@ -68,12 +75,42 @@ export class WhatsAppConnector{
      else try{const qr=await QRCode.toDataURL(update.qr);if(this.sock!==sock||this.stopped)return;this.qrDataUrl=qr;this.statusValue="qr_required";}catch{this.lastError="qr_generation_failed";this.statusValue="error";}
     }
     if(this.sock!==sock||this.stopped)return;
-    if(update.connection==="open"){this.statusValue="connected";this.qrDataUrl=null;this.pairingCode=null;this.pairingPhone=null;this.pairingRequested=false;this.lastError=null}
+    if(update.connection==="open"){
+     this.statusValue="connected";this.qrDataUrl=null;this.pairingCode=null;this.pairingPhone=null;this.pairingRequested=false;this.lastError=null;
+     this.lastDisconnectCode=null;this.lastDisconnectReason=null;this.lastDisconnectAt=null;this.reconnectAttempts=0;
+     try{
+      if(this.sock===sock&&!this.stopped)await clearHoldOnConnected(this.sessionDir);
+      await this.credentialWrites;
+      if(this.sock===sock&&!this.stopped){
+       const saved=await backupAuthState(this.sessionDir);
+       this.recoveryBackupStatus=saved.ok?'saved':saved.reason;this.recoveryBackupCount=saved.backups||0;
+      }
+     }catch{this.recoveryBackupStatus='backup_failed';}
+    }
     if(update.connection==="close"){
-     this.sock=null;this.qrReady=false;const code=new Boom(update.lastDisconnect?.error).output?.statusCode;
-     this.statusValue=code===DisconnectReason.loggedOut?"logged_out":"disconnected";
+     this.sock=null;this.qrReady=false;
+     const decision=interpretDisconnect(update.lastDisconnect);
+     this.lastDisconnectCode=decision.code;this.lastDisconnectReason=decision.reason;this.lastDisconnectAt=new Date().toISOString();
+     this.statusValue=decision.reason==='logged_out'?'logged_out':decision.needsReview?'recovery_required':'disconnected';
      this.qrDataUrl=null;
-     if(code!==DisconnectReason.loggedOut&&!this.stopped){this.statusValue="reconnecting";clearTimeout(this.retryTimer);this.retryTimer=setTimeout(()=>this.start(this.onEvent).catch(()=>{this.lastError="reconnect_failed";this.statusValue="error";}),5000);this.retryTimer.unref?.();}
+     if(decision.needsReview){
+      try{
+       await this.credentialWrites;
+       const saved=await backupAuthState(this.sessionDir);
+       this.recoveryBackupStatus=saved.ok?'saved':saved.reason;this.recoveryBackupCount=saved.backups||0;
+      }catch{this.recoveryBackupStatus='backup_failed';}
+      try{await holdSession(this.sessionDir,decision);}
+      catch{this.lastError='whatsapp_quarantine_write_failed';}
+      return;
+     }
+     if(!this.stopped){
+      this.reconnectAttempts++;
+      if(this.reconnectAttempts>8){this.statusValue='recovery_required';this.lastError='whatsapp_retries_exhausted';return;}
+      const pause=Math.min(120000,5000*2**Math.min(this.reconnectAttempts-1,5));
+      this.statusValue='reconnecting';clearTimeout(this.retryTimer);
+      this.retryTimer=setTimeout(()=>this.start(this.onEvent).catch(()=>{this.lastError='reconnect_failed';this.statusValue='error';}),pause);
+      this.retryTimer.unref?.();
+     }
     }
    });
    sock.ev.on("messages.upsert",batch=>this.receiveMessages(sock,batch));
@@ -340,7 +377,14 @@ export class WhatsAppConnector{
  stop(){this.stopped=true;clearTimeout(this.retryTimer);this.retryTimer=null;const sock=this.sock;this.sock=null;this.qrReady=false;this.qrDataUrl=null;this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.statusValue="disconnected";sock?.end?.(new Error("shutdown"));}
  async disconnect(){this.stop();return {ok:true,...this.status()};}
  async reconnect(onEvent=this.onEvent){this.stop();await this.start(onEvent);return {ok:true,...this.status()};}
+ async recoveryProbe(onEvent=this.onEvent){
+  if(this.sock||this.connecting)throw Error('whatsapp_recovery_session_busy');
+  await reserveSingleRecoveryProbe(this.sessionDir);
+  await this.start(onEvent,{recoveryProbe:true});
+  return {ok:true,started:true,status:this.statusValue,note:'Single diagnostic connection attempt with existing auth; may still require primary device.'};
+ }
  async logout(){
+  if(this.statusValue==='logged_out'||await readRecoveryHold(this.sessionDir))throw Error('whatsapp_session_preserved_for_recovery');
   this.stopped=true;clearTimeout(this.retryTimer);this.retryTimer=null;const sock=this.sock;this.sock=null;this.qrReady=false;this.qrDataUrl=null;this.pairingPhone=null;this.pairingCode=null;this.pairingRequested=false;this.statusValue="disconnected";
   try{await sock?.logout();}catch{this.lastError="logout_failed";throw Error("whatsapp_logout_failed");}finally{sock?.end?.(new Error("logout"));}
   // Removing stored credentials also works when there is no active socket.
