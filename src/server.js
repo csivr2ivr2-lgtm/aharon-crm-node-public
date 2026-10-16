@@ -16,6 +16,7 @@ import {resolveLocalModel} from "./ai/local-model.js";
 import {aiStatus,localDiagnostics,closeLocalAi} from "./ai/local-ai.js";
 import {migrateExtras} from "./extra-schema.js";
 import {WorkspaceService} from "./workspace-service.js";
+import {loadClient360} from "./client-360.js";
 import {ConnectorsClient,googleConnector,hostingerMail,whatsapp} from "./clients/connectors.js";
 import {RealtimeHub} from "./realtime.js";
 import {SyncScheduler} from "./scheduler.js";
@@ -99,6 +100,7 @@ app.get("/api/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return wor
 app.get("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.list",{...req.query,limit:100})});
 app.post("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.create",req.body||{})});
 app.get("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.list",{limit:100})});
+app.get("/api/clients/:id/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return loadClient360(req.params.id,db);});
 app.post("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.create",req.body||{})});
 app.get("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.list",{limit:100})});
 app.post("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.create",{status:"open",priority:"normal",worker_state:"idle",...(req.body||{})})});
@@ -136,6 +138,8 @@ app.post("/api/conversations/:id/draft",async(req,reply)=>{if(!uiAuth(req,reply)
 app.get("/api/conversations/:id/drafts",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,items:await listDrafts(req.params.id)}});
 app.post("/api/conversations/:id/send",async(req,reply)=>{if(!uiAuth(req,reply))return;if(req.body?.confirmed!==true)throw Error("confirmation_required");const body=String(req.body?.body||"").trim();if(!body)return reply.code(422).send({ok:false,error:"body_required"});const sent=await sendConversationReply({conversationId:req.params.id,body,draftId:String(req.body?.draft_id||""),requestId:String(req.body?.request_id||"")});hub.publish("message.sent",{conversation_id:req.params.id});return sent;});
 app.get("/api/connectors",async(req,reply)=>{if(!uiAuth(req,reply))return;return connectors.status()});
+app.get("/api/google/folders",async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.gmailFolders({account_id:String(req.query?.account_id||'')});});
+app.get("/api/hostinger/folders",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.folders();});
 app.get("/api/whatsapp/status",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.initialize();return {ok:true,...whatsapp.status({includeSecrets:true})}});
 app.get("/api/whatsapp/recovery/status",async(req,reply)=>{
  if(!uiAuth(req,reply))return;

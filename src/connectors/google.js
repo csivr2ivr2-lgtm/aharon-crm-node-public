@@ -1,4 +1,5 @@
 import {inboxHeaders} from '../ai/inbox-headers.js';
+import {gmailFolderOverview} from '../mail-folder-overview.js';
 import {simpleParser} from "mailparser";
 import {syncIssue} from "../sync-diagnostics.js";
 import {emailOf,safeHeader} from "../message-format.js";
@@ -38,6 +39,12 @@ export class GoogleConnector{
  }
  async clientFor(record){
   let current=record; return this.oauthClient(record.tokens,async fresh=>{if(!fresh||!Object.keys(fresh).length||this.disconnectedIds.has(record.id))return;current={...current,tokens:{...current.tokens,...fresh},updated_at:new Date().toISOString()};await this.vault.set("google:"+current.id,current);});
+ }
+ async gmailFolders({account_id=""}={}){
+  const account=await this.accountRecord(account_id);
+  const auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});
+  const summary=await gmailFolderOverview(gmail);
+  return {...summary,account:publicAccount(account)};
  }
  async gmailRecent({account_id="",max_results=20,q=""}={}){
   const account=await this.accountRecord(account_id),auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});

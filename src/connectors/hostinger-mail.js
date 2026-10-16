@@ -1,4 +1,5 @@
 import {inboxHeaders} from '../ai/inbox-headers.js';
+import {imapFolderOverview} from '../mail-folder-overview.js';
 import {ImapFlow} from "imapflow";
 import {syncIssue} from "../sync-diagnostics.js";
 import nodemailer from "nodemailer";
@@ -32,6 +33,16 @@ export class HostingerMailConnector{
  }
  async disconnect(){await this.vault.set("hostinger:account",{disconnected:true});this.account=null;this.disabled=true;this.initialized=true;return {ok:true,...this.status()};}
 
+ async folders(){
+  await this.initialize();
+  if(!this.configured())throw Error('hostinger_account_not_connected');
+  const client=this.client();
+  try{
+   await client.connect();
+   const result=await imapFolderOverview(client);
+   return {...result,account:this.settings().user};
+  }finally{await client.logout().catch(()=>{});}
+ }
  async sync(){
   if(!this.configured())return [];
   const settings=this.settings(),c=this.client(settings),events=[];
