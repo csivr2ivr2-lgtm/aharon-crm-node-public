@@ -1,3 +1,4 @@
+import {audit} from './platform/audit.js';
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import formbody from "@fastify/formbody";
@@ -203,6 +204,25 @@ app.post('/api/whatsapp/history/request',async(req,reply)=>{
 });
 app.post("/api/sync",async(req,reply)=>{if(!uiAuth(req,reply))return;return scheduler.runOnce()});
 app.get("/api/sync/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,report:scheduler.lastReport||null};});
+app.get('/api/google/status',async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.gmailStatus({account_id:String(req.query?.account_id||'')});});
+app.post('/api/google/permission-url',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const url=await googleConnector.permissionUrl(req.body||{});
+ await audit({action:'google.permission.request',entityType:'account',entityId:String(req.body?.account_id||''),confirmation:'explicit',reason:'gmail.modify consent requested; provider grant pending'});
+ reply.setCookie('oauth_state',new URL(url).searchParams.get('state'),{...cookieOpts,signed:true,sameSite:'lax',maxAge:600});
+ return {ok:true,url};
+});
+app.post('/api/google/labels',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ // Record intent before any external operation. Repeating add/remove is idempotent.
+ const input=req.body||{};
+ if(input.confirmed!==true)throw Error('explicit_confirmation_required');
+ if(!config.gmailWritesEnabled)throw Error('gmail_writes_disabled');
+ await audit({action:'gmail.labels.request',entityType:'account',entityId:String(input.account_id||''),confirmation:'explicit',after:{message_id:input.message_id,add:input.add,remove:input.remove}});
+ const result=await googleConnector.gmailModifyLabels(input);
+ await audit({action:'gmail.labels.accepted',entityType:'account',entityId:result.account_id,confirmation:'explicit',after:result});
+ return result;
+});
 app.post("/api/google/auth-url",async(req,reply)=>{if(!uiAuth(req,reply))return;if(!googleConnector.configured())return reply.code(503).send({ok:false,error:"google_not_configured"});const url=googleConnector.authUrl(String(req.body?.account_hint||""));reply.setCookie("oauth_state",new URL(url).searchParams.get("state"),{...cookieOpts,signed:true,sameSite:"lax",maxAge:600});return {ok:true,url}});
 app.get("/oauth/google/callback",async(req,reply)=>{
  const state=String(req.query?.state||""),saved=req.unsignCookie(req.cookies?.oauth_state||"");

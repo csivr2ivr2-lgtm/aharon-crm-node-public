@@ -1,3 +1,4 @@
+import {googlePermissions,GMAIL_MODIFY,gmailLabelRequest} from '../google-permissions.js';
 import {gmailSyncPage} from '../gmail-sync-page.js';
 import {inboxHeaders} from '../ai/inbox-headers.js';
 import {gmailFolderOverview} from '../mail-folder-overview.js';
@@ -9,7 +10,7 @@ import { config } from "../config.js";
 import { createOauthState, verifyOauthState } from "./security.js";
 
 const header=(headers,name)=>String((headers||[]).find(h=>String(h.name||"").toLowerCase()===name.toLowerCase())?.value||"");
-const publicAccount=a=>({id:a.id,email:a.email,name:a.name||"",connected_at:a.connected_at||""});
+const publicAccount=a=>({id:a.id,email:a.email,name:a.name||"",connected_at:a.connected_at||"",permissions:googlePermissions(a.tokens)});
 export function mimeMessage({to,subject,body,from,cc="",in_reply_to="",references=[]}){
  for(const value of [to,subject,from,cc,in_reply_to,...references])safeHeader(value);
  const enc=v=>"=?UTF-8?B?"+Buffer.from(String(v),"utf8").toString("base64")+"?=";
@@ -25,9 +26,10 @@ export class GoogleConnector{
  }
  authUrl(accountHint=""){if(!this.configured())throw Error("Google connector not configured");const state=createOauthState({account_hint:accountHint});return this.oauthClient().generateAuthUrl({access_type:"offline",prompt:"consent",scope:config.googleScopes,state,login_hint:accountHint||undefined});}
  async callback(code,stateRaw){
-  verifyOauthState(stateRaw); const client=this.oauthClient(); const {tokens}=await client.getToken(code); client.setCredentials(tokens);
+  const state=verifyOauthState(stateRaw); const client=this.oauthClient(); const {tokens}=await client.getToken(code); client.setCredentials(tokens);
   const oauth=google.oauth2({version:"v2",auth:client}); const info=(await oauth.userinfo.get()).data;
   const id=String(info.id||info.email||"").trim(); if(!id)throw Error("Google account id missing");
+  if(state.account_id&&state.account_id!==id)throw Error("google_consent_account_mismatch");
   const old=await this.vault.get("google:"+id);
   const record={id,email:String(info.email||""),name:String(info.name||""),tokens:{...(old?.tokens||{}),...tokens},connected_at:old?.connected_at||new Date().toISOString(),updated_at:new Date().toISOString()};
   await this.vault.set("google:"+id,record);this.disconnectedIds.delete(id); return publicAccount(record);
@@ -40,6 +42,31 @@ export class GoogleConnector{
  }
  async clientFor(record){
   let current=record; return this.oauthClient(record.tokens,async fresh=>{if(!fresh||!Object.keys(fresh).length||this.disconnectedIds.has(record.id))return;current={...current,tokens:{...current.tokens,...fresh},updated_at:new Date().toISOString()};await this.vault.set("google:"+current.id,current);});
+ }
+ async permissionUrl({account_id,confirmed}={}){
+  if(confirmed!==true)throw Error('explicit_confirmation_required');
+  if(!this.configured())throw Error('google_not_configured');
+  const account=await this.accountRecord(String(account_id||''));
+  const state=createOauthState({account_id:account.id,purpose:'gmail_modify'});
+  return this.oauthClient().generateAuthUrl({access_type:'offline',prompt:'consent',
+   scope:[...new Set([...config.googleScopes,GMAIL_MODIFY])],state,login_hint:account.email});
+ }
+ async gmailStatus({account_id}={}){
+  const account=await this.accountRecord(String(account_id||''));
+  const state=await this.vault.get('gmail-sync:'+account.id);
+  return {ok:true,account:publicAccount(account),incremental_enabled:config.gmailIncrementalSync,
+   writes_enabled:config.gmailWritesEnabled,sync:{mode:state?.mode||'not_started',
+    checked_at:state?.checked_at||null,has_cursor:Boolean(state?.anchor),has_next_page:Boolean(state?.page),recovered:state?.recovered===true}};
+ }
+ async gmailModifyLabels({account_id,message_id,...input}={}){
+  if(!config.gmailWritesEnabled)throw Error('gmail_writes_disabled');
+  const requestBody=gmailLabelRequest(input);
+  const account=await this.accountRecord(String(account_id||''));
+  if(!googlePermissions(account.tokens).gmail_modify)throw Error('gmail_modify_permission_required');
+  if(typeof message_id!=='string'||!/^[-a-zA-Z0-9_]{1,200}$/.test(message_id))throw Error('invalid_gmail_message_id');
+  const auth=await this.clientFor(account),gmail=google.gmail({version:'v1',auth});
+  const result=(await gmail.users.messages.modify({userId:'me',id:message_id,requestBody})).data;
+  return {ok:true,account_id:account.id,message_id:result.id,labels:result.labelIds||[],local_sync_pending:true};
  }
  async gmailFolders({account_id=""}={}){
   const account=await this.accountRecord(account_id);
