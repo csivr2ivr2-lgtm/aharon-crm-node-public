@@ -118,3 +118,26 @@ jobs:
       - name: Verify real database migrations, JSON, queue, and EXPLAIN
         run: node scripts/check-inbox-sql.mjs
 
+
+  browser:
+    name: Browser RTL and mobile regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked application dependencies
+        run: npm ci
+      - name: Install isolated browser test runner
+        run: npm install --prefix "$RUNNER_TEMP/crm-browser" --no-package-lock playwright@1.56.1
+      - name: Install Chromium
+        run: node "$RUNNER_TEMP/crm-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Synthetic desktop and mobile regression
+        env:
+          CRM_SCREENSHOTS: browser-results
+        run: CRM_PLAYWRIGHT_MODULE="$RUNNER_TEMP/crm-browser/node_modules/playwright/index.mjs" node scripts/check-inbox-browser.mjs
