@@ -288,10 +288,10 @@ const run=async()=>{
  const replay=await ingestMessage({...gmailFixture('sql-gmail-a'),is_read:false,provider_state:{available:true,labels:['UNREAD','SPAM']}});
  assert.equal(replay.inserted,false);
  let [providerRows]=await db.execute('SELECT id,is_read,provider_state_json FROM messages WHERE id IN (?,?) ORDER BY id',[a.message_id,b.message_id]);
- const first=providerRows.find(x=>x.id===a.message_id),second=providerRows.find(x=>x.id===b.message_id);
- assert.equal(Number(first.is_read),1,'provider UNREAD must not undo CRM read');
- assert.deepEqual(JSON.parse(first.provider_state_json).labels,['UNREAD','SPAM']);
- assert.deepEqual(JSON.parse(second.provider_state_json).labels,['INBOX']);
+ const providerA=providerRows.find(x=>x.id===a.message_id),providerB=providerRows.find(x=>x.id===b.message_id);
+ assert.equal(Number(providerA.is_read),1,'provider UNREAD must not undo CRM read');
+ assert.deepEqual(JSON.parse(providerA.provider_state_json).labels,['UNREAD','SPAM']);
+ assert.deepEqual(JSON.parse(providerB.provider_state_json).labels,['INBOX']);
  await updateMailProviderState({source:'google.gmail',account_id:'sql-gmail-a',external_id:'message-same',provider_state:{available:false,labels:[]}},db);
  [providerRows]=await db.execute('SELECT id,body,provider_state_json FROM messages WHERE id IN (?,?)',[a.message_id,b.message_id]);
  assert.equal(providerRows.length,2);
