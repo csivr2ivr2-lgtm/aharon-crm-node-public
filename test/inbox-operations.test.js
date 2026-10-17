@@ -99,3 +99,17 @@ test('promotional emails from pasted CRM examples are not new leads',()=>{
  ]){const detected=nonCustomerSignal({sender,subject});assert.equal(detected?.classification,expected,subject);
  const decision=decideInbox({sender,subject,direction:'in',waiting_since:'2026-10-12T12:00:00Z',body:'Need help?'});assert.equal(decision.handling_state,'no_action',subject);}
 });
+
+test('history never advances or enqueues after unacknowledged persistence',async()=>{
+ for(const result of [undefined,null,{}, {inserted:0}, {inserted:false,skipped:'unavailable'}]){
+  let writes=0,enqueued=0;
+  const database={execute:async sql=>{
+   if(sql.startsWith('SELECT page_cursor,state'))return [[{page_cursor:'',state:'running'}]];
+   writes++;return [{affectedRows:1}];
+  }};
+  const hostinger={configured:()=>true,settings:()=>({user:'test@example.test'}),historyPage:async()=>({messages:[{id:'m'}],done:false,next_cursor:'next'})};
+  await assert.rejects(historyPageJob({provider:'hostinger',accountId:'test@example.test',key:'hostinger:test@example.test'},
+   {database,hostinger,ingest:async()=>result,enqueue:async()=>enqueued++}),/message_persistence_unacknowledged/);
+  assert.equal(writes,0);assert.equal(enqueued,0);
+ }
+});

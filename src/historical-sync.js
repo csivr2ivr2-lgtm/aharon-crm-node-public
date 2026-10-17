@@ -1,3 +1,4 @@
+import {ingestionOutcome} from './ingestion-result.js';
 import {createHash} from 'node:crypto';
 import {db as defaultDb,now} from './db.js';
 import {enqueueJob} from './platform/jobs.js';
@@ -61,7 +62,7 @@ export async function historyPageJob(payload,{database=defaultDb,google=googleCo
  let imported=0,duplicates=0;
  for(const event of events){
   const result=await ingest(event);
-  if(result?.inserted)imported++;else duplicates++;
+  if(ingestionOutcome(result)==='imported')imported++;else duplicates++;
  }
  // Always commit progress after ALL events were ingested, never before.
  const done=page.done===true,nextCursor=done?'':String(page.next_cursor||'');

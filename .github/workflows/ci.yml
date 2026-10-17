@@ -2,7 +2,7 @@ name: CRM validation
 on:
   pull_request:
   push:
-    branches: [main, work/ai-continuity-20261014]
+    branches: [main, work/ai-continuity-20261014, feature/aharon-next-complete-20261016]
 permissions:
   contents: read
 jobs:

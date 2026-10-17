@@ -21,3 +21,12 @@ test('sync reports per account failures and duplicate-safe ingests',async()=>{
  assert.equal(result.imported,1);assert.equal(result.duplicates,1);assert.equal(result.errors,1);
  assert.equal(result.issues[0].account_id,'g1');assert.equal(scheduler.lastReport, result);
 });
+
+test('missing persistence acknowledgements are failures, never duplicates or realtime success',async()=>{
+ for(const result of [undefined,null,{}, {inserted:'false'}, {inserted:false,skipped:'unavailable'}]){
+  let published=0;
+  const scheduler=new SyncScheduler({connectors:{sync:async()=>({events:[{type:'message',source:'google.gmail',account_id:'a'}]})},workspace:{call:async()=>result},hub:{publish:()=>published++}});
+  const report=await scheduler.runOnce();
+  assert.equal(report.errors,1);assert.equal(report.duplicates,0);assert.equal(report.imported,0);assert.equal(published,0);
+ }
+});
