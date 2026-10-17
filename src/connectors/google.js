@@ -1,3 +1,4 @@
+import {gmailSyncPage} from '../gmail-sync-page.js';
 import {inboxHeaders} from '../ai/inbox-headers.js';
 import {gmailFolderOverview} from '../mail-folder-overview.js';
 import {simpleParser} from "mailparser";
@@ -95,8 +96,39 @@ export class GoogleConnector{
   const r=await gmail.users.messages.send({userId:"me",requestBody:{raw:mimeMessage({to,subject,body,cc,from:account.email,in_reply_to,references}),...(thread_id?{threadId:thread_id}:{})}});
   return {ok:true,account:publicAccount(account),message_id:r.data.id,thread_id:r.data.threadId};
  }
+
+ async gmailIncrementalEvents(account){
+  const key='gmail-sync:'+account.id,previous=await this.vault.get(key);
+  const expected=JSON.stringify(previous);
+  const record=await this.accountRecord(account.id),auth=await this.clientFor(record);
+  const page=await gmailSyncPage(google.gmail({version:'v1',auth}),previous);
+  const events=[];
+  for(const entry of page.items){
+   const provider_state=entry.unavailable?{available:false,labels:[]}:{available:true,labels:entry.item.labelIds||[]};
+   if(entry.unavailable){events.push({type:'mail.provider_state',source:'google.gmail',account_id:account.id,external_id:entry.id,provider_state});continue;}
+   const item=entry.item;
+   const mail=await simpleParser(Buffer.from(item.raw,'base64url'),{skipTextToHtml:true,maxHtmlLengthToParse:1024*1024});
+   const date=new Date(Number(item.internalDate));
+   if(!Number.isFinite(date.getTime()))throw Error('gmail_message_date_invalid');
+   events.push({id:'gmail:'+account.id+':'+item.id,type:'message',source:'google.gmail',channel:'email',
+    account_id:account.id,account:{provider:'google',type:'email',identifier:account.email,label:account.name||account.email},
+    conversation_external_id:'gmail:'+account.id+':'+(item.threadId||item.id),external_id:item.id,thread_id:item.threadId,
+    direction:emailOf(mail.from?.text||'')===account.email.toLowerCase()?'out':'in',
+    sender:mail.from?.text||'',recipient:mail.to?.text||'',cc:mail.cc?.text||'',headers:inboxHeaders(mail.headers),
+    rfc_message_id:mail.messageId||'',references:Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[],
+    subject:mail.subject||'',body:String(mail.text||''),is_read:!provider_state.labels.includes('UNREAD'),
+    sent_at:date.toISOString(),provider_state});
+  }
+  events.push({type:'sync.checkpoint',source:'google.gmail',account_id:account.id,commit:async()=>{
+   if(this.disconnectedIds.has(account.id)||!await this.vault.get('google:'+account.id))throw Error('google_account_disconnected');
+   if(JSON.stringify(await this.vault.get(key))!==expected)throw Error('gmail_checkpoint_conflict');
+   await this.vault.set(key,{...page.nextState,checked_at:new Date().toISOString(),recovered:page.recovered});
+  }});
+  return events;
+ }
+
  async sync(){
-  const events=[]; for(const account of await this.accounts()){try{const recent=await this.gmailRecent({account_id:account.id,max_results:config.googleSyncMaxResults,q:config.googleSyncQuery});for(const m of recent.messages){const fromSelf=emailOf(m.from)===account.email.toLowerCase();events.push({id:"gmail:"+account.id+":"+m.id,type:"message",source:"google.gmail",channel:"email",account_id:account.id,account:{provider:"google",type:"email",identifier:account.email,label:account.name||account.email},conversation_external_id:"gmail:"+account.id+":"+(m.thread_id||m.id),external_id:m.id,thread_id:m.thread_id,direction:fromSelf?"out":"in",sender:m.from,recipient:m.to,cc:m.cc,headers:m.headers,rfc_message_id:m.message_id,references:m.references,subject:m.subject,body:m.body,is_read:!m.unread,sent_at:m.sent_at});}}catch(error){events.push(syncIssue("google.gmail","fetch",error,account.email||account.id));}}
+  const events=[]; for(const account of await this.accounts()){try{if(config.gmailIncrementalSync){events.push(...await this.gmailIncrementalEvents(account));continue;}const recent=await this.gmailRecent({account_id:account.id,max_results:config.googleSyncMaxResults,q:config.googleSyncQuery});for(const m of recent.messages){const fromSelf=emailOf(m.from)===account.email.toLowerCase();events.push({id:"gmail:"+account.id+":"+m.id,type:"message",source:"google.gmail",channel:"email",account_id:account.id,account:{provider:"google",type:"email",identifier:account.email,label:account.name||account.email},conversation_external_id:"gmail:"+account.id+":"+(m.thread_id||m.id),external_id:m.id,thread_id:m.thread_id,direction:fromSelf?"out":"in",sender:m.from,recipient:m.to,cc:m.cc,headers:m.headers,rfc_message_id:m.message_id,references:m.references,subject:m.subject,body:m.body,is_read:!m.unread,sent_at:m.sent_at});}}catch(error){events.push(syncIssue("google.gmail","fetch",error,account.email||account.id));}}
   return events;
  }
 }

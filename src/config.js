@@ -18,6 +18,7 @@ export const config=Object.freeze({
  aiBaseUrl:e("AI_BASE_URL").replace(/\/$/,""),aiApiToken:e("AI_API_TOKEN"),aiModel:e("AI_MODEL"),aiProvidersJson:e("AI_PROVIDERS_JSON"),
  googleClientId:e("GOOGLE_CLIENT_ID"),googleClientSecret:e("GOOGLE_CLIENT_SECRET"),googleRedirectUri:e("GOOGLE_REDIRECT_URI"),
  googleScopes:["openid","email","profile","https://www.googleapis.com/auth/gmail.readonly","https://www.googleapis.com/auth/gmail.send","https://www.googleapis.com/auth/calendar.readonly","https://www.googleapis.com/auth/drive.metadata.readonly"],
+ gmailIncrementalSync:b("GMAIL_INCREMENTAL_SYNC",false),
  googleSyncQuery:e("GOOGLE_SYNC_QUERY","newer_than:14d"),googleSyncMaxResults:Math.min(100,Math.max(1,n("GOOGLE_SYNC_MAX_RESULTS",50))),
  hostingerMailEnabled:b("HOSTINGER_MAIL_ENABLED",false),hostingerImapHost:e("HOSTINGER_IMAP_HOST","imap.hostinger.com"),
  hostingerImapPort:Math.max(1,n("HOSTINGER_IMAP_PORT",993)),hostingerImapSecure:b("HOSTINGER_IMAP_SECURE",true),
