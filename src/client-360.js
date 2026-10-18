@@ -10,14 +10,15 @@ export async function loadClient360(id,database){
  if(!clients.length)throw Error('client_not_found');
  const [conversations,projects,tasks,files,reminders,notes,activities]=await Promise.all([
   one(database,'SELECT id,channel,title,external_id,account_id,project_id,unread_count,last_message_at FROM conversations WHERE client_id=? ORDER BY last_message_at DESC,id DESC LIMIT 40',[id]),
-  one(database,"SELECT p.id,p.name,p.status,p.next_step,p.updated_at FROM projects p JOIN entity_relations r ON r.to_type='project' AND r.to_id=p.id AND r.from_type='client' WHERE r.from_id=? AND p.deleted_at IS NULL ORDER BY p.updated_at DESC LIMIT 30",[id]),
-  one(database,"SELECT DISTINCT t.id,t.title,t.status,t.priority,t.due_date,t.updated_at FROM tasks t JOIN entity_relations r ON r.to_type='client' AND r.to_id=? AND r.from_type='task' AND r.from_id=t.id ORDER BY t.updated_at DESC LIMIT 40",[id]),
+  one(database,"SELECT p.id,p.name,p.status,p.next_step,p.updated_at FROM projects p JOIN entity_relations r ON r.to_type='project' AND CAST(r.to_id AS BINARY)=CAST(p.id AS BINARY) AND r.from_type='client' WHERE r.from_id=? AND p.deleted_at IS NULL ORDER BY p.updated_at DESC LIMIT 30",[id]),
+  one(database,"SELECT DISTINCT t.id,t.title,t.status,t.priority,t.due_date,t.updated_at FROM tasks t JOIN entity_relations r ON r.to_type='client' AND r.to_id=? AND r.from_type='task' AND CAST(r.from_id AS BINARY)=CAST(t.id AS BINARY) ORDER BY t.updated_at DESC LIMIT 40",[id]),
   one(database,'SELECT id,name,mime,size_bytes,project_id,created_at FROM files WHERE client_id=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at DESC LIMIT 30',[id]),
   one(database,'SELECT id,title,status,due_at,task_id,project_id FROM reminders WHERE client_id=? ORDER BY due_at DESC LIMIT 30',[id]),
   one(database,"SELECT id,body,updated_at FROM crm_notes WHERE entity_type='client' AND entity_id=? ORDER BY updated_at DESC LIMIT 20",[id]),
   one(database,"SELECT id,event,title,created_at FROM activities WHERE entity_type='client' AND entity_id=? ORDER BY id DESC LIMIT 30",[id])
  ]);
  const sections={conversations,projects,tasks,files,reminders,notes,activities};
+ for(const [kind,items] of Object.entries(sections))for(const item of items)item.source={type:kind,id:String(item.id),client_id:String(id)};
  // Counts are returned page counts, not claimed lifetime totals.
  const displayed_counts=Object.fromEntries(Object.entries(sections).map(([key,values])=>[key,values.length]));
  return {ok:true,client:clients[0],...sections,displayed_counts,limited:true,

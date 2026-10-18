@@ -1,3 +1,4 @@
+import {loadClient360} from '../client-360.js';
 import {loadRecentChanges} from './changes-brief.js';
 import {createHash, randomBytes, randomUUID, timingSafeEqual} from 'node:crypto';
 import {z} from 'zod';
@@ -19,6 +20,7 @@ const partial=shape=>Object.fromEntries(Object.entries(shape).map(([k,v])=>[k,v.
 const registry={};
 function register(name,description,schema,op,permission='read'){registry[name]={name,description,schema,op,permission};}
 register('search_crm','Search CRM records; use to resolve names and never guess IDs.',object({q:text(500),limit:z.number().int().min(1).max(30).optional()}),'search');
+register('get_client_activity','Read bounded customer activity using only explicit links to an exact client ID. Includes source IDs; never infer association from names.',object({id}),'client.activity');
 register('get_client','Get exact client record.',object({id}),'client.get');
 register('list_clients','List clients and search their names.',object({q:optionalText(255),limit:z.number().int().min(1).max(50).optional()}),'client.list');
 register('create_client','Create a client, requiring user approval.',object(client),'client.create','write');
@@ -152,6 +154,7 @@ export class ActionEngine{
   return {to,client,account,provider,externalId};
  }
  async perform(tool,args,actionId,approvedPreview=null){
+  if(tool.op==='client.activity')return loadClient360(args.id,this.database);
   if(tool.op==='recent_changes')return loadRecentChanges({...args,database:this.database});
   if(tool.op==='business_inbox')return listInboxWork(args,this.database);
   if(tool.op==='waiting_for_reply'){
