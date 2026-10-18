@@ -7,6 +7,7 @@ let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
 let assistantMessages=[], pendingActions=[], showArchived=false, showArchivedFiles=false, fileQuery='';
 let visitRecorded=false;
+let entityLayout='list',entityFilters={query:'',status:''};
 let workView='inbox',workCursor='',workDone=false,workFilters={},workPending=new Map(),conversationWork=null;
 let inboxItems=[],inboxQuery='',inboxFilter='all',assistantBusy=false;
 let sentCursor='',sentItems=[],sentDone=false;
@@ -48,6 +49,14 @@ async function render(next){
  if(view==='inbox'||view==='spam'||view==='updates'){
   if(view==='spam')workView='spam';else if(view==='updates')workView='updates';else if(['spam','updates'].includes(workView))workView='inbox';
   await renderWorkInbox();return;
+ }
+ if(['tasks','projects'].includes(view)){
+  const d=await api('/api/'+view+(showArchived?'?include_archived=1':''));records=d.items;
+  const {renderWorkView}=await import('/assets/work-views.js');
+  $('#content').innerHTML=renderWorkView({items:records,layout:entityLayout,...entityFilters,
+   statusLabel,button,renderRow:x=>'<div class="row"><div><b>'+esc(x.name||x.title||x.did||x.label)+'</b><div class="muted">'+esc([statusLabel(x.status),x.email,x.phone,x.identifier,statusLabel(x.automation_mode),statusLabel(x.worker_state)].filter(Boolean).join(' · '))+'</div><div class="note">'+esc(x.description||x.notes||'')+'</div>'+(x.next_step?'<p>הצעד הבא: '+esc(x.next_step)+'</p>':'')+(x.worker_result?'<p class="draft note">'+esc(x.worker_result)+'</p>':'')+'</div><div>'+(view==='clients'?button('client-360','תיק לקוח 360°',x.id):'')+button('edit','עריכה',x.id||x.did)+button('notes','הערות',x.id||x.did)+(['projects','systems'].includes(view)?lifecycleButtons(x):'')+'</div></div>'});
+  if(view==='projects')$('#content').insertAdjacentHTML('afterbegin','<div class="panel">'+button('toggle-archived',showArchived?'הסתר ארכיון':'הצג ארכיון')+'</div>');
+  return;
  }
  if(entityNames[view]){
   const d=await api('/api/'+view+(showArchived?'?include_archived=1':''));records=d.items;$('#content').innerHTML='<div class="panel">'+button('create','הוספה')+(['projects','systems'].includes(view)?button('toggle-archived',showArchived?'הסתר ארכיון':'הצג ארכיון'):'')+'</div><div class="panel">'+(records.map(x=>'<div class="row"><div><b>'+esc(x.name||x.title||x.did||x.label)+'</b><div class="muted">'+esc([statusLabel(x.status),x.email,x.phone,x.identifier,statusLabel(x.automation_mode),statusLabel(x.worker_state)].filter(Boolean).join(' · '))+'</div><div class="note">'+esc(x.description||x.notes||'')+'</div>'+(x.next_step?'<p>הצעד הבא: '+esc(x.next_step)+'</p>':'')+(x.worker_result?'<p class="draft note">'+esc(x.worker_result)+'</p>':'')+'</div><div>'+(view==='clients'?button('client-360','תיק לקוח 360°',x.id):'')+button('edit','עריכה',x.id||x.did)+button('notes','הערות',x.id||x.did)+(['projects','systems'].includes(view)?lifecycleButtons(x):'')+'</div></div>').join('')||'<p class="empty">אין רשומות.</p>')+'</div>';return;
@@ -276,6 +285,7 @@ document.addEventListener('click',async e=>{
    await openConversation(r.conversation_id);$('#notice').textContent='נוצרה שיחה נפרדת עם '+r.moved+' הודעות.';return;
   }
    if(action==='close-editor')$('#editor').close();
+  if(action==='entity-layout'){if(['list','kanban','calendar'].includes(id)){entityLayout=id;await render(view);}return;}
   if(action==='create'||action==='edit')await editRecord(b.dataset.id);
   if(action==='notes')await showNotes(b.dataset.id);
   if(action==='conversation')await openConversation(b.dataset.id);
@@ -846,3 +856,9 @@ function readHistoryCursor(){try{return localStorage.getItem('inbox-history-curs
 function saveHistoryCursor(value){try{localStorage.setItem('inbox-history-cursor',value);}catch{}}
 
 
+
+document.addEventListener('submit',async e=>{
+ if(e.target.id!=='entityFilterForm')return;e.preventDefault();
+ entityFilters=Object.fromEntries(new FormData(e.target));
+ try{await render(view);}catch(error){$('#error').textContent=userError(error.message);}
+});

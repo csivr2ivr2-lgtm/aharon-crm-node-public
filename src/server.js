@@ -60,6 +60,7 @@ function apiAuth(req,reply){if(equalToken(bearerToken(req),config.coreApiToken))
 const cookieOpts={path:"/",httpOnly:true,sameSite:"strict",secure:config.env==="production",maxAge:60*60*24*14};
 
 app.get("/health",async()=>({ok:true,service:"aharon-crm-node",locked:await loginSecurity.isLocked()}));
+app.get("/assets/work-views.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./work-views.js",import.meta.url),"utf8")));
 app.get("/assets/app.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./browser.js",import.meta.url),"utf8")));
 app.addHook("onRequest",async(req,reply)=>{
  reply.header("X-Content-Type-Options","nosniff").header("X-Frame-Options","DENY").header("Referrer-Policy","same-origin").header("Cache-Control","no-store");
