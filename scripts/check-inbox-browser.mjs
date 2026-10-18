@@ -30,6 +30,8 @@ try{
    }
    else if(url.pathname==='/api/tasks')result={ok:true,items:[{id:'task_a',title:'בדיקת מועד',status:'open',due_date:'2026-10-20',notes:'<img src=x onerror=alert(1)>'},{id:'task_b',title:'מעקב ללא תאריך',status:'done'}]};
    else if(url.pathname==='/api/connectors')result={ok:true,connectors:[{key:'google',configured:true,status:'connected',accounts:[{id:'drive-a',email:'a@example.test'},{id:'drive-b',email:'b@example.test'}]}]};
+   else if(url.pathname==='/api/google/people/cache'){const account=url.searchParams.get('account_id');assert.ok(['drive-a','drive-b'].includes(account));result={ok:true,sync:{checked_at:null,has_next_page:false},items:[{id:'people/same',name:account+' contact',emails:[{value:'<img src=x onerror=alert(1)>'}],phones:[{value:'+972501234567'}]}]};}
+   else if(url.pathname==='/api/google/people/sync'){assert.equal(body.account_id,'drive-b');result={ok:true};}
    else if(url.pathname==='/api/google/drive/cache'){const account=url.searchParams.get('account_id');assert.ok(['drive-a','drive-b'].includes(account));result={ok:true,sync:{checked_at:null,has_next_page:false},items:[{id:'safe',name:account+' document',mimeType:'text/plain',webViewLink:'https://drive.google.com/file/d/safe/view'},{id:'unsafe',name:'<img src=x onerror=alert(1)>',mimeType:'text/plain',webViewLink:'javascript:alert(1)'},{id:'spoof',name:'spoof',webViewLink:'https://drive.google.com.attacker.test/file'},{id:'userinfo',name:'userinfo',webViewLink:'https://user@drive.google.com/file'}]};}
    else if(url.pathname==='/api/google/drive/sync'){assert.equal(body.account_id,'drive-b');result={ok:true};}
    else if(url.pathname==='/api/accounts')result={ok:true,items:[{id:'a',label:'חשבון בדיקה'}]};
@@ -84,6 +86,22 @@ try{
   await page.getByText('drive-b document',{exact:true}).waitFor();
   assert.equal(writes.filter(x=>x.path==='/api/google/drive/sync').length,1);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'Drive overflow '+width);checks++;
+  phase='people-mirror-'+width;
+  await page.locator('[data-action="people-mirror"][data-id="drive-a"]').click();
+  await page.getByText('drive-a contact',{exact:true}).waitFor();
+  assert.equal(writes.filter(x=>x.path==='/api/google/people/sync').length,0);checks++;
+  assert.equal(await page.locator('#providerFolders img').count(),0);checks++;
+  await page.locator('[data-action="people-mirror"][data-id="drive-b"]').click();
+  await page.getByText('drive-b contact',{exact:true}).waitFor();
+  assert.equal(await page.getByText('drive-a contact',{exact:true}).count(),0);checks++;
+  await page.locator('[data-action="people-sync"]').click();
+  await page.getByText('drive-b contact',{exact:true}).waitFor();
+  assert.equal(writes.filter(x=>x.path==='/api/google/people/sync').length,1);checks++;
+  const denied=async dialog=>dialog.dismiss();
+  page.once('dialog',denied);
+  await page.locator('[data-action="people-permission"][data-id="drive-b"]').click();
+  assert.equal(writes.filter(x=>x.path==='/api/google/permission-url').length,0);checks++;
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'Contacts overflow '+width);checks++;
   assert.deepEqual(errors,[]);checks++;
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/conversation-${width}.png`,fullPage:true});await page.goto('https://crm.test/#inbox');row={...original,...decideInbox(original)};await page.reload();await page.locator('.work-card').waitFor();await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/inbox-${width}.png`,fullPage:true});}
   await context.close();
