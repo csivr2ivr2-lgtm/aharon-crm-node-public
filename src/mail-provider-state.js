@@ -6,6 +6,6 @@ export function mailProviderState(value){
 export async function updateMailProviderState(event,db){
  if(event.source!=='google.gmail'||!event.account_id||!event.external_id)throw Error('invalid_mail_provider_source');
  const state=mailProviderState(event.provider_state);
- await db.execute('UPDATE messages m JOIN conversations c ON c.id=m.conversation_id JOIN accounts a ON a.id=c.account_id SET m.provider_state_json=? WHERE a.integration_key=? AND m.external_id=?',[state,'google:'+event.account_id,String(event.external_id)]);
+ await db.execute('UPDATE messages m JOIN conversations c ON c.id=CAST(m.conversation_id AS BINARY) JOIN accounts a ON a.id=CAST(c.account_id AS BINARY) SET m.provider_state_json=? WHERE a.integration_key=? AND m.external_id=?',[state,'google:'+event.account_id,String(event.external_id)]);
  return {ok:true};
 }

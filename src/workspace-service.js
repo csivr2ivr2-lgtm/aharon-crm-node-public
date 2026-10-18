@@ -63,11 +63,11 @@ export async function ingestMessage(p){
   const [accounts]=await c.execute("SELECT id FROM accounts WHERE integration_key=?",[integrationKey]);const localAccountId=accounts[0].id;
   if(provider==="hostinger"&&Array.isArray(p.references)&&p.references.length){
    const refs=p.references.slice(-30),marks=refs.map(()=>"?").join(",");
-   const [linked]=await c.execute(`SELECT m.conversation_id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id WHERE cv.account_id=? AND m.rfc_message_id IN (${marks}) ORDER BY m.sent_at ASC LIMIT 1`,[localAccountId,...refs]);
+   const [linked]=await c.execute(`SELECT m.conversation_id FROM messages m JOIN conversations cv ON cv.id=CAST(m.conversation_id AS BINARY) WHERE cv.account_id=? AND m.rfc_message_id IN (${marks}) ORDER BY m.sent_at ASC LIMIT 1`,[localAccountId,...refs]);
    if(linked[0])convId=linked[0].conversation_id;
   }
   const [redirect]=await c.execute('SELECT target_id FROM conversation_redirects WHERE source_id=? LIMIT 1',[convId]);if(redirect.length)convId=redirect[0].target_id;
-  const [exists]=await c.execute("SELECT m.id,m.conversation_id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id WHERE m.id=? OR (cv.account_id=? AND m.external_id=?) LIMIT 1",[msgId,localAccountId,ev]);
+  const [exists]=await c.execute("SELECT m.id,m.conversation_id FROM messages m JOIN conversations cv ON cv.id=CAST(m.conversation_id AS BINARY) WHERE m.id=? OR (cv.account_id=? AND m.external_id=?) LIMIT 1",[msgId,localAccountId,ev]);
   if(exists.length){if(p.source==='google.gmail'&&p.provider_state)await c.execute('UPDATE messages SET provider_state_json=? WHERE id=?',[mailProviderState(p.provider_state),exists[0].id]);await c.commit();return {inserted:false,conversation_id:exists[0].conversation_id,message_id:exists[0].id,account_id:localAccountId};}
   const preferredTitle=(p.channel==='whatsapp'||provider==='whatsapp')?
    (safeWhatsAppName(p.conversation_title)||await lookupWhatsAppTitle({account_id:externalAccountId,jid:ext},c)):'';
