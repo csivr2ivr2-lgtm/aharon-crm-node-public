@@ -1,3 +1,4 @@
+import {loadClient360} from '../src/client-360.js';
 import {loadRecentChanges} from '../src/ai/changes-brief.js';
 import {peopleSyncPage} from '../src/google-people-sync.js';
 import {syncProviderMirror,listProviderMirror} from '../src/provider-mirror.js';
@@ -356,6 +357,25 @@ const run=async()=>{
  assert.ok(changes.messages.every(m=>Date.parse(m.sent_at)<=Date.parse(changes.window.until)));
  assert.ok(changes.messages.every(m=>m.source.id===m.id));
  console.log('PASS: real SQL operational changes read across legacy mixed collations');
+ // Same names and phone suffixes must never imply customer identity.
+ for(const suffix of ['a','b']){
+  await db.execute('INSERT INTO clients(id,name,phone,email) VALUES(?,?,?,?)',['ci360_'+suffix,'Same customer name','0500001234',suffix+'@example.test']);
+  await db.execute('INSERT INTO projects(id,name) VALUES(?,?)',['ci360_project_'+suffix,'Same project name']);
+  await db.execute('INSERT INTO tasks(id,title) VALUES(?,?)',['ci360_task_'+suffix,'Same task title']);
+  await db.execute("INSERT INTO entity_relations(from_type,from_id,to_type,to_id) VALUES('client',?,'project',?)",['ci360_'+suffix,'ci360_project_'+suffix]);
+  await db.execute("INSERT INTO entity_relations(from_type,from_id,to_type,to_id) VALUES('task',?,'client',?)",['ci360_task_'+suffix,'ci360_'+suffix]);
+  await db.execute('INSERT INTO conversations(id,channel,title,client_id) VALUES(?,?,?,?)',['ci360_conv_'+suffix,'email','Same conversation','ci360_'+suffix]);
+ }
+ // A shared project is not evidence that either customer's other task belongs to the other.
+ for(const suffix of ['a','b'])await db.execute("INSERT INTO entity_relations(from_type,from_id,to_type,to_id) VALUES('task',?,'project',?)",['ci360_task_'+suffix,'ci360_project_a']);
+ const clientA=await loadClient360('ci360_a',db),clientB=await loadClient360('ci360_b',db);
+ assert.deepEqual(clientA.tasks.map(t=>t.id),['ci360_task_a']);
+ assert.deepEqual(clientB.tasks.map(t=>t.id),['ci360_task_b']);
+ assert.deepEqual(clientA.conversations.map(t=>t.id),['ci360_conv_a']);
+ assert.deepEqual(clientB.projects.map(t=>t.id),['ci360_project_b']);
+ assert.ok(clientA.tasks.every(t=>t.source.client_id==='ci360_a'));
+ assert.doesNotMatch(JSON.stringify(clientA),/ci360_task_b|ci360_conv_b|ci360_project_b/);
+ console.log('PASS: real SQL customer 360 excludes lookalikes and shared-project inference');
 };
 try{await run()}catch(e){
  // Public CI annotations must never contain SQL values, credentials or raw errors.
