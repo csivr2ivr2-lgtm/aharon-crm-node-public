@@ -1,3 +1,4 @@
+import {peopleSyncPage} from '../src/google-people-sync.js';
 import {syncProviderMirror,listProviderMirror} from '../src/provider-mirror.js';
 import {syncCalendarMirror,listCalendarMirror} from '../src/google-calendar-sync.js';
 import {ingestMessage} from '../src/workspace-service.js';
@@ -330,8 +331,16 @@ const run=async()=>{
  assert.equal((await listProviderMirror({provider:'google.drive',account_id:'drive-race',db})).items.length,1);
  console.log('PASS: real SQL Drive access removal, retained metadata, account isolation and concurrent checkpoint conflict');
 
-
-
+ const peopleClient=connections=>({people:{connections:{list:async()=>({data:{connections,nextSyncToken:'people-checkpoint'}})}}});
+ for(const account_id of ['people-a','people-b'])await syncProviderMirror({provider:'google.people',account_id,db,
+  fetchPage:state=>peopleSyncPage(peopleClient([{resourceName:'people/same',names:[{displayName:account_id}],emailAddresses:[{value:'same@example.test'}]}]),state)});
+ await syncProviderMirror({provider:'google.people',account_id:'people-a',db,
+  fetchPage:state=>peopleSyncPage(peopleClient([{resourceName:'people/same',metadata:{deleted:true}}]),state)});
+ assert.equal((await listProviderMirror({provider:'google.people',account_id:'people-a',db})).items.length,0);
+ assert.equal((await listProviderMirror({provider:'google.people',account_id:'people-b',db})).items[0].name,'people-b');
+ const [[peopleHistory]]=await db.execute("SELECT COUNT(*) n FROM provider_records WHERE available=0 AND payload_json LIKE ?",['%people-a%']);
+ assert.equal(Number(peopleHistory.n),1);
+ console.log('PASS: real SQL People account isolation and deletion preserve historical contact records');
 };
 try{await run()}catch(e){
  // Public CI annotations must never contain SQL values, credentials or raw errors.
