@@ -45,6 +45,16 @@ export class Assistant{
    if(action?.status!=='pending'||!action?.id||!action?.confirmation_token)throw Error('assistant_action_unverified');
    return {ok:true,reply:'הכנתי את המשימה "'+task.title+'" בעדיפות '+({low:'נמוכה',high:'גבוהה',urgent:'דחופה',normal:'רגילה'})[task.priority]+'. היא עדיין לא נוצרה. לחץ על אישור וביצוע כדי לשמור אותה.',actions:[action],provider:'internal',model:'verified_action'};
   }
+  if(!explicitMutationRequest(message)&&/פרויקט/.test(message)&&/מתעכב|באיחור|עיכוב/.test(message)){
+   const response=await this.engine.execute('project_risks',{},context),r=response?.result;
+   if(response?.ok!==true||response.status!=='completed'||r?.ok!==true||!Array.isArray(r.items))throw Error('assistant_read_unavailable');
+   const reply='בדיקת סיכון לפי משימות פתוחות שמועדן עבר (תאריכים ללא שעה נבדקים לפי UTC):\n'+
+    (r.items.length?r.items.map(x=>x.project_name+' — '+x.task_title+' · מועד: '+x.due_date+
+     '\nמקור: פרויקט '+x.project_id+' / משימה '+x.task_id+' · /#projects').join('\n\n'):'לא נמצאו משימות כאלה ברשומות שנבדקו.')+
+    '\nהגורם לעיכוב אינו ידוע מהנתונים האלה. משימה באיחור אינה מוכיחה שכל הפרויקט מתעכב.'+
+    (r.limited?'\nהסריקה חלקית; ייתכנו משימות נוספות.':'');
+   return {ok:true,reply,actions:[],provider:'internal',model:'verified_project_risks'};
+  }
   const changes=recentChangesRequest(message);
   if(changes){
    const response=await this.engine.execute('recent_changes',changes,context),r=response?.result;
