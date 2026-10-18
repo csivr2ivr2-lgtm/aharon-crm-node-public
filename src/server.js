@@ -1,3 +1,4 @@
+import {peopleSyncPage} from './google-people-sync.js';
 import {syncProviderMirror,listProviderMirror} from './provider-mirror.js';
 import {driveSyncPage} from './google-drive-sync.js';
 import {syncCalendarMirror,listCalendarMirror} from './google-calendar-sync.js';
@@ -217,6 +218,16 @@ app.get('/api/google/calendar/cache',async(req,reply)=>{
  if(!uiAuth(req,reply))return;
  const {account}=await googleConnector.calendarApi(req.query?.account_id);
  return listCalendarMirror({account_id:account.id,db});
+});
+app.post('/api/google/people/sync',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const {account,people}=await googleConnector.peopleApi(req.body?.account_id);
+ return syncProviderMirror({provider:'google.people',account_id:account.id,db,fetchPage:state=>peopleSyncPage(people,state)});
+});
+app.get('/api/google/people/cache',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const {account}=await googleConnector.peopleApi(req.query?.account_id);
+ return listProviderMirror({provider:'google.people',account_id:account.id,db,query:String(req.query?.q||'')});
 });
 app.post('/api/google/drive/sync',async(req,reply)=>{
  if(!uiAuth(req,reply))return;

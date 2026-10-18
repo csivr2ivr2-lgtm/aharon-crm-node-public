@@ -1,4 +1,4 @@
-import {googlePermissions,GMAIL_MODIFY,gmailLabelRequest} from '../google-permissions.js';
+import {googlePermissions,GMAIL_MODIFY,CONTACTS_READ,gmailLabelRequest} from '../google-permissions.js';
 import {gmailSyncPage} from '../gmail-sync-page.js';
 import {inboxHeaders} from '../ai/inbox-headers.js';
 import {gmailFolderOverview} from '../mail-folder-overview.js';
@@ -43,13 +43,15 @@ export class GoogleConnector{
  async clientFor(record){
   let current=record; return this.oauthClient(record.tokens,async fresh=>{if(!fresh||!Object.keys(fresh).length||this.disconnectedIds.has(record.id))return;current={...current,tokens:{...current.tokens,...fresh},updated_at:new Date().toISOString()};await this.vault.set("google:"+current.id,current);});
  }
- async permissionUrl({account_id,confirmed}={}){
+ async permissionUrl({account_id,confirmed,purpose='gmail_modify'}={}){
   if(confirmed!==true)throw Error('explicit_confirmation_required');
   if(!this.configured())throw Error('google_not_configured');
   const account=await this.accountRecord(String(account_id||''));
-  const state=createOauthState({account_id:account.id,purpose:'gmail_modify'});
+  if(!['gmail_modify','contacts_read'].includes(purpose))throw Error('invalid_google_permission_purpose');
+  const scope=purpose==='contacts_read'?CONTACTS_READ:GMAIL_MODIFY;
+  const state=createOauthState({account_id:account.id,purpose});
   return this.oauthClient().generateAuthUrl({access_type:'offline',prompt:'consent',
-   scope:[...new Set([...config.googleScopes,GMAIL_MODIFY])],state,login_hint:account.email});
+   scope:[...new Set([...config.googleScopes,scope])],state,login_hint:account.email});
  }
  async gmailStatus({account_id}={}){
   const account=await this.accountRecord(String(account_id||''));
@@ -118,6 +120,12 @@ export class GoogleConnector{
   const account=await this.accountRecord(account_id),auth=await this.clientFor(account),calendar=google.calendar({version:"v3",auth});
   const r=await calendar.events.list({calendarId:"primary",timeMin:new Date().toISOString(),singleEvents:true,orderBy:"startTime",maxResults:Math.min(50,Math.max(1,Number(max_results||20)))});
   return {ok:true,account:publicAccount(account),events:(r.data.items||[]).map(e=>({id:e.id,summary:e.summary||"",description:e.description||"",start:e.start?.dateTime||e.start?.date||"",end:e.end?.dateTime||e.end?.date||"",location:e.location||"",html_link:e.htmlLink||""}))};
+ }
+ async peopleApi(account_id){
+  if(!config.googlePeopleSync)throw Error('people_sync_disabled');
+  const account=await this.accountRecord(String(account_id||''));
+  if(!googlePermissions(account.tokens).contacts_read)throw Error('contacts_read_permission_required');
+  return {account,people:google.people({version:'v1',auth:await this.clientFor(account)})};
  }
  async driveApi(account_id){
   if(!config.googleDriveSync)throw Error('drive_sync_disabled');

@@ -1,9 +1,10 @@
 const prefix='https://www.googleapis.com/auth/';
+export const CONTACTS_READ=prefix+'contacts.readonly';
 export const GMAIL_MODIFY=prefix+'gmail.modify';
 export function googlePermissions(tokens={}){
  const scopes=new Set(typeof tokens.scope==='string'?tokens.scope.split(/\s+/).filter(Boolean):[]);
  const full=scopes.has('https://mail.google.com/'),modify=full||scopes.has(GMAIL_MODIFY);
- return {known:scopes.size>0,gmail_read:modify||scopes.has(prefix+'gmail.readonly'),
+ return {contacts_read:scopes.has(CONTACTS_READ)||scopes.has(prefix+'contacts'),known:scopes.size>0,gmail_read:modify||scopes.has(prefix+'gmail.readonly'),
   gmail_modify:modify,gmail_send:modify||scopes.has(prefix+'gmail.send')||scopes.has(prefix+'gmail.compose'),
   calendar_read:scopes.has(prefix+'calendar')||scopes.has(prefix+'calendar.readonly'),
   drive_metadata:scopes.has(prefix+'drive')||scopes.has(prefix+'drive.readonly')||scopes.has(prefix+'drive.metadata.readonly')};
