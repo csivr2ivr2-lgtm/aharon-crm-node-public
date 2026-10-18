@@ -68,7 +68,7 @@ export async function ingestMessage(p){
   }
   const [redirect]=await c.execute('SELECT target_id FROM conversation_redirects WHERE source_id=? LIMIT 1',[convId]);if(redirect.length)convId=redirect[0].target_id;
   const [exists]=await c.execute("SELECT m.id,m.conversation_id FROM messages m JOIN conversations cv ON cv.id=CAST(m.conversation_id AS BINARY) WHERE m.id=? OR (cv.account_id=? AND m.external_id=?) LIMIT 1",[msgId,localAccountId,ev]);
-  if(exists.length){if(p.source==='google.gmail'&&p.provider_state)await c.execute('UPDATE messages SET provider_state_json=? WHERE id=?',[mailProviderState(p.provider_state),exists[0].id]);await c.commit();return {inserted:false,conversation_id:exists[0].conversation_id,message_id:exists[0].id,account_id:localAccountId};}
+  if(exists.length){if(['google.gmail','hostinger.imap'].includes(p.source)&&p.provider_state)await c.execute('UPDATE messages SET provider_state_json=? WHERE id=?',[mailProviderState(p.provider_state),exists[0].id]);await c.commit();return {inserted:false,conversation_id:exists[0].conversation_id,message_id:exists[0].id,account_id:localAccountId};}
   const preferredTitle=(p.channel==='whatsapp'||provider==='whatsapp')?
    (safeWhatsAppName(p.conversation_title)||await lookupWhatsAppTitle({account_id:externalAccountId,jid:ext},c)):'';
   const convTitle=preferredTitle||String(p.subject||(direction==='out'?p.recipient:p.sender)||ext).slice(0,500);
@@ -78,7 +78,7 @@ export async function ingestMessage(p){
   if(!inboxEventType)await c.execute("UPDATE conversations SET last_message_at=GREATEST(COALESCE(last_message_at,''),?),unread_count=unread_count+?,updated_at=? WHERE id=?",[ts,direction==="in"&&!read?1:0,now(),convId]);
   await c.execute("INSERT INTO activities(event,entity_type,entity_id,title,metadata_json,created_at) VALUES(?,?,?,?,?,?)",["message."+direction,"conversation",convId,String(p.subject||p.body||"הודעה חדשה").slice(0,160),j({source:provider}),now()]);
   await c.execute('INSERT IGNORE INTO message_intelligence(message_id,engine_version,decision_json,updated_at) VALUES(?,?,?,?)',[msgId,INBOX_ENGINE_VERSION,j(decideInbox({...p,direction})),now()]);
-  if(p.source==='google.gmail'&&p.provider_state)await c.execute('UPDATE messages SET provider_state_json=? WHERE id=?',[mailProviderState(p.provider_state),msgId]);
+  if(['google.gmail','hostinger.imap'].includes(p.source)&&p.provider_state)await c.execute('UPDATE messages SET provider_state_json=? WHERE id=?',[mailProviderState(p.provider_state),msgId]);
   if(direction==="in"&&!inboxEventType)await enqueueJob("inbox.process",{messageId:msgId},{idempotencyKey:"incoming:"+msgId,db:c});
   await c.commit();return {inserted:true,conversation_id:convId,message_id:msgId,account_id:localAccountId};
  }catch(error){await c.rollback();throw error;}finally{c.release();}

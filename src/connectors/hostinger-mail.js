@@ -1,3 +1,4 @@
+import {imapObservedState} from '../mail-provider-state.js';
 import {imapHistoryScope,readImapHistoryCursor,imapHistoryBefore,imapHistoryCursor} from '../imap-history-cursor.js';
 import {inboxHeaders} from '../ai/inbox-headers.js';
 import {imapFolderOverview} from '../mail-folder-overview.js';
@@ -70,7 +71,7 @@ export class HostingerMailConnector{
       account:{provider:"hostinger",type:"email",identifier:settings.user,label:"Hostinger · "+settings.user},
       conversation_external_id:"email:"+String(refs[0]||mail.inReplyTo||messageId),
       headers:inboxHeaders(mail.headers),external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?"out":"in",sender:from,recipient:to,cc,subject:String(mail.subject||""),
-      body:String(mail.text||""),is_read:Boolean(meta?.flags?.has("\\Seen")),sent_at:(mail.date||new Date()).toISOString()
+      provider_state:imapObservedState("INBOX",uid,c.mailbox.uidValidity,meta),body:String(mail.text||""),is_read:Boolean(meta?.flags?.has("\\Seen")),sent_at:(mail.date||new Date()).toISOString()
      });
     }catch(error){events.push({...syncIssue("hostinger.imap","parse",error,settings.user),message_index:String(uid).slice(0,30)});}
    }
@@ -105,7 +106,7 @@ export class HostingerMailConnector{
       const refs=[...new Set([...(Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[]),...(mail.inReplyTo?[String(mail.inReplyTo)]:[])])];
       const from=addresses(mail.from),to=addresses(mail.to),cc=addresses(mail.cc);
       const fromSelf=emailOf(from)===String(settings.user).toLowerCase();
-      events.push({id:'hostinger:'+messageId,type:'message',source:'hostinger.imap',channel:'email',account_id:settings.user,account:{provider:'hostinger',type:'email',identifier:settings.user,label:'Hostinger · '+settings.user},conversation_external_id:'email:'+String(refs[0]||mail.inReplyTo||messageId),headers:inboxHeaders(mail.headers),external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?'out':'in',sender:from,recipient:to,cc,subject:String(mail.subject||''),body:String(mail.text||''),is_read:Boolean(meta?.flags?.has('\\Seen')),sent_at:(mail.date||new Date()).toISOString()});
+      events.push({id:'hostinger:'+messageId,type:'message',source:'hostinger.imap',channel:'email',account_id:settings.user,account:{provider:'hostinger',type:'email',identifier:settings.user,label:'Hostinger · '+settings.user},conversation_external_id:'email:'+String(refs[0]||mail.inReplyTo||messageId),headers:inboxHeaders(mail.headers),external_id:messageId,rfc_message_id:messageId,references:refs,thread_id:String(refs[0]||mail.inReplyTo||messageId),direction:fromSelf?'out':'in',sender:from,recipient:to,cc,subject:String(mail.subject||''),provider_state:imapObservedState(folders[folder],uid,c.mailbox.uidValidity,meta),body:String(mail.text||''),is_read:Boolean(meta?.flags?.has('\\Seen')),sent_at:(mail.date||new Date()).toISOString()});
      }
      const more=pending.length>selected.length;
      const next=more?{scope,folder,before_uid:selected.at(-1),uid_validity:c.mailbox.uidValidity}:{scope,folder:folder+1,before_uid:0,uid_validity:''};
@@ -124,7 +125,7 @@ export class HostingerMailConnector{
   const tx=this.transporter();try{
    const info=await tx.sendMail({from:this.settings().user,to,cc:cc||undefined,replyTo:replyTo||undefined,subject,text:String(body||""),inReplyTo:in_reply_to||undefined,references:references.length?references:undefined});
    if(!info.accepted?.length)throw Error("smtp_recipient_rejected");
-   return {ok:true,message_id:String(info.messageId||""),accepted:info.accepted||[],rejected:info.rejected||[]};
+   return {ok:true,status:"smtp_accepted",delivery_confirmed:false,message_id:String(info.messageId||""),accepted:info.accepted||[],rejected:info.rejected||[]};
   }finally{tx.close()}
  }
 }

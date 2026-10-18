@@ -157,13 +157,18 @@ async function showMergeDialog(){
 }
 
 function providerStateHtml(message){
- if(message.source!=='google.gmail'||!message.provider_state_json)return '';
+ if(!['google.gmail','hostinger.imap'].includes(message.source)||!message.provider_state_json)return '';
  try{
   const state=typeof message.provider_state_json==='string'?JSON.parse(message.provider_state_json):message.provider_state_json;
+  if(message.source==='hostinger.imap'){
+   if(state.protocol!=='imap')return '<p class="muted">מצב IMAP לא ידוע</p>';
+   const read=state.unread===true?'לא נקרא אצל הספק':state.unread===false?'נקרא אצל הספק':'מצב קריאה לא ידוע';
+   return '<p class="muted">'+esc('Hostinger · תצפית אחרונה: '+state.folder+' · '+read+' · UID '+state.uid+' / '+state.uid_validity+' · '+formatDate(state.observed_at))+'</p>';
+  }
   const names={INBOX:'דואר נכנס',SENT:'נשלחו',DRAFT:'טיוטה',TRASH:'אשפה',SPAM:'ספאם',STARRED:'מסומן בכוכב',IMPORTANT:'חשוב'};
   const labels=Array.isArray(state.labels)?state.labels.filter(x=>x!=='UNREAD').map(x=>names[x]||x).join(' · '):'';
   return '<p class="muted">'+esc('Gmail: '+(state.available===false?'ההודעה אינה זמינה אצל הספק; העותק המקומי נשמר':(state.unread?'לא נקרא אצל הספק':'נקרא אצל הספק')+(labels?' · '+labels:'')))+'</p>';
- }catch{return '<p class="muted">מצב Gmail לא ידוע</p>';}
+ }catch{return '<p class="muted">מצב הדואר אצל הספק לא ידוע</p>';}
 }
 async function showGoogleStatus(id){
  const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;
