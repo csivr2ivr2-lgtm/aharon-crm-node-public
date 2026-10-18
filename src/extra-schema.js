@@ -1,5 +1,7 @@
+import {migrateCalendarMirror} from './google-calendar-sync.js';
 import {db} from "./db.js";
 export async function migrateExtras(){
+ await migrateCalendarMirror(db);
  await db.query(`CREATE TABLE IF NOT EXISTS crm_notes (
   id VARCHAR(64) PRIMARY KEY,entity_type VARCHAR(40) NOT NULL,entity_id VARCHAR(100) NOT NULL,title VARCHAR(255),
   body LONGTEXT,created_at VARCHAR(40),updated_at VARCHAR(40),INDEX(entity_type,entity_id),INDEX(updated_at)

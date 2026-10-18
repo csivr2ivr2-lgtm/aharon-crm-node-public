@@ -1,3 +1,4 @@
+import {syncCalendarMirror,listCalendarMirror} from './google-calendar-sync.js';
 import {audit} from './platform/audit.js';
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
@@ -205,6 +206,16 @@ app.post('/api/whatsapp/history/request',async(req,reply)=>{
 });
 app.post("/api/sync",async(req,reply)=>{if(!uiAuth(req,reply))return;return scheduler.runOnce()});
 app.get("/api/sync/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return {ok:true,report:scheduler.lastReport||null};});
+app.post('/api/google/calendar/sync',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const {account,calendar}=await googleConnector.calendarApi(req.body?.account_id);
+ return syncCalendarMirror({account_id:account.id,calendar,db});
+});
+app.get('/api/google/calendar/cache',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const {account}=await googleConnector.calendarApi(req.query?.account_id);
+ return listCalendarMirror({account_id:account.id,db});
+});
 app.get('/api/google/status',async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.gmailStatus({account_id:String(req.query?.account_id||'')});});
 app.post('/api/google/permission-url',async(req,reply)=>{
  if(!uiAuth(req,reply))return;

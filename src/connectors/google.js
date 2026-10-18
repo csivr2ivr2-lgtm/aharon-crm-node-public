@@ -108,6 +108,12 @@ export class GoogleConnector{
   }
   return {account:publicAccount(account),messages,next_cursor:list.data.nextPageToken||'',done:!list.data.nextPageToken};
  }
+ async calendarApi(account_id){
+  if(!config.googleCalendarSync)throw Error('calendar_sync_disabled');
+  const account=await this.accountRecord(String(account_id||''));
+  if(!googlePermissions(account.tokens).calendar_read)throw Error('calendar_read_permission_required');
+  return {account,calendar:google.calendar({version:'v3',auth:await this.clientFor(account)})};
+ }
  async calendarUpcoming({account_id="",max_results=20}={}){
   const account=await this.accountRecord(account_id),auth=await this.clientFor(account),calendar=google.calendar({version:"v3",auth});
   const r=await calendar.events.list({calendarId:"primary",timeMin:new Date().toISOString(),singleEvents:true,orderBy:"startTime",maxResults:Math.min(50,Math.max(1,Number(max_results||20)))});
