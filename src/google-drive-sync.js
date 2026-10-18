@@ -17,7 +17,8 @@ export async function driveSyncPage(drive,state=null){
  try{
   if(current.mode==='full'){
    data=(await drive.files.list({spaces:'drive',pageSize:100,supportsAllDrives:true,includeItemsFromAllDrives:true,
-    fields:'nextPageToken,files('+fields+')',...(current.page?{pageToken:current.page}:{})})).data;
+    fields:'incompleteSearch,nextPageToken,files('+fields+')',...(current.page?{pageToken:current.page}:{})})).data;
+   if(data.incompleteSearch)throw Error('drive_incomplete_search');
    items=(data.files||[]).map(fileRecord);
    nextState={...current,mode:data.nextPageToken?'full':'delta',page:data.nextPageToken||''};
   }else{

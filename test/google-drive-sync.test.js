@@ -34,3 +34,13 @@ test('provider mirror retrieval scopes both account and provider before search',
  await listProviderMirror({provider:'google.people',account_id:'a',db});
  assert.equal(new Set(scopes.map(x=>x[0])).size,3);
 });
+
+test('Drive incomplete full searches fail closed rather than skipping unseen files',async()=>{
+ const api={changes:{getStartPageToken:async()=>({data:{startPageToken:'100'}})},files:{list:async()=>({data:{files:[],incompleteSearch:true}})}};
+ await assert.rejects(driveSyncPage(api),/drive_incomplete_search/);
+});
+test('Drive expired cursor restarts with a fresh generation without deleting cached records',async()=>{
+ const api={changes:{getStartPageToken:async()=>({data:{startPageToken:'fresh'}}),list:async()=>{throw {code:410};}},files:{list:async()=>({data:{files:[]}})}};
+ const result=await driveSyncPage(api,{version:1,mode:'delta',anchor:'old',page:'',generation:'old'});
+ assert.equal(result.recovered,true);assert.notEqual(result.nextState.generation,'old');assert.equal(result.nextState.anchor,'fresh');
+});

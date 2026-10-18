@@ -1,3 +1,4 @@
+import {syncProviderMirror,listProviderMirror} from '../src/provider-mirror.js';
 import {syncCalendarMirror,listCalendarMirror} from '../src/google-calendar-sync.js';
 import {ingestMessage} from '../src/workspace-service.js';
 import {updateMailProviderState} from '../src/mail-provider-state.js';
@@ -26,6 +27,7 @@ const run=async()=>{
  console.log('Connected to actual SQL server version:',version.version);
  await migrate();
  await migrateExtras();
+ await migrateExtras(); // All additive mirror migrations are idempotent.
  await migratePlatform();
  await migrateIntelligence();
  await migrateInboxWorkbench();
@@ -312,6 +314,22 @@ const run=async()=>{
  const [[retained]]=await db.execute("SELECT COUNT(*) n FROM google_calendar_events");
  assert.equal(Number(retained.n),2,'expired generations retain historical records');
  console.log('PASS: real SQL Calendar checkpoints, replay, account isolation and nondestructive 410 recovery');
+ const drivePage=(name,available=true)=>async()=>({items:[{id:'same-file',name,available}],nextState:{mode:'delta',generation:'g',anchor:'100',page:''}});
+ for(const account_id of ['drive-a','drive-b'])await syncProviderMirror({provider:'google.drive',account_id,db,fetchPage:drivePage(account_id)});
+ await syncProviderMirror({provider:'google.drive',account_id:'drive-a',db,fetchPage:drivePage('removed',false)});
+ assert.equal((await listProviderMirror({provider:'google.drive',account_id:'drive-a',db})).items.length,0);
+ assert.equal((await listProviderMirror({provider:'google.drive',account_id:'drive-b',db})).items[0].name,'drive-b');
+ const [[preserved]]=await db.execute("SELECT COUNT(*) n FROM provider_records WHERE available=0 AND payload_json LIKE ?",['%drive-a%']);
+ assert.equal(Number(preserved.n),1,'loss of provider access hides but preserves historical metadata');
+ let arrived=0,release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ const concurrent=async()=>{if(++arrived===2)release();await gate;return {items:[{id:'race-file',name:'race',available:true}],nextState:{mode:'delta',generation:'r',anchor:'200',page:''}};};
+ const races=await Promise.allSettled([1,2].map(()=>syncProviderMirror({provider:'google.drive',account_id:'drive-race',db,fetchPage:concurrent})));
+ assert.equal(races.filter(x=>x.status==='fulfilled').length,1);
+ assert.match(races.find(x=>x.status==='rejected').reason.message,/provider_checkpoint_conflict/);
+ assert.equal((await listProviderMirror({provider:'google.drive',account_id:'drive-race',db})).items.length,1);
+ console.log('PASS: real SQL Drive access removal, retained metadata, account isolation and concurrent checkpoint conflict');
+
 
 
 };
