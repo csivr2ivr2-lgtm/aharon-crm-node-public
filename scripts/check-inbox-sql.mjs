@@ -1,3 +1,4 @@
+import {loadRecentChanges} from '../src/ai/changes-brief.js';
 import {peopleSyncPage} from '../src/google-people-sync.js';
 import {syncProviderMirror,listProviderMirror} from '../src/provider-mirror.js';
 import {syncCalendarMirror,listCalendarMirror} from '../src/google-calendar-sync.js';
@@ -350,6 +351,11 @@ const run=async()=>{
  assert.equal(JSON.parse(imapStored.provider_state_json).uid_validity,'456');
  assert.equal(Number(imapStored.is_read),1,'provider flags cannot undo the CRM read state');
  console.log('PASS: real SQL IMAP replay updates source observation without duplicating messages');
+ const changes=await loadRecentChanges({hours:24,clock:Date.now(),database:db});
+ assert.equal(changes.ok,true);
+ assert.ok(changes.messages.every(m=>Date.parse(m.sent_at)<=Date.parse(changes.window.until)));
+ assert.ok(changes.messages.every(m=>m.source.id===m.id));
+ console.log('PASS: real SQL operational changes read across legacy mixed collations');
 };
 try{await run()}catch(e){
  // Public CI annotations must never contain SQL values, credentials or raw errors.
