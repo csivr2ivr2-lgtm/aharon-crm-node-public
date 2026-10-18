@@ -202,11 +202,22 @@ async function showProviderFolders(provider,accountId=''){
    '<div><span>'+esc(count(f.messages_total))+' הודעות</span> · <strong>'+esc(count(f.messages_unread))+' לא נקראו</strong></div></article>'
   ).join('')+'</div>'+(result.limited?'<p class="muted">הרשימה מוגבלת; יש תיקיות נוספות שלא הוצגו.</p>':'');
 }
+
+async function showCalendarMirror(accountId,sync=false){
+ const root=$('#providerFolders');if(!root)return;root.hidden=false;root.textContent='טוען מצב יומן…';
+ if(sync)await post('/api/google/calendar/sync',{account_id:accountId});
+ const d=await api('/api/google/calendar/cache?account_id='+encodeURIComponent(accountId));
+ root.innerHTML='<h3>עותק מקומי · Google Calendar</h3><p>מקור: היומן הראשי של החשבון שנבחר. מופעים חוזרים נשמרים לפי הגדרת הסדרה.</p><p>'+esc('עדכון מוצלח: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'טרם סונכרן'))+'</p>'+
+ button('calendar-sync',d.sync.has_next_page?'סנכרן את הדף הבא':'בדוק שינויים ביומן',accountId)+
+ (d.events||[]).map(e=>'<article class="row"><div><strong>'+esc(e.summary||'אירוע ללא כותרת')+'</strong><p>'+esc(e.start?.dateTime||e.start?.date||'ללא מועד')+' · '+esc(e.start?.timeZone||'')+'</p><p>'+esc(e.status==='cancelled'?'בוטל אצל הספק':e.status)+'</p><small>'+esc('Google Calendar · '+e.id)+'</small></div></article>').join('')+
+ (d.limited?'<p>מוצגים 100 אירועים לכל היותר.</p>':'');
+}
+
 async function showGoogleCalendar(accountId){
  const root=$('#providerFolders');if(!root)return;
  root.hidden=false;root.textContent='טוען אירועים מהיומן…';
  const result=await api('/api/google/calendar?account_id='+encodeURIComponent(accountId));
- root.innerHTML='<h3>יומן Google · אירועים קרובים</h3>'+
+ root.innerHTML='<h3>יומן Google · אירועים קרובים</h3>'+button('calendar-mirror','סנכרון יומן מקומי',accountId)+
   '<p class="muted">קריאה בלבד, מהחשבון שנבחר. יצירה או שינוי אירועים אינם מופעלים.</p>'+
   ((result.events||[]).length?(result.events||[]).map(e=>'<article class="row"><div><strong>'+esc(e.summary||'אירוע ללא כותרת')+
    '</strong><p class="muted">'+esc(formatDate(e.start))+' · '+esc(e.location||'ללא מיקום')+'</p></div></article>').join(''):'<p class="muted">לא נמצאו אירועים בתקופה שנבדקה.</p>');
@@ -299,6 +310,8 @@ document.addEventListener('click',async e=>{
    location.href=target.href;return;
   }
   if(action==='gmail-folders'){await showProviderFolders('gmail',id);return;}
+  if(action==='calendar-mirror'){await showCalendarMirror(id);return;}
+  if(action==='calendar-sync'){await showCalendarMirror(id,true);return;}
   if(action==='google-calendar'){await showGoogleCalendar(id);return;}
   if(action==='google-drive'){prepareDriveSearch(id);return;}
   if(action==='drive-search-run'){await showDriveSearch(id);return;}

@@ -1,3 +1,4 @@
+import {syncCalendarMirror,listCalendarMirror} from '../src/google-calendar-sync.js';
 import {ingestMessage} from '../src/workspace-service.js';
 import {updateMailProviderState} from '../src/mail-provider-state.js';
 // Isolated integration test: only the CI database set through DB_* is modified.
@@ -299,6 +300,19 @@ const run=async()=>{
  assert.equal(JSON.parse(providerRows.find(x=>x.id===b.message_id).provider_state_json).available,true);
  assert.ok(providerRows.every(x=>x.body==='Synthetic sync record'));
  console.log('PASS: Gmail provider flags/replay/tombstones preserve CRM reads, bodies and account isolation');
+ const calendarFixture=summary=>({events:{list:async()=>({data:{items:[{id:'same-event',summary,start:{date:'2026-10-20'}}],nextSyncToken:'checkpoint'}})}});
+ await syncCalendarMirror({account_id:'calendar-a',calendar:calendarFixture('Account A'),db});
+ await syncCalendarMirror({account_id:'calendar-b',calendar:calendarFixture('Account B'),db});
+ await syncCalendarMirror({account_id:'calendar-a',calendar:calendarFixture('Updated A'),db});
+ assert.equal((await listCalendarMirror({account_id:'calendar-a',db})).events[0].summary,'Updated A');
+ assert.equal((await listCalendarMirror({account_id:'calendar-b',db})).events[0].summary,'Account B');
+ const expired={events:{list:async p=>{if(p.syncToken)throw {code:410};return {data:{items:[],nextSyncToken:'reset'}};}}};
+ assert.equal((await syncCalendarMirror({account_id:'calendar-a',calendar:expired,db})).recovered,true);
+ assert.equal((await listCalendarMirror({account_id:'calendar-a',db})).events.length,0);
+ const [[retained]]=await db.execute("SELECT COUNT(*) n FROM google_calendar_events");
+ assert.equal(Number(retained.n),2,'expired generations retain historical records');
+ console.log('PASS: real SQL Calendar checkpoints, replay, account isolation and nondestructive 410 recovery');
+
 
 };
 try{await run()}catch(e){
