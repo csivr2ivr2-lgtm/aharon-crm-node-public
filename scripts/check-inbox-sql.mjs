@@ -1,3 +1,4 @@
+import {migrateFileIntelligence} from '../src/file-intelligence.js';
 import {migrateCrmIntelligence} from '../src/crm-intelligence.js';
 import {loadProjectRisks} from '../src/ai/project-risks.js';
 import {loadClient360} from '../src/client-360.js';
@@ -34,6 +35,8 @@ const run=async()=>{
  await migrateExtras();
  await migrateExtras(); // All additive mirror migrations are idempotent.
  await migratePlatform();
+ await migrateFileIntelligence();
+ await migrateFileIntelligence();
  await migrateCrmIntelligence();
  await migrateCrmIntelligence();
  await migrateIntelligence();
