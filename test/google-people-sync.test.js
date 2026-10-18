@@ -40,3 +40,12 @@ test('Contacts consent is explicit, account-bound and requests no Gmail write ex
  assert.equal(googlePermissions().contacts_read,false);assert.equal(googlePermissions({scope:CONTACTS_READ}).contacts_read,true);
  await assert.rejects(c.peopleApi('a'),/people_sync_disabled/);
 });
+
+test('Contacts consent does not add unrelated baseline scopes previously declined',async()=>{
+ const granted='https://www.googleapis.com/auth/drive.metadata.readonly';
+ const c=new GoogleConnector({get:async()=>({id:'a',email:'a@example.test',tokens:{scope:granted}})});
+ c.configured=()=>true;c.oauthClient=()=>({generateAuthUrl:p=>p});
+ const request=await c.permissionUrl({account_id:'a',purpose:'contacts_read',confirmed:true});
+ assert.ok(request.scope.includes(granted));assert.ok(request.scope.includes(CONTACTS_READ));
+ assert.ok(!request.scope.some(s=>s.includes('gmail')||s.includes('calendar')));
+});

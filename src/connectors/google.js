@@ -51,7 +51,7 @@ export class GoogleConnector{
   const scope=purpose==='contacts_read'?CONTACTS_READ:GMAIL_MODIFY;
   const state=createOauthState({account_id:account.id,purpose});
   return this.oauthClient().generateAuthUrl({access_type:'offline',prompt:'consent',
-   scope:[...new Set([...config.googleScopes,scope])],state,login_hint:account.email});
+   scope:[...new Set(['openid','email','profile',...(typeof account.tokens?.scope==='string'?account.tokens.scope.split(/\s+/).filter(Boolean):[]),scope])],state,login_hint:account.email});
  }
  async gmailStatus({account_id}={}){
   const account=await this.accountRecord(String(account_id||''));
