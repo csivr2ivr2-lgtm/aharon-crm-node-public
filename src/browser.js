@@ -166,9 +166,10 @@ function providerStateHtml(message){
  }catch{return '<p class="muted">מצב Gmail לא ידוע</p>';}
 }
 async function showGoogleStatus(id){
- const root=$('#providerFolders');if(!root)return;
+ const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;
  root.hidden=false;root.textContent='טוען מצב סנכרון…';
  const d=await api('/api/google/status?account_id='+encodeURIComponent(id)),p=d.account.permissions||{};
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h2>Gmail — סנכרון והרשאות</h2><p>'+esc(d.account.email)+'</p><p>'+esc(d.incremental_enabled?'סנכרון מדורג פעיל':'סנכרון מדורג כבוי; מתבצע polling רגיל')+'</p><p>'+esc('שלב: '+({full:'סריקה ראשונית',delta:'שינויים בלבד',not_started:'טרם התחיל'}[d.sync.mode]||'לא ידוע'))+'</p><p>'+esc('סנכרון מוצלח אחרון: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'אין checkpoint'))+'</p><p>'+esc(p.known?'הרשאות שניתנו: '+[p.gmail_read?'קריאה':'',p.gmail_send?'שליחה':'',p.gmail_modify?'שינוי תוויות':''].filter(Boolean).join(' · '):'הרשאות החשבון אינן ידועות; פעולות חדשות חסומות')+'</p><p>'+esc(d.writes_enabled?'פעולות שינוי תוויות מופעלות בכפוף להרשאה ולאישור':'פעולות שינוי תוויות כבויות')+'</p>'+
  '<p>הרחבת הרשאה היא לבחירתך: Gmail modify מאפשר קריאה, כתיבה, שליחה ושינוי מצב. ההרשאה ניתנת במסך Google לחשבון זה בלבד.</p>'+button('google-permission','בקשת הרשאה לשינוי מצב Gmail',id);
 }
@@ -191,11 +192,12 @@ async function openConversation(id){
 
 async function showProviderFolders(provider,accountId=''){
  const path=provider==='gmail'?'/api/google/folders?account_id='+encodeURIComponent(accountId):'/api/hostinger/folders';
- const root=$('#providerFolders');if(!root)return;
+ const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;
  root.hidden=false;root.textContent='טוען תיקיות ממקור הדואר…';
  const result=await api(path);
  const count=n=>n===null||n===undefined?'לא דווח':Number(n).toLocaleString('he-IL');
  const names={inbox:'דואר נכנס',sent:'נשלחו',drafts:'טיוטות',trash:'אשפה',spam:'ספאם',unread:'לא נקראו',custom:'תיקייה'};
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>'+esc(provider==='gmail'?'תוויות Gmail':'תיקיות Hostinger')+'</h3><p class="muted">נתוני הספק בלבד · קריאה בלבד · ספירת לא נקראו אינה זהה למצב הקריאה ב־CRM</p>'+
   '<div class="folder-grid">'+(result.folders||[]).map(f=>
    '<article class="row"><div><strong>'+esc(f.name)+'</strong><p class="muted">'+esc(names[f.kind]||'תיקייה')+'</p></div>'+
@@ -204,9 +206,10 @@ async function showProviderFolders(provider,accountId=''){
 }
 
 async function showCalendarMirror(accountId,sync=false){
- const root=$('#providerFolders');if(!root)return;root.hidden=false;root.textContent='טוען מצב יומן…';
+ const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;root.hidden=false;root.textContent='טוען מצב יומן…';
  if(sync)await post('/api/google/calendar/sync',{account_id:accountId});
  const d=await api('/api/google/calendar/cache?account_id='+encodeURIComponent(accountId));
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>עותק מקומי · Google Calendar</h3><p>מקור: היומן הראשי של החשבון שנבחר. מופעים חוזרים נשמרים לפי הגדרת הסדרה.</p><p>'+esc('עדכון מוצלח: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'טרם סונכרן'))+'</p>'+
  button('calendar-sync',d.sync.has_next_page?'סנכרן את הדף הבא':'בדוק שינויים ביומן',accountId)+
  (d.events||[]).map(e=>'<article class="row"><div><strong>'+esc(e.summary||'אירוע ללא כותרת')+'</strong><p>'+esc(e.start?.dateTime||e.start?.date||'ללא מועד')+' · '+esc(e.start?.timeZone||'')+'</p><p>'+esc(e.status==='cancelled'?'בוטל אצל הספק':e.status)+'</p><small>'+esc('Google Calendar · '+e.id)+'</small></div></article>').join('')+
@@ -214,17 +217,19 @@ async function showCalendarMirror(accountId,sync=false){
 }
 
 async function showGoogleCalendar(accountId){
- const root=$('#providerFolders');if(!root)return;
+ const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;
  root.hidden=false;root.textContent='טוען אירועים מהיומן…';
  const result=await api('/api/google/calendar?account_id='+encodeURIComponent(accountId));
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>יומן Google · אירועים קרובים</h3>'+button('calendar-mirror','סנכרון יומן מקומי',accountId)+
   '<p class="muted">קריאה בלבד, מהחשבון שנבחר. יצירה או שינוי אירועים אינם מופעלים.</p>'+
   ((result.events||[]).length?(result.events||[]).map(e=>'<article class="row"><div><strong>'+esc(e.summary||'אירוע ללא כותרת')+
    '</strong><p class="muted">'+esc(formatDate(e.start))+' · '+esc(e.location||'ללא מיקום')+'</p></div></article>').join(''):'<p class="muted">לא נמצאו אירועים בתקופה שנבדקה.</p>');
 }
 function prepareDriveSearch(accountId){
- const root=$('#providerFolders');if(!root)return;
+ const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;
  root.hidden=false;
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>חיפוש קבצים ב־Google Drive</h3><p class="muted">מחפש שמות קבצים בלבד בהרשאות הקריאה הקיימות. לא מעתיק או משנה קבצים.</p>'+
   '<label>שם קובץ<input id="driveQuery" maxlength="100" autocomplete="off" placeholder="הקלד לפחות שתי אותיות"></label>'+
   button('drive-search-run','חפש ב־Drive',accountId)+'<div id="driveResults" role="status"></div>';
@@ -232,9 +237,10 @@ function prepareDriveSearch(accountId){
 }
 
 async function showPeopleMirror(accountId,sync=false){
- const root=$('#providerFolders');if(!root)return;root.hidden=false;root.textContent='טוען אנשי קשר…';
+ const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;root.hidden=false;root.textContent='טוען אנשי קשר…';
  if(sync)await post('/api/google/people/sync',{account_id:accountId});
  const d=await api('/api/google/people/cache?account_id='+encodeURIComponent(accountId));
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>אנשי קשר Google</h3><p>מקור: החשבון שנבחר. אנשי הקשר אינם ממוזגים אוטומטית עם לקוחות CRM. פרטי קשר אינם אימות זהות.</p>'+
  '<p>'+esc('עדכון מוצלח: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'טרם סונכרן'))+'</p>'+
  button('people-sync',d.sync.has_next_page?'סנכרן את הדף הבא':'בדוק שינויים באנשי קשר',accountId)+
@@ -244,10 +250,11 @@ async function showPeopleMirror(accountId,sync=false){
 }
 
 async function showDriveMirror(accountId,sync=false){
- const root=$('#providerFolders');if(!root)return;root.hidden=false;root.textContent='טוען שינויי Drive…';
+ const root=$('#providerFolders');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;root.hidden=false;root.textContent='טוען שינויי Drive…';
  if(sync)await post('/api/google/drive/sync',{account_id:accountId});
  const d=await api('/api/google/drive/cache?account_id='+encodeURIComponent(accountId));
  const link=file=>{try{const u=new URL(file.webViewLink);if(u.protocol==='https:'&&['drive.google.com','docs.google.com'].includes(u.hostname)&&!u.username&&!u.password)return '<a href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">פתח את הקובץ המקורי</a>';}catch{}return '';};
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>Google Drive · פרטי קבצים מסונכרנים</h3><p>קריאה בלבד. תוכן הקבצים אינו מועתק. קבצים שהוסרו או שאינם נגישים אינם מוצגים.</p><p>'+esc('עדכון מוצלח: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'טרם סונכרן'))+'</p>'+
  button('drive-sync',d.sync.has_next_page?'סנכרן את הדף הבא':'בדוק שינויים ב־Drive',accountId)+
  (d.items||[]).map(f=>'<article class="row"><div><strong>'+esc(f.name||'קובץ')+'</strong><p>'+esc(f.mimeType)+' · '+esc(formatDate(f.modifiedTime))+'</p><small>'+esc('Google Drive · '+f.id+' · גרסה '+(f.version||'לא ידועה'))+'</small><p>'+link(f)+'</p></div></article>').join('')+
@@ -257,8 +264,9 @@ async function showDriveMirror(accountId,sync=false){
 async function showDriveSearch(accountId){
  const q=String($('#driveQuery')?.value||'').trim();
  if(q.length<2||q.length>100)throw Error('יש להזין 2–100 תווים לחיפוש.');
+ const root=$('#driveResults');if(!root)return;const request=crypto.randomUUID();root.dataset.providerRequest=request;
  const result=await api('/api/google/drive-search?account_id='+encodeURIComponent(accountId)+'&q='+encodeURIComponent(q));
- const root=$('#driveResults');if(!root)return;
+ if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML=(result.files||[]).length?(result.files||[]).map(f=>'<article class="row"><div><strong>'+esc(f.name||'קובץ')+
   '</strong><p class="muted">'+esc(f.mimeType||'')+' · '+esc(formatDate(f.modifiedTime))+'</p></div></article>').join(''):
   '<p class="muted">לא נמצאו קבצים מתאימים או שאין גישה אליהם בחשבון הנבחר.</p>';

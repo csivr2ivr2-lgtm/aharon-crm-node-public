@@ -13,7 +13,8 @@ const original={id:'conv_test',message_id:'msg_test',sender:'lead@example.test',
 let checks=0,phase='startup';
 try{
  for(const width of [360,390,768,1440]){
-  const context=await browser.newContext({viewport:{width,height:900}}),page=await context.newPage();const errors=[],writes=[];let row={...original,...decideInbox(original)},taskCreated=false;
+  const context=await browser.newContext({viewport:{width,height:900}}),page=await context.newPage();const errors=[],writes=[];let row={...original,...decideInbox(original)},taskCreated=false,holdDriveA=false,releaseDriveA;
+  const driveAGate=new Promise(resolve=>{releaseDriveA=resolve;});
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/*',async route=>{
    const req=route.request(),url=new URL(req.url());
@@ -32,7 +33,7 @@ try{
    else if(url.pathname==='/api/connectors')result={ok:true,connectors:[{key:'google',configured:true,status:'connected',accounts:[{id:'drive-a',email:'a@example.test'},{id:'drive-b',email:'b@example.test'}]}]};
    else if(url.pathname==='/api/google/people/cache'){const account=url.searchParams.get('account_id');assert.ok(['drive-a','drive-b'].includes(account));result={ok:true,sync:{checked_at:null,has_next_page:false},items:[{id:'people/same',name:account+' contact',emails:[{value:'<img src=x onerror=alert(1)>'}],phones:[{value:'+972501234567'}]}]};}
    else if(url.pathname==='/api/google/people/sync'){assert.equal(body.account_id,'drive-b');result={ok:true};}
-   else if(url.pathname==='/api/google/drive/cache'){const account=url.searchParams.get('account_id');assert.ok(['drive-a','drive-b'].includes(account));result={ok:true,sync:{checked_at:null,has_next_page:false},items:[{id:'safe',name:account+' document',mimeType:'text/plain',webViewLink:'https://drive.google.com/file/d/safe/view'},{id:'unsafe',name:'<img src=x onerror=alert(1)>',mimeType:'text/plain',webViewLink:'javascript:alert(1)'},{id:'spoof',name:'spoof',webViewLink:'https://drive.google.com.attacker.test/file'},{id:'userinfo',name:'userinfo',webViewLink:'https://user@drive.google.com/file'}]};}
+   else if(url.pathname==='/api/google/drive/cache'){const account=url.searchParams.get('account_id');if(holdDriveA&&account==='drive-a')await driveAGate;assert.ok(['drive-a','drive-b'].includes(account));result={ok:true,sync:{checked_at:null,has_next_page:false},items:[{id:'safe',name:account+' document',mimeType:'text/plain',webViewLink:'https://drive.google.com/file/d/safe/view'},{id:'unsafe',name:'<img src=x onerror=alert(1)>',mimeType:'text/plain',webViewLink:'javascript:alert(1)'},{id:'spoof',name:'spoof',webViewLink:'https://drive.google.com.attacker.test/file'},{id:'userinfo',name:'userinfo',webViewLink:'https://user@drive.google.com/file'}]};}
    else if(url.pathname==='/api/google/drive/sync'){assert.equal(body.account_id,'drive-b');result={ok:true};}
    else if(url.pathname==='/api/accounts')result={ok:true,items:[{id:'a',label:'חשבון בדיקה'}]};
    else if(url.pathname==='/api/inbox/work/conv_test/task')result={ok:true,id:'act_browser_test',tool:'create_task',status:'pending',confirmation_token:'test-confirmation'};
@@ -86,6 +87,17 @@ try{
   await page.getByText('drive-b document',{exact:true}).waitFor();
   assert.equal(writes.filter(x=>x.path==='/api/google/drive/sync').length,1);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'Drive overflow '+width);checks++;
+  phase='provider-response-race-'+width;
+  holdDriveA=true;
+  const pendingA=page.waitForRequest(r=>r.url().includes('/api/google/drive/cache?account_id=drive-a'));
+  await page.locator('[data-action="drive-mirror"][data-id="drive-a"]').click();await pendingA;
+  await page.locator('[data-action="drive-mirror"][data-id="drive-b"]').click();
+  await page.getByText('drive-b document',{exact:true}).waitFor();
+  const finishedA=page.waitForResponse(r=>r.url().includes('/api/google/drive/cache?account_id=drive-a'));
+  releaseDriveA();await finishedA;
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  assert.equal(await page.getByText('drive-a document',{exact:true}).count(),0);checks++;
+  assert.equal(await page.getByText('drive-b document',{exact:true}).count(),1);checks++;
   phase='people-mirror-'+width;
   await page.locator('[data-action="people-mirror"][data-id="drive-a"]').click();
   await page.getByText('drive-a contact',{exact:true}).waitFor();
