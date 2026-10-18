@@ -10,6 +10,7 @@ export async function loadProjectRisks({database,clock=Date.now()}={}){
  const today=new Date(clock).toISOString().slice(0,10);
  const overdue=rows.slice(0,200).filter(r=>{
   const due=String(r.due_date||'');
+  if(!Number.isFinite(Date.parse(due)))return false;
   return /^\d{4}-\d{2}-\d{2}$/.test(due)?due<today:Number.isFinite(Date.parse(due))&&Date.parse(due)<clock;
  });
  const items=overdue.slice(0,50).map(r=>({...r,evidence:'open_task_past_due',cause:'unknown',

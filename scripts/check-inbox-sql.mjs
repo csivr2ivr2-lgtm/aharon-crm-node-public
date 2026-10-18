@@ -1,3 +1,4 @@
+import {loadProjectRisks} from '../src/ai/project-risks.js';
 import {loadClient360} from '../src/client-360.js';
 import {loadRecentChanges} from '../src/ai/changes-brief.js';
 import {peopleSyncPage} from '../src/google-people-sync.js';
@@ -376,6 +377,13 @@ const run=async()=>{
  assert.ok(clientA.tasks.every(t=>t.source.client_id==='ci360_a'));
  assert.doesNotMatch(JSON.stringify(clientA),/ci360_task_b|ci360_conv_b|ci360_project_b/);
  console.log('PASS: real SQL customer 360 excludes lookalikes and shared-project inference');
+ await db.execute("UPDATE tasks SET due_date='2000-01-01',status='open' WHERE id='ci360_task_a'");
+ await db.execute("UPDATE tasks SET due_date='2000-01-01',status='done' WHERE id='ci360_task_b'");
+ const risks=await loadProjectRisks({database:db});
+ assert.ok(risks.items.some(x=>x.task_id==='ci360_task_a'&&x.project_id==='ci360_project_a'));
+ assert.ok(!risks.items.some(x=>x.task_id==='ci360_task_b'));
+ assert.ok(risks.items.every(x=>x.cause==='unknown'));
+ console.log('PASS: real SQL project risk evidence excludes completed tasks');
 };
 try{await run()}catch(e){
  // Public CI annotations must never contain SQL values, credentials or raw errors.
