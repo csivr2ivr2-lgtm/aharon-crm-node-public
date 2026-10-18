@@ -1,3 +1,5 @@
+import {syncProviderMirror,listProviderMirror} from './provider-mirror.js';
+import {driveSyncPage} from './google-drive-sync.js';
 import {syncCalendarMirror,listCalendarMirror} from './google-calendar-sync.js';
 import {audit} from './platform/audit.js';
 import Fastify from "fastify";
@@ -215,6 +217,16 @@ app.get('/api/google/calendar/cache',async(req,reply)=>{
  if(!uiAuth(req,reply))return;
  const {account}=await googleConnector.calendarApi(req.query?.account_id);
  return listCalendarMirror({account_id:account.id,db});
+});
+app.post('/api/google/drive/sync',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const {account,drive}=await googleConnector.driveApi(req.body?.account_id);
+ return syncProviderMirror({provider:'google.drive',account_id:account.id,db,fetchPage:state=>driveSyncPage(drive,state)});
+});
+app.get('/api/google/drive/cache',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const {account}=await googleConnector.driveApi(req.query?.account_id);
+ return listProviderMirror({provider:'google.drive',account_id:account.id,db,query:String(req.query?.q||'')});
 });
 app.get('/api/google/status',async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.gmailStatus({account_id:String(req.query?.account_id||'')});});
 app.post('/api/google/permission-url',async(req,reply)=>{

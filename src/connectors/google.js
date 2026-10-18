@@ -119,6 +119,12 @@ export class GoogleConnector{
   const r=await calendar.events.list({calendarId:"primary",timeMin:new Date().toISOString(),singleEvents:true,orderBy:"startTime",maxResults:Math.min(50,Math.max(1,Number(max_results||20)))});
   return {ok:true,account:publicAccount(account),events:(r.data.items||[]).map(e=>({id:e.id,summary:e.summary||"",description:e.description||"",start:e.start?.dateTime||e.start?.date||"",end:e.end?.dateTime||e.end?.date||"",location:e.location||"",html_link:e.htmlLink||""}))};
  }
+ async driveApi(account_id){
+  if(!config.googleDriveSync)throw Error('drive_sync_disabled');
+  const account=await this.accountRecord(String(account_id||''));
+  if(!googlePermissions(account.tokens).drive_metadata)throw Error('drive_metadata_permission_required');
+  return {account,drive:google.drive({version:'v3',auth:await this.clientFor(account)})};
+ }
  async driveSearch({account_id="",q="",max_results=20}={}){
   const account=await this.accountRecord(account_id),auth=await this.clientFor(account),drive=google.drive({version:"v3",auth}),safe=String(q||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
   const r=await drive.files.list({q:"trashed=false and name contains '"+safe+"'",pageSize:Math.min(50,Math.max(1,Number(max_results||20))),fields:"files(id,name,mimeType,modifiedTime,webViewLink,owners(displayName,emailAddress))",orderBy:"modifiedTime desc"});

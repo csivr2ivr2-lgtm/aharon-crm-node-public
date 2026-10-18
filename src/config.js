@@ -21,6 +21,7 @@ export const config=Object.freeze({
  gmailIncrementalSync:b("GMAIL_INCREMENTAL_SYNC",false),
  gmailWritesEnabled:b("GMAIL_WRITES_ENABLED",false),
  googleCalendarSync:b("GOOGLE_CALENDAR_SYNC",false),
+ googleDriveSync:b("GOOGLE_DRIVE_SYNC",false),
  googleSyncQuery:e("GOOGLE_SYNC_QUERY","newer_than:14d"),googleSyncMaxResults:Math.min(100,Math.max(1,n("GOOGLE_SYNC_MAX_RESULTS",50))),
  hostingerMailEnabled:b("HOSTINGER_MAIL_ENABLED",false),hostingerImapHost:e("HOSTINGER_IMAP_HOST","imap.hostinger.com"),
  hostingerImapPort:Math.max(1,n("HOSTINGER_IMAP_PORT",993)),hostingerImapSecure:b("HOSTINGER_IMAP_SECURE",true),
