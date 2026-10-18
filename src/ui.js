@@ -49,11 +49,11 @@ textarea{resize:vertical;line-height:1.6}.muted{color:#66768a}.tag{background:#e
 .assistant-mark{display:grid;place-items:center;background:#345bd6;color:#fff;flex:0 0 46px;height:46px;border-radius:15px;font-size:24px}
 .assistant-prompts{padding:12px 24px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid #edf1f5}.assistant-prompts .btn{border-radius:20px;background:#eff4fd;color:#3756a0}
 .assistant-transcript{padding:20px clamp(16px,3vw,40px);flex:1;min-height:280px;max-height:54dvh;overflow-y:auto;background:#fdfefe}
-.chat-turn{display:flex;flex-direction:column;max-width:min(77%,700px);gap:5px;margin:12px 0}.chat-turn.mine{margin-inline-start:auto;align-items:flex-start}.chat-turn.theirs{margin-inline-end:auto;align-items:flex-start}.chat-speaker{font-size:11px;font-weight:750;color:#687b95}
+.chat-turn{display:flex;flex-direction:column;max-width:min(77%,700px);gap:5px;margin:12px 0}.chat-turn.mine{margin-inline-start:auto;align-items:flex-start}.chat-turn.theirs{margin-inline-end:auto;align-items:flex-start}.chat-speaker{font-size:11px;font-weight:750;color:#3c4d66}
 .chat-bubble{padding:13px 17px;border:1px solid #dde7f3;background:#f2f6fb;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere}.chat-turn.mine .chat-bubble{background:#345bd6;color:#fff;border-color:#345bd6}.typing{animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .assistant-empty{text-align:center;margin:45px auto 20px;max-width:380px;color:#687b95}.assistant-empty i{font-size:34px;color:#94acdf}.assistant-empty h3{color:#2a3d60;margin:8px 0}
-.assistant-composer{border-top:1px solid #e8eef6;padding:13px 20px;display:flex;gap:12px;align-items:flex-end;background:#fff}.assistant-composer textarea{min-height:52px;max-height:150px;flex:1;padding:11px 13px}.assistant-composer .btn{white-space:nowrap}.assistant-disclaimer{text-align:center;font-size:11px;color:#7e8a9e;margin:0;padding:0 20px 13px;background:#fff}
+.assistant-composer{border-top:1px solid #e8eef6;padding:13px 20px;display:flex;gap:12px;align-items:flex-end;background:#fff}.assistant-composer textarea{min-height:52px;max-height:150px;flex:1;padding:11px 13px}.assistant-composer .btn{white-space:nowrap}.assistant-disclaimer{text-align:center;font-size:11px;color:#46566e;margin:0;padding:0 20px 13px;background:#fff}
 
 /* Historical assistant conversations; inline confirmations never leave the originating turn. */
 .assistant-layout{display:grid;grid-template-columns:minmax(195px,255px) minmax(0,1fr);gap:16px;align-items:start}
@@ -64,7 +64,7 @@ textarea{resize:vertical;line-height:1.6}.muted{color:#66768a}.tag{background:#e
 .assistant-session{display:flex;align-items:center;gap:3px;border-radius:10px;border:1px solid #e9eef6;padding:5px}
 .assistant-session.selected{background:#eef3ff;border-color:#c2d3fc}
 .assistant-session button:first-child{flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;min-width:0;font-size:13px}
-.assistant-session button:last-child{padding:5px;font-size:11px;min-height:29px;flex:none;border:0;background:transparent;color:#61738e}
+.assistant-session button:last-child{padding:5px;font-size:11px;min-height:29px;flex:none;border:0;background:transparent;color:#3c4d66}
 .assistant-history>.muted{font-size:11px;margin:12px 3px 0}
 .assistant-layout .assistant-workspace{margin:0;min-height:min(75dvh,810px)}
 .assistant-action-card{align-self:stretch;min-width:min(100%,400px);margin-top:9px;border:1px solid #b8c8e6;background:#fff;border-radius:14px;padding:12px;box-shadow:0 5px 14px #1b325016}
