@@ -341,6 +341,15 @@ const run=async()=>{
  const [[peopleHistory]]=await db.execute("SELECT COUNT(*) n FROM provider_records WHERE available=0 AND payload_json LIKE ?",['%people-a%']);
  assert.equal(Number(peopleHistory.n),1);
  console.log('PASS: real SQL People account isolation and deletion preserve historical contact records');
+ const imapEvent={...gmailFixture('sql-imap'),source:'hostinger.imap',account:{provider:'hostinger',type:'email',identifier:'imap@example.test'},provider_state:{protocol:'imap',folder:'INBOX',uid:'5',uid_validity:'123',flags:[],unread:true,observed_at:new Date().toISOString()}};
+ const imapMessage=await ingestMessage(imapEvent);
+ const imapReplay=await ingestMessage({...imapEvent,provider_state:{...imapEvent.provider_state,folder:'Archive',uid:'2',uid_validity:'456',flags:['\\\\Seen'],unread:false}});
+ assert.equal(imapReplay.inserted,false);
+ const [[imapStored]]=await db.execute('SELECT provider_state_json,is_read FROM messages WHERE id=?',[imapMessage.message_id]);
+ assert.equal(JSON.parse(imapStored.provider_state_json).folder,'Archive');
+ assert.equal(JSON.parse(imapStored.provider_state_json).uid_validity,'456');
+ assert.equal(Number(imapStored.is_read),1,'provider flags cannot undo the CRM read state');
+ console.log('PASS: real SQL IMAP replay updates source observation without duplicating messages');
 };
 try{await run()}catch(e){
  // Public CI annotations must never contain SQL values, credentials or raw errors.
