@@ -8,6 +8,7 @@ import {decideInbox} from '../src/ai/inbox-decision.js';
 const {chromium}=await import(process.env.CRM_PLAYWRIGHT_MODULE||'playwright');
 const browser=await chromium.launch({headless:true,...(process.env.CRM_CHROMIUM?{executablePath:process.env.CRM_CHROMIUM}:{}),args:['--no-sandbox','--disable-gpu']});
 const source=await readFile(new URL('../src/browser.js',import.meta.url),'utf8');
+const workSource=await readFile(new URL('../src/work-views.js',import.meta.url),'utf8');
 const original={id:'conv_test',message_id:'msg_test',sender:'lead@example.test',contact_name:'פונה לדוגמה',title:'הצעת מחיר',subject:'הצעת מחיר',body:'אני מעוניין בעשרה מספרים לקבלת SMS ובאפשרות להרחבה למאה מספרים. <img src=x onerror=alert(1)>',channel:'email',account_label:'בדיקה',integration_key:'google:test',waiting_since:new Date(Date.now()-3600000).toISOString(),revision:0,unread_count:1};
 let checks=0,phase='startup';
 try{
@@ -19,6 +20,7 @@ try{
    if(url.hostname!=='crm.test')return route.abort();
    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:appHtml()});
    if(url.pathname==='/assets/app.js')return route.fulfill({contentType:'text/javascript',body:source});
+   if(url.pathname==='/assets/work-views.js')return route.fulfill({contentType:'text/javascript',body:workSource});
    const body=req.postDataJSON();if(!['GET','HEAD'].includes(req.method()))writes.push({path:url.pathname,body});
    let result={ok:true,items:[]};
    if(url.pathname==='/api/inbox/work'){const v=url.searchParams.get('view');result={ok:true,items:matchesInbox(row,v)?[row]:[],complete:true,done:true,next_cursor:row.id,sync:{state:'verified'}};}
@@ -26,6 +28,7 @@ try{
     if(req.method()==='PATCH'){row={...row,manual_status:body.status,handling_state:body.status,revision:row.revision+1};}
     result={ok:true,item:row};
    }
+   else if(url.pathname==='/api/tasks')result={ok:true,items:[{id:'task_a',title:'בדיקת מועד',status:'open',due_date:'2026-10-20',notes:'<img src=x onerror=alert(1)>'},{id:'task_b',title:'מעקב ללא תאריך',status:'done'}]};
    else if(url.pathname==='/api/accounts')result={ok:true,items:[{id:'a',label:'חשבון בדיקה'}]};
    else if(url.pathname==='/api/inbox/work/conv_test/task')result={ok:true,id:'act_browser_test',tool:'create_task',status:'pending',confirmation_token:'test-confirmation'};
    else if(url.pathname==='/api/assistant/actions/act_browser_test/confirm'){assert.equal(body.confirmed,true);taskCreated=true;result={ok:true,status:'completed'};}
@@ -53,6 +56,16 @@ try{
   phase='source-navigation-'+width;
   await page.getByRole('link',{name:'פתח שיחת מקור'}).click();await page.locator('.conversation-layout').waitFor();assert.equal(await page.locator('.message img').count(),0);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,`conversation overflow at ${width}`);checks++;
+  phase='work-views-'+width;
+  await page.goto('https://crm.test/#tasks');await page.locator('#entityFilterForm').waitFor();
+  await page.getByRole('button',{name:'Kanban',exact:true}).click();await page.locator('.entity-kanban').waitFor();
+  assert.equal(await page.locator('.entity-work img').count(),0);checks++;
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'board overflow '+width);checks++;
+  await page.getByRole('button',{name:'לוח מועדים',exact:true}).click();await page.getByRole('heading',{name:'2026-10-20 (1)',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'ללא מועד (1)',exact:true}).waitFor();checks++;
+  await page.getByLabel('חיפוש משימות ופרויקטים').fill('בדיקת מועד');
+  await page.getByRole('button',{name:'סינון',exact:true}).click();
+  await page.getByRole('heading',{name:'ללא מועד (1)',exact:true}).waitFor({state:'detached'});checks++;
   assert.deepEqual(errors,[]);checks++;
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/conversation-${width}.png`,fullPage:true});await page.goto('https://crm.test/#inbox');row={...original,...decideInbox(original)};await page.reload();await page.locator('.work-card').waitFor();await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/inbox-${width}.png`,fullPage:true});}
   await context.close();
