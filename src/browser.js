@@ -333,7 +333,7 @@ document.addEventListener('click',async e=>{
    await openConversation(r.conversation_id);$('#notice').textContent='נוצרה שיחה נפרדת עם '+r.moved+' הודעות.';return;
   }
    if(action==='close-editor')$('#editor').close();
-  if(action==='entity-layout'){if(['list','kanban','calendar'].includes(id)){entityLayout=id;await render(view);}return;}
+  if(action==='entity-layout'){if(['list','kanban','calendar','month'].includes(id)){entityLayout=id;await render(view);}return;}
   if(action==='create'||action==='edit')await editRecord(b.dataset.id);
   if(action==='notes')await showNotes(b.dataset.id);
   if(action==='conversation')await openConversation(b.dataset.id);
