@@ -134,10 +134,10 @@ jobs:
       - name: Install locked application dependencies
         run: npm ci
       - name: Install isolated browser test runner
-        run: npm install --prefix "$RUNNER_TEMP/crm-browser" --no-package-lock playwright@1.56.1
+        run: npm install --prefix "$RUNNER_TEMP/crm-browser" --no-package-lock playwright@1.56.1 axe-core@4.10.3
       - name: Install Chromium
         run: node "$RUNNER_TEMP/crm-browser/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Synthetic desktop and mobile regression
         env:
           CRM_SCREENSHOTS: browser-results
-        run: CRM_PLAYWRIGHT_MODULE="$RUNNER_TEMP/crm-browser/node_modules/playwright/index.mjs" node scripts/check-inbox-browser.mjs
+        run: CRM_AXE_SCRIPT="$RUNNER_TEMP/crm-browser/node_modules/axe-core/axe.min.js" CRM_PLAYWRIGHT_MODULE="$RUNNER_TEMP/crm-browser/node_modules/playwright/index.mjs" node scripts/check-inbox-browser.mjs

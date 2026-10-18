@@ -11,6 +11,14 @@ const source=await readFile(new URL('../src/browser.js',import.meta.url),'utf8')
 const workSource=await readFile(new URL('../src/work-views.js',import.meta.url),'utf8');
 const original={id:'conv_test',message_id:'msg_test',sender:'lead@example.test',contact_name:'פונה לדוגמה',title:'הצעת מחיר',subject:'הצעת מחיר',body:'אני מעוניין בעשרה מספרים לקבלת SMS ובאפשרות להרחבה למאה מספרים. <img src=x onerror=alert(1)>',channel:'email',account_label:'בדיקה',integration_key:'google:test',waiting_since:new Date(Date.now()-3600000).toISOString(),revision:0,unread_count:1};
 let checks=0,phase='startup';
+const axeSource=process.env.CRM_AXE_SCRIPT?await readFile(process.env.CRM_AXE_SCRIPT,'utf8'):null;
+async function accessibility(page,label){
+ if(!axeSource)return;
+ await page.addScriptTag({content:axeSource});
+ const violations=await page.evaluate(async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa']}})).violations.map(v=>({id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)})));
+ if(violations.length)console.error('::error title=Accessibility::'+label+' '+JSON.stringify(violations));
+ assert.deepEqual(violations,[],label+' accessibility');checks++;
+}
 try{
  for(const width of [360,390,768,1440]){
   const context=await browser.newContext({viewport:{width,height:900}}),page=await context.newPage();const errors=[],writes=[];let row={...original,...decideInbox(original)},taskCreated=false,holdDriveA=false,releaseDriveA;
@@ -49,6 +57,7 @@ try{
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,`horizontal overflow at ${width}`);checks++;
   await page.locator('[data-action="work-view"][data-id="needs_reply"]').click();
   await page.locator('.work-card').waitFor();
+  await accessibility(page,'inbox-'+width);
   phase='task-approval-'+width;
   await page.locator('.work-card summary').filter({hasText:'פעולות נוספות'}).click();
   await page.getByRole('button',{name:'צור משימה',exact:true}).click();await page.getByRole('button',{name:'אישור יצירת המשימה'}).waitFor();assert.equal(taskCreated,false);checks++;
@@ -59,9 +68,11 @@ try{
   await page.goto('https://crm.test/#assistant');await page.locator('.assistant-action-card').waitFor();
   const text=await page.locator('#chatLog').textContent();assert.ok(text.indexOf('אישור וביצוע')<text.indexOf('הודעה מאוחרת'));checks++;
   await page.reload();await page.locator('.assistant-action-card').waitFor();assert.equal(await page.locator('.assistant-action-card').count(),1);checks++;
+  await accessibility(page,'assistant-'+width);
   phase='source-navigation-'+width;
   await page.getByRole('link',{name:'פתח שיחת מקור'}).click();await page.locator('.conversation-layout').waitFor();assert.equal(await page.locator('.message img').count(),0);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,`conversation overflow at ${width}`);checks++;
+  await accessibility(page,'conversation-'+width);
   phase='work-views-'+width;
   await page.goto('https://crm.test/#tasks');await page.locator('#entityFilterForm').waitFor();
   await page.getByRole('button',{name:'Kanban',exact:true}).click();await page.locator('.entity-kanban').waitFor();
@@ -85,6 +96,7 @@ try{
   await page.getByRole('button',{name:'סינון',exact:true}).click();
   await page.getByRole('heading',{name:'לוח חודשי · 2028-02',exact:true}).waitFor();
   assert.equal(await page.locator('.month-day').count(),29);checks++;
+  await accessibility(page,'month-'+width);
   phase='drive-mirror-'+width;
   await page.goto('https://crm.test/#connectors');
   await page.locator('[data-action="drive-mirror"][data-id="drive-a"]').click();
@@ -127,6 +139,7 @@ try{
   await page.locator('[data-action="people-permission"][data-id="drive-b"]').click();
   assert.equal(writes.filter(x=>x.path==='/api/google/permission-url').length,0);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'Contacts overflow '+width);checks++;
+  await accessibility(page,'connectors-'+width);
   assert.deepEqual(errors,[]);checks++;
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/conversation-${width}.png`,fullPage:true});await page.goto('https://crm.test/#inbox');row={...original,...decideInbox(original)};await page.reload();await page.locator('.work-card').waitFor();await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/inbox-${width}.png`,fullPage:true});}
   await context.close();
