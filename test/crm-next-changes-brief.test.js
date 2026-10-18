@@ -5,7 +5,7 @@ test('read-only daily brief has traceable source ids and no invented delivery/re
  const sql=[];
  const db={execute:async(query,params)=>{
   assert.equal(query.trim().startsWith('SELECT'),true);
-  assert.deepEqual(params,['2026-10-15T12:00:00.000Z']);
+  assert.deepEqual(params,['2026-10-15T12:00:00.000Z','2026-10-16T12:00:00.000Z']);
   sql.push(query);
   if(query.includes('FROM messages m'))return [[
    {id:'msg1',conversation_id:'conv1',direction:'in',channel:'email',snippet:'הי',sent_at:'2026-10-16T11:00:00.000Z'},

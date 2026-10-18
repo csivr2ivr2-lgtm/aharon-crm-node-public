@@ -8,9 +8,9 @@ export async function loadRecentChanges({hours=24,clock=Date.now(),database}={})
  if(!Number.isFinite(clock))throw Error('invalid_clock');
  const cutoff=new Date(clock-n*3600000).toISOString();
  const [messages,tasks,clients]=await Promise.all([
-  select(database,'SELECT m.id,m.conversation_id,m.direction,m.subject,SUBSTRING(m.body,1,240) AS snippet,m.sent_at,c.channel,c.title AS conversation_title,c.client_id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.sent_at>=? ORDER BY m.sent_at DESC,m.id DESC LIMIT 50',[cutoff]),
-  select(database,'SELECT id,title,status,priority,due_date,updated_at FROM tasks WHERE updated_at>=? ORDER BY updated_at DESC,id DESC LIMIT 30',[cutoff]),
-  select(database,'SELECT id,name,company,created_at FROM clients WHERE created_at>=? ORDER BY created_at DESC,id DESC LIMIT 20',[cutoff])
+  select(database,'SELECT m.id,m.conversation_id,m.direction,m.subject,SUBSTRING(m.body,1,240) AS snippet,m.sent_at,c.channel,c.title AS conversation_title,c.client_id FROM messages m JOIN conversations c ON c.id=CAST(m.conversation_id AS BINARY) WHERE m.sent_at>=? AND m.sent_at<=? ORDER BY m.sent_at DESC,m.id DESC LIMIT 50',[cutoff,new Date(clock).toISOString()]),
+  select(database,'SELECT id,title,status,priority,due_date,updated_at FROM tasks WHERE updated_at>=? AND updated_at<=? ORDER BY updated_at DESC,id DESC LIMIT 30',[cutoff,new Date(clock).toISOString()]),
+  select(database,'SELECT id,name,company,created_at FROM clients WHERE created_at>=? AND created_at<=? ORDER BY created_at DESC,id DESC LIMIT 20',[cutoff,new Date(clock).toISOString()])
  ]);
  return {ok:true,window:{hours:n,since:cutoff,until:new Date(clock).toISOString()},
   counts:{messages:messages.length,incoming:messages.filter(x=>x.direction==='in').length,

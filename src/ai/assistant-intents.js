@@ -64,3 +64,11 @@ export function businessReadRequest(message){
  return null;
 }
 
+
+export function recentChangesRequest(message){
+ const m=String(message||'').trim();
+ if(explicitMutationRequest(m)||!/מה השתנה|סיכום פעילות|תקציר פעילות/u.test(m))return null;
+ if(/מאז אתמול|ביממה האחרונה|24\s*שעות/u.test(m))return {hours:24};
+ if(/בשבוע האחרון|בשבעת הימים האחרונים/u.test(m))return {hours:168};
+ return null;
+}

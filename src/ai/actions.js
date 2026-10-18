@@ -1,3 +1,4 @@
+import {loadRecentChanges} from './changes-brief.js';
 import {createHash, randomBytes, randomUUID, timingSafeEqual} from 'node:crypto';
 import {z} from 'zod';
 import {db,now} from '../db.js';
@@ -37,6 +38,7 @@ register('list_conversations','List conversations, including unread messages.',o
 register('get_conversation','Read a conversation and its messages.',object({id}),'conversation.get');
 register('waiting_for_reply','Find conversations whose newest inbound message has no later outgoing reply.',object({limit:z.number().int().min(1).max(50).optional()}),'waiting_for_reply');
 register('business_inbox','Read verified business inbox work and source links.',object({sort:z.enum(['time','priority']).optional(),view:z.enum(['all','needs_reply','waiting_customer','review']).optional(),since_visit:z.boolean().optional(),message_type:z.enum(['quote','support','business']).optional(),q:optionalText(300),from:optionalText(40),limit:z.number().int().min(1).max(50).optional()}),'business_inbox');
+register('recent_changes','Read changes in synchronized CRM records over an explicit rolling time window; bounded results, not all provider activity.',object({hours:z.number().int().min(1).max(168)}),'recent_changes');
 register('recent_activity','Read recent CRM activity.',object({limit:z.number().int().min(1).max(50).optional()}),'activity.list');
 register('list_accounts','List sending accounts; credentials are never returned.',object({}),'account.list');
 for(const name of ['send_email','send_whatsapp'])register(name,'Send exact text to one resolved client; requires preview and confirmation.',object({client_id:id.optional(),recipient:optionalText(255),account_id:id.optional(),body:text(20000),subject:optionalText(500)}),name,'send');
@@ -150,6 +152,7 @@ export class ActionEngine{
   return {to,client,account,provider,externalId};
  }
  async perform(tool,args,actionId,approvedPreview=null){
+  if(tool.op==='recent_changes')return loadRecentChanges({...args,database:this.database});
   if(tool.op==='business_inbox')return listInboxWork(args,this.database);
   if(tool.op==='waiting_for_reply'){
     const result=await listInboxWork({limit:args.limit||10,view:'needs_reply'},this.database);
