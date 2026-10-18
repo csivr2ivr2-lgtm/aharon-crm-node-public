@@ -29,6 +29,9 @@ try{
     result={ok:true,item:row};
    }
    else if(url.pathname==='/api/tasks')result={ok:true,items:[{id:'task_a',title:'בדיקת מועד',status:'open',due_date:'2026-10-20',notes:'<img src=x onerror=alert(1)>'},{id:'task_b',title:'מעקב ללא תאריך',status:'done'}]};
+   else if(url.pathname==='/api/connectors')result={ok:true,connectors:[{key:'google',configured:true,status:'connected',accounts:[{id:'drive-a',email:'a@example.test'},{id:'drive-b',email:'b@example.test'}]}]};
+   else if(url.pathname==='/api/google/drive/cache'){const account=url.searchParams.get('account_id');assert.ok(['drive-a','drive-b'].includes(account));result={ok:true,sync:{checked_at:null,has_next_page:false},items:[{id:'safe',name:account+' document',mimeType:'text/plain',webViewLink:'https://drive.google.com/file/d/safe/view'},{id:'unsafe',name:'<img src=x onerror=alert(1)>',mimeType:'text/plain',webViewLink:'javascript:alert(1)'},{id:'spoof',name:'spoof',webViewLink:'https://drive.google.com.attacker.test/file'},{id:'userinfo',name:'userinfo',webViewLink:'https://user@drive.google.com/file'}]};}
+   else if(url.pathname==='/api/google/drive/sync'){assert.equal(body.account_id,'drive-b');result={ok:true};}
    else if(url.pathname==='/api/accounts')result={ok:true,items:[{id:'a',label:'חשבון בדיקה'}]};
    else if(url.pathname==='/api/inbox/work/conv_test/task')result={ok:true,id:'act_browser_test',tool:'create_task',status:'pending',confirmation_token:'test-confirmation'};
    else if(url.pathname==='/api/assistant/actions/act_browser_test/confirm'){assert.equal(body.confirmed,true);taskCreated=true;result={ok:true,status:'completed'};}
@@ -66,6 +69,21 @@ try{
   await page.getByLabel('חיפוש משימות ופרויקטים').fill('בדיקת מועד');
   await page.getByRole('button',{name:'סינון',exact:true}).click();
   await page.getByRole('heading',{name:'ללא מועד (1)',exact:true}).waitFor({state:'detached'});checks++;
+  phase='drive-mirror-'+width;
+  await page.goto('https://crm.test/#connectors');
+  await page.locator('[data-action="drive-mirror"][data-id="drive-a"]').click();
+  await page.getByText('drive-a document',{exact:true}).waitFor();
+  assert.equal(writes.filter(x=>x.path==='/api/google/drive/sync').length,0);checks++;
+  assert.equal(await page.locator('#providerFolders img').count(),0);checks++;
+  assert.equal(await page.locator('#providerFolders a').count(),1);checks++;
+  assert.equal(await page.locator('#providerFolders a').getAttribute('rel'),'noopener noreferrer');checks++;
+  await page.locator('[data-action="drive-mirror"][data-id="drive-b"]').click();
+  await page.getByText('drive-b document',{exact:true}).waitFor();
+  assert.equal(await page.getByText('drive-a document',{exact:true}).count(),0);checks++;
+  await page.locator('[data-action="drive-sync"]').click();
+  await page.getByText('drive-b document',{exact:true}).waitFor();
+  assert.equal(writes.filter(x=>x.path==='/api/google/drive/sync').length,1);checks++;
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'Drive overflow '+width);checks++;
   assert.deepEqual(errors,[]);checks++;
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/conversation-${width}.png`,fullPage:true});await page.goto('https://crm.test/#inbox');row={...original,...decideInbox(original)};await page.reload();await page.locator('.work-card').waitFor();await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/inbox-${width}.png`,fullPage:true});}
   await context.close();
