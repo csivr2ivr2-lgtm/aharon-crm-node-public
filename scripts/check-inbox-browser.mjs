@@ -1,3 +1,4 @@
+import {mailHtmlDocument} from '../src/mail-html.js';
 import {matchesInbox} from '../src/inbox-workbench.js';
 // Optional visual/interaction gate: npm install --no-save playwright; set CRM_CHROMIUM if needed.
 // Uses synthetic data and intercepted HTTP only, never a live CRM/account.
@@ -46,7 +47,9 @@ try{
    else if(url.pathname==='/api/accounts')result={ok:true,items:[{id:'a',label:'חשבון בדיקה'}]};
    else if(url.pathname==='/api/inbox/work/conv_test/task')result={ok:true,id:'act_browser_test',tool:'create_task',status:'pending',confirmation_token:'test-confirmation'};
    else if(url.pathname==='/api/assistant/actions/act_browser_test/confirm'){assert.equal(body.confirmed,true);taskCreated=true;result={ok:true,status:'completed'};}
-   else if(url.pathname==='/api/conversations/conv_test')result={ok:true,item:row,messages:[{id:'msg_test',direction:'in',body:original.body,sent_at:original.waiting_since}]};
+   else if(url.pathname==='/api/conversations/conv_test/attachments')result={ok:true,downloads_enabled:true,items:[{message_id:'msg_test',ordinal:0,filename:'report.pdf',mime_type:'application/pdf',size_bytes:3,source:'google.gmail',sent_at:original.waiting_since}]};
+   else if(url.pathname==='/api/conversations/conv_test/messages/msg_test/html')result={ok:true,document:mailHtmlDocument('<p>שלום בטוח</p><script>window.top.pwned=true</script><img src="https://tracker.invalid/pixel"><a href="https://tracker.invalid">קישור חסום</a>')};
+   else if(url.pathname==='/api/conversations/conv_test')result={ok:true,item:row,messages:[{id:'msg_test',direction:'in',body:original.body,body_html:'<p>שלום בטוח</p>',source:'google.gmail',sent_at:original.waiting_since}]};
    else if(url.pathname==='/api/assistant/sessions')result={ok:true,items:[{id:'chat_test',title:'שיחת בדיקה'}]};
    else if(url.pathname==='/api/assistant/sessions/chat_test')result={ok:true,messages:[{role:'assistant',text:'ממתין לאישור',actions:[{id:'act_chat_test',tool:'create_task',status:'pending',args:{title:'בדיקת רצף'},confirmation_token:'test'}]},{role:'user',text:'הודעה מאוחרת'},{role:'assistant',text:'מקור: /#conversation=conv_test',actions:[]}]};
    return route.fulfill({contentType:'application/json',body:JSON.stringify(result)});
@@ -73,6 +76,20 @@ try{
   await page.getByRole('link',{name:'פתח שיחת מקור'}).click();await page.locator('.conversation-layout').waitFor();assert.equal(await page.locator('.message img').count(),0);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,`conversation overflow at ${width}`);checks++;
   await accessibility(page,'conversation-'+width);
+  await page.getByRole('button',{name:'קבצים מצורפים',exact:true}).click();
+  await page.locator('#attachmentInfoDialog').waitFor();
+  assert.equal(await page.getByRole('link',{name:'הורדה מהספק',exact:true}).getAttribute('href'),'/api/conversations/conv_test/attachments/msg_test/0/download');checks++;
+  await page.locator('#attachmentInfoDialog').getByRole('button',{name:'סגירה',exact:true}).click();
+  await page.getByRole('button',{name:'תצוגת דואר מעוצבת',exact:true}).click();
+  await page.locator('#mailHtmlDialog iframe').waitFor();
+  assert.equal(await page.locator('#mailHtmlDialog iframe').getAttribute('sandbox'),'');checks++;
+  await page.frameLocator('#mailHtmlDialog iframe').getByText('שלום בטוח',{exact:true}).waitFor();checks++;
+  assert.equal(await page.frameLocator('#mailHtmlDialog iframe').locator('script,img,a,form').count(),0);checks++;
+  assert.equal(await page.evaluate(()=>window.pwned),undefined);checks++;
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true);checks++;
+  await accessibility(page,'mail-preview-'+width);
+  await page.locator('#mailHtmlDialog').getByRole('button',{name:'סגירה',exact:true}).click();
+
   phase='work-views-'+width;
   await page.goto('https://crm.test/#tasks');await page.locator('#entityFilterForm').waitFor();
   await page.getByRole('button',{name:'Kanban',exact:true}).click();await page.locator('.entity-kanban').waitFor();
