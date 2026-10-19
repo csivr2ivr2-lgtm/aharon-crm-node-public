@@ -64,8 +64,27 @@ export class HostingerMailConnector{
    return {...result,account:this.settings().user};
   }finally{await client.logout().catch(()=>{});}
  }
+ async folderSyncEvents(){
+  const account=this.settings().user,key='imap-folder-sync:'+account.toLowerCase();
+  const previous=await this.vault.get(key),expected=JSON.stringify(previous);
+  const page=await this.historyPage({cursor:previous?.cursor||'',limit:10});
+  if(!Array.isArray(page.messages)||page.messages.some(e=>e.source!=='hostinger.imap'||e.account_id!==account))throw Error('imap_sync_account_mismatch');
+  const next=page.done?'':String(page.next_cursor||'');
+  if(!page.done&&(!next||next===previous?.cursor))throw Error('imap_cursor_not_advancing');
+  return [...page.messages,{type:'sync.checkpoint',source:'hostinger.imap',account_id:account,commit:async()=>{
+   const save=async()=>{
+    if(!this.configured()||this.settings().user!==account)throw Error('hostinger_history_account_unavailable');
+    if(JSON.stringify(await this.vault.get(key))!==expected)throw Error('imap_checkpoint_conflict');
+    await this.vault.set(key,{cursor:next,revision:Number(previous?.revision||0)+1,checked_at:new Date().toISOString(),
+     completed_at:page.done?new Date().toISOString():previous?.completed_at||null});
+   };
+   const pending=(this.folderCommit||Promise.resolve()).catch(()=>{}).then(save);
+   this.folderCommit=pending;return pending;
+  }}];
+ }
  async sync(){
   if(!this.configured())return [];
+  if(config.hostingerFolderSync)return this.folderSyncEvents();
   const settings=this.settings(),c=this.client(settings),events=[];
   let lock;
   try{

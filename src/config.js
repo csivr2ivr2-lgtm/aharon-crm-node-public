@@ -26,6 +26,7 @@ export const config=Object.freeze({
  googlePeopleSync:b("GOOGLE_PEOPLE_SYNC",false),
  googleDriveSync:b("GOOGLE_DRIVE_SYNC",false),
  googleSyncQuery:e("GOOGLE_SYNC_QUERY","newer_than:14d"),googleSyncMaxResults:Math.min(100,Math.max(1,n("GOOGLE_SYNC_MAX_RESULTS",50))),
+ hostingerFolderSync:b("HOSTINGER_FOLDER_SYNC",false),
  hostingerMailEnabled:b("HOSTINGER_MAIL_ENABLED",false),hostingerImapHost:e("HOSTINGER_IMAP_HOST","imap.hostinger.com"),
  hostingerImapPort:Math.max(1,n("HOSTINGER_IMAP_PORT",993)),hostingerImapSecure:b("HOSTINGER_IMAP_SECURE",true),
  hostingerSmtpHost:e("HOSTINGER_SMTP_HOST","smtp.hostinger.com"),hostingerSmtpPort:Math.max(1,n("HOSTINGER_SMTP_PORT",465)),
