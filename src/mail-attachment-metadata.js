@@ -39,7 +39,7 @@ export async function listConversationAttachmentMetadata(conversationId,db,{limi
  if(typeof conversationId!=='string'||!/^[A-Za-z0-9_-]{1,96}$/.test(conversationId))throw Error('invalid_conversation_id');
  const n=Math.max(1,Math.min(100,Math.trunc(Number(limit))||100));
  const [rows]=await db.execute("SELECT a.message_id,a.ordinal,a.filename,a.mime_type,a.size_bytes,a.disposition,"+
- "m.source,m.sent_at FROM message_attachment_metadata a JOIN messages m ON m.id=a.message_id "+
+ "m.source,m.sent_at FROM message_attachment_metadata a JOIN messages m ON m.id=CAST(a.message_id AS BINARY) "+
  "WHERE m.conversation_id=? ORDER BY m.sent_at DESC,m.id DESC,a.ordinal ASC LIMIT ?",[conversationId,n+1]);
  return {ok:true,items:rows.slice(0,n).map(a=>({
   message_id:a.message_id,ordinal:a.ordinal,filename:a.filename,mime_type:a.mime_type,

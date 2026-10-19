@@ -315,6 +315,7 @@ const run=async()=>{
  assert.equal(JSON.parse(providerRows.find(x=>x.id===b.message_id).provider_state_json).available,true);
  assert.ok(providerRows.every(x=>x.body==='Synthetic sync record'));
  console.log('PASS: Gmail provider flags/replay/tombstones preserve CRM reads, bodies and account isolation');
+ {
  // MIME metadata must be stored together with messages, idempotently and per account.
  const fixtureA={...gmailFixture('sql-mail-attach-a'),external_id:'attachment-mail',
   attachments:[{filename:'proposal.pdf',mime_type:'application/pdf',size_bytes:123,disposition:'attachment'}]};
@@ -330,6 +331,7 @@ const run=async()=>{
  const [[rowCount]]=await db.execute('SELECT COUNT(*) AS n FROM message_attachment_metadata WHERE message_id=?',[first.message_id]);
  assert.equal(Number(rowCount.n),1,'repeated imports must not duplicate attachment rows');
  console.log('PASS: real SQL MIME metadata, idempotent replay and account separation');
+ }
  const calendarFixture=summary=>({events:{list:async()=>({data:{items:[{id:'same-event',summary,start:{date:'2026-10-20'}}],nextSyncToken:'checkpoint'}})}});
  await syncCalendarMirror({account_id:'calendar-a',calendar:calendarFixture('Account A'),db});
  await syncCalendarMirror({account_id:'calendar-b',calendar:calendarFixture('Account B'),db});
