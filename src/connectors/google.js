@@ -4,6 +4,7 @@ import {gmailSyncPage} from '../gmail-sync-page.js';
 import {inboxHeaders} from '../ai/inbox-headers.js';
 import {gmailFolderOverview} from '../mail-folder-overview.js';
 import {simpleParser} from "mailparser";
+import {describeMailAttachments} from "../mail-attachment-metadata.js";
 import {syncIssue} from "../sync-diagnostics.js";
 import {emailOf,safeHeader,mailReferences} from "../message-format.js";
 import { google } from "googleapis";
@@ -119,7 +120,7 @@ export class GoogleConnector{
    const item=(await gmail.users.messages.get({userId:"me",id,format:"raw"})).data;
    const mail=await simpleParser(Buffer.from(item.raw||"","base64url"),{skipTextToHtml:true});
    const d=new Date(Number(item.internalDate||Date.now()));
-   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||"",to:mail.to?.text||"",cc:mail.cc?.text||"",subject:mail.subject||"",message_id:mail.messageId||"",references:mailReferences(mail),body:String(mail.text||""),unread:(item.labelIds||[]).includes("UNREAD"),sent_at:d.toISOString()});
+   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||"",to:mail.to?.text||"",cc:mail.cc?.text||"",subject:mail.subject||"",message_id:mail.messageId||"",references:mailReferences(mail),attachments:describeMailAttachments(mail),body:String(mail.text||""),unread:(item.labelIds||[]).includes("UNREAD"),sent_at:d.toISOString()});
   }
   return {ok:true,account:publicAccount(account),messages};
  }
@@ -134,7 +135,7 @@ export class GoogleConnector{
    const item=(await gmail.users.messages.get({userId:'me',id:entry.id,format:'raw'})).data;
    const mail=await simpleParser(Buffer.from(item.raw||'','base64url'),{skipTextToHtml:true});
    const date=new Date(Number(item.internalDate||Date.now()));
-   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||'',to:mail.to?.text||'',cc:mail.cc?.text||'',subject:mail.subject||'',message_id:mail.messageId||'',references:mailReferences(mail),body:String(mail.text||''),unread:(item.labelIds||[]).includes('UNREAD'),sent_at:date.toISOString()});
+   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||'',to:mail.to?.text||'',cc:mail.cc?.text||'',subject:mail.subject||'',message_id:mail.messageId||'',references:mailReferences(mail),attachments:describeMailAttachments(mail),body:String(mail.text||''),unread:(item.labelIds||[]).includes('UNREAD'),sent_at:date.toISOString()});
   }
   return {account:publicAccount(account),messages,next_cursor:list.data.nextPageToken||'',done:!list.data.nextPageToken};
  }
@@ -191,7 +192,7 @@ export class GoogleConnector{
     direction:emailOf(mail.from?.text||'')===account.email.toLowerCase()?'out':'in',
     sender:mail.from?.text||'',recipient:mail.to?.text||'',cc:mail.cc?.text||'',headers:inboxHeaders(mail.headers),
     rfc_message_id:mail.messageId||'',references:mailReferences(mail),
-    subject:mail.subject||'',body:String(mail.text||''),is_read:!provider_state.labels.includes('UNREAD'),
+    subject:mail.subject||'',attachments:describeMailAttachments(mail),body:String(mail.text||''),is_read:!provider_state.labels.includes('UNREAD'),
     sent_at:date.toISOString(),provider_state});
   }
   events.push({type:'sync.checkpoint',source:'google.gmail',account_id:account.id,commit:async()=>{
@@ -203,7 +204,7 @@ export class GoogleConnector{
  }
 
  async sync(){
-  const events=[]; for(const account of await this.accounts()){try{if(config.gmailIncrementalSync){events.push(...await this.gmailIncrementalEvents(account));continue;}const recent=await this.gmailRecent({account_id:account.id,max_results:config.googleSyncMaxResults,q:config.googleSyncQuery});for(const m of recent.messages){const fromSelf=emailOf(m.from)===account.email.toLowerCase();events.push({id:"gmail:"+account.id+":"+m.id,type:"message",source:"google.gmail",channel:"email",account_id:account.id,account:{provider:"google",type:"email",identifier:account.email,label:account.name||account.email},conversation_external_id:"gmail:"+account.id+":"+(m.thread_id||m.id),external_id:m.id,thread_id:m.thread_id,direction:fromSelf?"out":"in",sender:m.from,recipient:m.to,cc:m.cc,headers:m.headers,rfc_message_id:m.message_id,references:m.references,subject:m.subject,body:m.body,is_read:!m.unread,sent_at:m.sent_at});}}catch(error){events.push(syncIssue("google.gmail","fetch",error,account.email||account.id));}}
+  const events=[]; for(const account of await this.accounts()){try{if(config.gmailIncrementalSync){events.push(...await this.gmailIncrementalEvents(account));continue;}const recent=await this.gmailRecent({account_id:account.id,max_results:config.googleSyncMaxResults,q:config.googleSyncQuery});for(const m of recent.messages){const fromSelf=emailOf(m.from)===account.email.toLowerCase();events.push({id:"gmail:"+account.id+":"+m.id,type:"message",source:"google.gmail",channel:"email",account_id:account.id,account:{provider:"google",type:"email",identifier:account.email,label:account.name||account.email},conversation_external_id:"gmail:"+account.id+":"+(m.thread_id||m.id),external_id:m.id,thread_id:m.thread_id,direction:fromSelf?"out":"in",sender:m.from,recipient:m.to,cc:m.cc,headers:m.headers,rfc_message_id:m.message_id,references:m.references,subject:m.subject,attachments:m.attachments,body:m.body,is_read:!m.unread,sent_at:m.sent_at});}}catch(error){events.push(syncIssue("google.gmail","fetch",error,account.email||account.id));}}
   return events;
  }
 }

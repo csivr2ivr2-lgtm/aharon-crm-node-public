@@ -22,6 +22,7 @@ import {aiStatus,localDiagnostics,closeLocalAi} from "./ai/local-ai.js";
 import {migrateExtras} from "./extra-schema.js";
 import {WorkspaceService} from "./workspace-service.js";
 import {loadClient360} from "./client-360.js";
+import {migrateMailAttachmentMetadata,listConversationAttachmentMetadata} from "./mail-attachment-metadata.js";
 import {loadRecentChanges} from "./ai/changes-brief.js";
 import {ConnectorsClient,googleConnector,hostingerMail,whatsapp} from "./clients/connectors.js";
 import {RealtimeHub} from "./realtime.js";
@@ -53,7 +54,7 @@ import {migrateWhatsAppHistory,discoverWhatsAppChat,recordWhatsAppHistoryBatch,l
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateMailAttachmentMetadata(db);await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -125,6 +126,10 @@ app.post("/api/sent/:id/delete-for-everyone",async(req,reply)=>{
  return result;
 });
 app.get("/api/drafts/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return listOpenDrafts({limit:req.query?.limit||60})});
+app.get("/api/conversations/:id/attachments",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ return listConversationAttachmentMetadata(req.params.id,db);
+});
 app.get("/api/conversations/:id",async(req,reply)=>{
  if(!uiAuth(req,reply))return;
  const r=await workspace.call("conversation.get",{id:req.params.id});
