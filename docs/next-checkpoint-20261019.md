@@ -9,7 +9,8 @@ and production deployment/backup/rollback have not been verified.
 - Branch: feature/aharon-next-complete-20261016.
 - Main read through GitHub MCP: 69bad92c6cb3c2586c4662adf9f485c32e4855f7.
 - This continuation began at e65ea36b50aa2b288eb5678681d531b775a06ef2.
-- Latest implementation: 8ee311d74738d13df5c7feb6f01c32f864603827.
+- Latest implementation: c4362b9938c5bcf2b5e3d21f172225419e306f08 (attachment metadata increment).
+- Prior validated M0–M7 baseline: 8ee311d74738d13df5c7feb6f01c32f864603827.
 - All repository writes use GitHub MCP Repo; local copies are test mirrors.
 - Local Node 24: 446 tests passed, zero failed/skipped; syntax checks passed
   for 160 files; heuristic secret scanning found no findings in 158 files.
@@ -83,3 +84,22 @@ Hostinger browser access was blocked previously; no safeguard was bypassed.
 
 The user's merge authorization remains valid, but does not replace quality gates or
 backup evidence. Do not merge based solely on a green CI run.
+
+
+## Attachment metadata follow-up — 2026-10-19
+
+- fde692d: added safe, bounded MIME attachment metadata normalization and an
+  additive MySQL/MariaDB table; binary content is never persisted to this table.
+- 9bc982b: connected metadata to Gmail recent/history/incremental and IMAP
+  recent/history ingest events, including replay-safe transactional persistence.
+  Authenticated, read-only conversation attachment list is available in RTL UI.
+- c4362b: real SQL integration test for repeated migration, provider replay,
+  account isolation and no duplicate records.
+- Local isolated functional assertions and syntax checks passed for new files.
+- Latest branch CI (post c4362b) has NOT been independently verified; previous
+  CI #159 reported green by the user was for an earlier commit.
+- Downloading provider attachment bytes and rich HTML rendering remain unbuilt.
+  The UI explicitly says only filenames/MIME/sizes are retained, and no download
+  action is offered.
+- No WhatsApp sessions, provider authentication files, live customers, or main
+  branch were modified in this increment. No merge or production deploy.
