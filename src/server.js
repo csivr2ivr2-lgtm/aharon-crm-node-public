@@ -1,3 +1,4 @@
+import {applyGmailMessageAction} from './gmail-message-actions.js';
 import {mailHtmlDocument} from './mail-html.js';
 import {downloadMailAttachment,attachmentDownloadHeaders} from './mail-attachment-download.js';
 import {peopleSyncPage} from './google-people-sync.js';
@@ -133,6 +134,11 @@ app.get("/api/conversations/:id/attachments/:message/:ordinal/download",async(re
  const file=await downloadMailAttachment({conversationId:req.params.id,messageId:req.params.message,ordinal:req.params.ordinal,
   enabled:config.mailAttachmentDownloads,db,google:googleConnector,hostinger:hostingerMail});
  return attachmentDownloadHeaders(reply,file.filename).send(file.content);
+});
+app.post("/api/conversations/:id/messages/:message/gmail-state",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ return applyGmailMessageAction({conversationId:req.params.id,messageId:req.params.message,action:req.body?.action,
+  confirmed:req.body?.confirmed,enabled:config.gmailWritesEnabled,db,google:googleConnector,audit});
 });
 app.get("/api/conversations/:id/messages/:message/html",async(req,reply)=>{
  if(!uiAuth(req,reply))return;
