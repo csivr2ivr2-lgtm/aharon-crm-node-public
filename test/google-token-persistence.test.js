@@ -2,6 +2,8 @@ import test from 'node:test';
 import {randomUUID} from 'node:crypto';
 const testRefresh=randomUUID(),testAccess=randomUUID();
 import assert from 'node:assert/strict';
+import {google} from 'googleapis';
+import {createOauthState} from '../src/connectors/security.js';
 import {GoogleConnector} from '../src/connectors/google.js';
 const initial=()=>({id:'a',email:'a@example.test',auth_revision:'consent-1',tokens:{refresh_token:testRefresh,scope:'read',access_token:testAccess}});
 function fixture(){
@@ -52,4 +54,21 @@ test('a failed write does not poison the account queue',async()=>{
  await assert.rejects(client.refresh({access_token:'failed'}),/storage failure/);
  f.vault.set=original;await client.refresh({access_token:'recovered'});
  assert.equal(f.get().tokens.access_token,'recovered');assert.equal(f.connector.accountWrites.size,0);
+});
+
+test('successful consent rotates the generation even when provider credentials are unchanged',async(t)=>{
+ const f=fixture(),old=await f.connector.clientFor(f.get()),before=f.get().auth_revision;
+ t.mock.method(google,'oauth2',()=>({userinfo:{get:async()=>({data:{id:'a',email:'a@example.test'}})}}));
+ f.connector.oauthClient=()=>({getToken:async()=>({tokens:{...f.get().tokens}}),setCredentials:()=>{}});
+ const result=await f.connector.callback('test-code',createOauthState({account_id:'a',purpose:'contacts_read'}));
+ assert.notEqual(f.get().auth_revision,before);assert.equal(result.id,'a');assert.equal(result.auth_revision,undefined);
+ await old.refresh({access_token:'stale'});
+ assert.equal(f.get().tokens.access_token,testAccess);
+});
+test('consent from another Google account cannot change persisted credentials',async(t)=>{
+ const f=fixture(),before=structuredClone(f.get());
+ t.mock.method(google,'oauth2',()=>({userinfo:{get:async()=>({data:{id:'b',email:'b@example.test'}})}}));
+ f.connector.oauthClient=()=>({getToken:async()=>({tokens:{access_token:'other'}}),setCredentials:()=>{}});
+ await assert.rejects(f.connector.callback('test-code',createOauthState({account_id:'a',purpose:'contacts_read'})),/google_consent_account_mismatch/);
+ assert.deepEqual(f.get(),before);
 });
