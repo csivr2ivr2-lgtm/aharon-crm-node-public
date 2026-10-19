@@ -5,7 +5,7 @@ import {inboxHeaders} from '../ai/inbox-headers.js';
 import {gmailFolderOverview} from '../mail-folder-overview.js';
 import {simpleParser} from "mailparser";
 import {syncIssue} from "../sync-diagnostics.js";
-import {emailOf,safeHeader} from "../message-format.js";
+import {emailOf,safeHeader,mailReferences} from "../message-format.js";
 import { google } from "googleapis";
 import { config } from "../config.js";
 import { createOauthState, verifyOauthState } from "./security.js";
@@ -119,7 +119,7 @@ export class GoogleConnector{
    const item=(await gmail.users.messages.get({userId:"me",id,format:"raw"})).data;
    const mail=await simpleParser(Buffer.from(item.raw||"","base64url"),{skipTextToHtml:true});
    const d=new Date(Number(item.internalDate||Date.now()));
-   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||"",to:mail.to?.text||"",cc:mail.cc?.text||"",subject:mail.subject||"",message_id:mail.messageId||"",references:Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[],body:String(mail.text||""),unread:(item.labelIds||[]).includes("UNREAD"),sent_at:d.toISOString()});
+   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||"",to:mail.to?.text||"",cc:mail.cc?.text||"",subject:mail.subject||"",message_id:mail.messageId||"",references:mailReferences(mail),body:String(mail.text||""),unread:(item.labelIds||[]).includes("UNREAD"),sent_at:d.toISOString()});
   }
   return {ok:true,account:publicAccount(account),messages};
  }
@@ -134,7 +134,7 @@ export class GoogleConnector{
    const item=(await gmail.users.messages.get({userId:'me',id:entry.id,format:'raw'})).data;
    const mail=await simpleParser(Buffer.from(item.raw||'','base64url'),{skipTextToHtml:true});
    const date=new Date(Number(item.internalDate||Date.now()));
-   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||'',to:mail.to?.text||'',cc:mail.cc?.text||'',subject:mail.subject||'',message_id:mail.messageId||'',references:Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[],body:String(mail.text||''),unread:(item.labelIds||[]).includes('UNREAD'),sent_at:date.toISOString()});
+   messages.push({headers:inboxHeaders(mail.headers),id:item.id,thread_id:item.threadId,from:mail.from?.text||'',to:mail.to?.text||'',cc:mail.cc?.text||'',subject:mail.subject||'',message_id:mail.messageId||'',references:mailReferences(mail),body:String(mail.text||''),unread:(item.labelIds||[]).includes('UNREAD'),sent_at:date.toISOString()});
   }
   return {account:publicAccount(account),messages,next_cursor:list.data.nextPageToken||'',done:!list.data.nextPageToken};
  }
@@ -190,7 +190,7 @@ export class GoogleConnector{
     conversation_external_id:'gmail:'+account.id+':'+(item.threadId||item.id),external_id:item.id,thread_id:item.threadId,
     direction:emailOf(mail.from?.text||'')===account.email.toLowerCase()?'out':'in',
     sender:mail.from?.text||'',recipient:mail.to?.text||'',cc:mail.cc?.text||'',headers:inboxHeaders(mail.headers),
-    rfc_message_id:mail.messageId||'',references:Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[],
+    rfc_message_id:mail.messageId||'',references:mailReferences(mail),
     subject:mail.subject||'',body:String(mail.text||''),is_read:!provider_state.labels.includes('UNREAD'),
     sent_at:date.toISOString(),provider_state});
   }

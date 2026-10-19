@@ -19,3 +19,11 @@ export function extractDeterministicEntities(value){
  const urls=unique((text.match(/https?:\/\/[^\s<>"']+/gi)||[]).flatMap(raw=>{try{const url=new URL(raw.replace(/[.,;!?]+$/,''));return ['http:','https:'].includes(url.protocol)?[url.href]:[];}catch{return [];}}));
  return {emails,phones,did_candidates:phones,urls};
 }
+
+// Preserve the direct parent even when a sender omitted the References header.
+// These are provider-supplied identifiers; they never authorize identity merging.
+export function mailReferences(mail={}){
+ const refs=Array.isArray(mail.references)?mail.references:mail.references?[mail.references]:[];
+ const parent=Array.isArray(mail.inReplyTo)?mail.inReplyTo:mail.inReplyTo?[mail.inReplyTo]:[];
+ return [...new Set([...refs,...parent].filter(v=>typeof v==='string'&&v.trim()).map(v=>safeHeader(v.trim())))];
+}
