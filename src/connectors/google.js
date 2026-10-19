@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {googlePermissions,GMAIL_MODIFY,CONTACTS_READ,gmailLabelRequest} from '../google-permissions.js';
 import {gmailSyncPage} from '../gmail-sync-page.js';
 import {inboxHeaders} from '../ai/inbox-headers.js';
@@ -18,7 +19,14 @@ export function mimeMessage({to,subject,body,from,cc="",in_reply_to="",reference
 }
 
 export class GoogleConnector{
- constructor(vault){this.vault=vault;this.disconnectedIds=new Set();}
+ constructor(vault){this.vault=vault;this.disconnectedIds=new Set();this.accountWrites=new Map();}
+ // Serialize credential writes with consent/disconnect so delayed refreshes cannot restore an account.
+ async writeAccount(id,write){
+  const previous=this.accountWrites.get(id)||Promise.resolve();
+  const pending=previous.catch(()=>{}).then(write);
+  this.accountWrites.set(id,pending);
+  try{return await pending;}finally{if(this.accountWrites.get(id)===pending)this.accountWrites.delete(id);}
+ }
  configured(){return Boolean(config.googleClientId&&config.googleClientSecret&&config.googleRedirectUri);}
  oauthClient(tokens={},onTokens){
   const c=new google.auth.OAuth2(config.googleClientId,config.googleClientSecret,config.googleRedirectUri);
@@ -30,18 +38,33 @@ export class GoogleConnector{
   const oauth=google.oauth2({version:"v2",auth:client}); const info=(await oauth.userinfo.get()).data;
   const id=String(info.id||info.email||"").trim(); if(!id)throw Error("Google account id missing");
   if(state.account_id&&state.account_id!==id)throw Error("google_consent_account_mismatch");
+  return this.writeAccount(id,async()=>{
   const old=await this.vault.get("google:"+id);
-  const record={id,email:String(info.email||""),name:String(info.name||""),tokens:{...(old?.tokens||{}),...tokens},connected_at:old?.connected_at||new Date().toISOString(),updated_at:new Date().toISOString()};
+  const record={id,auth_revision:randomUUID(),email:String(info.email||""),name:String(info.name||""),tokens:{...(old?.tokens||{}),...tokens},connected_at:old?.connected_at||new Date().toISOString(),updated_at:new Date().toISOString()};
   await this.vault.set("google:"+id,record);this.disconnectedIds.delete(id); return publicAccount(record);
+  });
  }
- async disconnect(id){const account=await this.accountRecord(id);this.disconnectedIds.add(account.id);await this.vault.delete("google:"+account.id);return {ok:true,id:account.id};}
+ async disconnect(id){const account=await this.accountRecord(id);return this.writeAccount(account.id,async()=>{this.disconnectedIds.add(account.id);await this.vault.delete("google:"+account.id);return {ok:true,id:account.id};});}
  async accounts(){return (await this.vault.entries("google:")).map(x=>publicAccount(x.value));}
  async accountRecord(id=""){
   if(id){const v=await this.vault.get("google:"+id);if(!v)throw Error("Google account not found");return v;}
   const all=await this.vault.entries("google:");if(all.length===0)throw Error("No Google account is connected");if(all.length>1)throw Error("account_id is required");return all[0].value;
  }
  async clientFor(record){
-  let current=record; return this.oauthClient(record.tokens,async fresh=>{if(!fresh||!Object.keys(fresh).length||this.disconnectedIds.has(record.id))return;current={...current,tokens:{...current.tokens,...fresh},updated_at:new Date().toISOString()};await this.vault.set("google:"+current.id,current);});
+  const revision=record.auth_revision;
+  return this.oauthClient(record.tokens,async fresh=>{
+   if(!fresh||!Object.keys(fresh).length)return;
+   return this.writeAccount(record.id,async()=>{
+    if(this.disconnectedIds.has(record.id))return;
+    const current=await this.vault.get("google:"+record.id);
+    if(!current||current.auth_revision!==revision)return;
+    // Legacy records have no generation yet: fail closed if consent changed.
+    if(!revision&&(current.tokens?.refresh_token!==record.tokens?.refresh_token||current.tokens?.scope!==record.tokens?.scope))return;
+    const tokens={...current.tokens};
+    for(const [key,value] of Object.entries(fresh))if(value!==undefined&&value!==null)tokens[key]=value;
+    await this.vault.set("google:"+record.id,{...current,tokens,updated_at:new Date().toISOString()});
+   });
+  });
  }
  async permissionUrl({account_id,confirmed,purpose='gmail_modify'}={}){
   if(confirmed!==true)throw Error('explicit_confirmation_required');
