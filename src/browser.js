@@ -197,12 +197,13 @@ async function openConversation(id){
 
 async function showConversationAttachments(id){
  const result=await api('/api/conversations/'+encodeURIComponent(id)+'/attachments');
+ if(conversation!==id)return;
  document.querySelector('#attachmentInfoDialog')?.remove();
  const rows=(result.items||[]).map(a=>'<article class="row"><div><strong>'+esc(a.filename)+'</strong><p class="muted">'+
   esc(a.mime_type)+' · '+(a.size_bytes==null?'גודל לא ידוע':Number(a.size_bytes).toLocaleString('he-IL')+' בתים')+
-  ' · '+esc(formatDate(a.sent_at))+'</p></div><span class="muted">מידע על קובץ בלבד</span></article>').join('');
+  ' · '+esc(formatDate(a.sent_at))+'</p></div>'+(result.downloads_enabled&&['google.gmail','hostinger.imap'].includes(a.source)?'<a class="btn" download href="/api/conversations/'+encodeURIComponent(id)+'/attachments/'+encodeURIComponent(a.message_id)+'/'+encodeURIComponent(a.ordinal)+'/download">הורדה מהספק</a>':'<span class="muted">מידע על קובץ בלבד</span>')+'</article>').join('');
  const dialog='<dialog id="attachmentInfoDialog" aria-label="קבצים מצורפים" style="width:min(94vw,760px);max-height:85vh;overflow:auto;padding:16px;border-radius:16px"><h2>קבצים מצורפים</h2>'+
-  '<p class="muted">שמות ופרטי קבצים שנמצאו בדוא״ל. תוכן הקבצים לא הורד ל־CRM, ולא ניתן להוריד אותו ממסך זה.</p>'+
+  '<p class="muted">פרטי קבצים מהדוא״ל. כשההורדה מאופשרת, הקובץ נקרא מהספק בלחיצה בלבד (עד 10MB לקובץ). קובץ שהועבר או השתנה עשוי לדרוש סנכרון מחדש.</p>'+
   (rows||'<p class="empty">אין מידע על קבצים מצורפים בשיחה שנשמרה.</p>')+
   (result.limited?'<p class="muted">מוצגים עד 100 פריטים.</p>':'')+
   '<form method="dialog"><button class="btn">סגירה</button></form></dialog>';
