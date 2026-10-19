@@ -77,6 +77,7 @@ const schema=[
 export async function migrate(){
   for(const sql of schema) await db.query(sql);
   await ensureColumn("messages","provider_state_json","LONGTEXT");
+  await ensureColumn("messages","body_html","LONGTEXT");
   // Protect legacy owner-chosen names; new synced accounts are connector-managed.
   await ensureColumn("accounts","label_source","VARCHAR(20) NOT NULL DEFAULT 'manual'");
   await ensureColumn("tasks","automation_mode","VARCHAR(32) DEFAULT 'manual'");

@@ -1,3 +1,4 @@
+import {sanitizeMailHtml} from './mail-html.js';
 import {mailProviderState,updateMailProviderState} from './mail-provider-state.js';
 import {inboxHeaders} from './ai/inbox-headers.js';
 import {nonCustomerSignal} from './ai/inbox-signals.js';
@@ -69,7 +70,7 @@ export async function ingestMessage(p){
   }
   const [redirect]=await c.execute('SELECT target_id FROM conversation_redirects WHERE source_id=? LIMIT 1',[convId]);if(redirect.length)convId=redirect[0].target_id;
   const [exists]=await c.execute("SELECT m.id,m.conversation_id FROM messages m JOIN conversations cv ON cv.id=CAST(m.conversation_id AS BINARY) WHERE m.id=? OR (cv.account_id=? AND m.external_id=?) LIMIT 1",[msgId,localAccountId,ev]);
-  if(exists.length){if(['google.gmail','hostinger.imap'].includes(p.source)&&p.provider_state)await c.execute('UPDATE messages SET provider_state_json=? WHERE id=?',[mailProviderState(p.provider_state),exists[0].id]);if(['google.gmail','hostinger.imap'].includes(p.source))await persistMailAttachmentMetadata(c,exists[0].id,p.attachments);await c.commit();return {inserted:false,conversation_id:exists[0].conversation_id,message_id:exists[0].id,account_id:localAccountId};}
+  if(exists.length){if(p.body_html)await c.execute("UPDATE messages SET body_html=? WHERE id=?",[sanitizeMailHtml(p.body_html),exists[0].id]);if(['google.gmail','hostinger.imap'].includes(p.source)&&p.provider_state)await c.execute('UPDATE messages SET provider_state_json=? WHERE id=?',[mailProviderState(p.provider_state),exists[0].id]);if(['google.gmail','hostinger.imap'].includes(p.source))await persistMailAttachmentMetadata(c,exists[0].id,p.attachments);await c.commit();return {inserted:false,conversation_id:exists[0].conversation_id,message_id:exists[0].id,account_id:localAccountId};}
   const preferredTitle=(p.channel==='whatsapp'||provider==='whatsapp')?
    (safeWhatsAppName(p.conversation_title)||await lookupWhatsAppTitle({account_id:externalAccountId,jid:ext},c)):'';
   const convTitle=preferredTitle||String(p.subject||(direction==='out'?p.recipient:p.sender)||ext).slice(0,500);
@@ -77,6 +78,7 @@ export async function ingestMessage(p){
   await c.execute("SELECT id FROM conversations WHERE id=? FOR UPDATE",[convId]);
   await c.execute(`INSERT INTO messages(id,conversation_id,external_id,direction,sender,recipient,subject,body,is_read,sent_at,created_at,source,channel,account_id,thread_id,cc,rfc_message_id,references_json,headers_json,inbox_event_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[msgId,convId,ev,direction,String(p.sender||""),String(p.recipient||""),String(p.subject||""),String(p.body||""),read?1:0,ts,now(),String(p.source||provider),p.channel||"email",localAccountId,String(p.thread_id||ext),String(p.cc||""),String(p.rfc_message_id||""),j(p.references||[]),j(inboxHeaders(p.headers)),inboxEventType]);
   if(['google.gmail','hostinger.imap'].includes(p.source))await persistMailAttachmentMetadata(c,msgId,p.attachments);
+  if(p.body_html)await c.execute("UPDATE messages SET body_html=? WHERE id=?",[sanitizeMailHtml(p.body_html),msgId]);
   if(!inboxEventType)await c.execute("UPDATE conversations SET last_message_at=GREATEST(COALESCE(last_message_at,''),?),unread_count=unread_count+?,updated_at=? WHERE id=?",[ts,direction==="in"&&!read?1:0,now(),convId]);
   await c.execute("INSERT INTO activities(event,entity_type,entity_id,title,metadata_json,created_at) VALUES(?,?,?,?,?,?)",["message."+direction,"conversation",convId,String(p.subject||p.body||"הודעה חדשה").slice(0,160),j({source:provider}),now()]);
   await c.execute('INSERT IGNORE INTO message_intelligence(message_id,engine_version,decision_json,updated_at) VALUES(?,?,?,?)',[msgId,INBOX_ENGINE_VERSION,j(decideInbox({...p,direction})),now()]);
