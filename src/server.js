@@ -1,3 +1,4 @@
+import {downloadMailAttachment,attachmentDownloadHeaders} from './mail-attachment-download.js';
 import {peopleSyncPage} from './google-people-sync.js';
 import {syncProviderMirror,listProviderMirror} from './provider-mirror.js';
 import {driveSyncPage} from './google-drive-sync.js';
@@ -126,9 +127,16 @@ app.post("/api/sent/:id/delete-for-everyone",async(req,reply)=>{
  return result;
 });
 app.get("/api/drafts/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return listOpenDrafts({limit:req.query?.limit||60})});
+app.get("/api/conversations/:id/attachments/:message/:ordinal/download",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const file=await downloadMailAttachment({conversationId:req.params.id,messageId:req.params.message,ordinal:req.params.ordinal,
+  enabled:config.mailAttachmentDownloads,db,google:googleConnector,hostinger:hostingerMail});
+ return attachmentDownloadHeaders(reply,file.filename).send(file.content);
+});
 app.get("/api/conversations/:id/attachments",async(req,reply)=>{
  if(!uiAuth(req,reply))return;
- return listConversationAttachmentMetadata(req.params.id,db);
+ const result=await listConversationAttachmentMetadata(req.params.id,db);
+ return {...result,downloads_enabled:config.mailAttachmentDownloads};
 });
 app.get("/api/conversations/:id",async(req,reply)=>{
  if(!uiAuth(req,reply))return;

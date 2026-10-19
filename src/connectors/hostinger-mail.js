@@ -36,6 +36,23 @@ export class HostingerMailConnector{
  }
  async disconnect(){await this.vault.set("hostinger:account",{disconnected:true});this.account=null;this.disabled=true;this.initialized=true;return {ok:true,...this.status()};}
 
+ async downloadMessageRaw({account_id,state,maxBytes}){
+  await this.initialize();
+  if(!this.configured())throw Error('hostinger_account_not_connected');
+  if(account_id!==this.settings().user)throw Error('mail_account_mismatch');
+  if(state?.protocol!=='imap'||typeof state.folder!=='string'||!state.folder||state.folder.length>1024||
+   !/^[1-9][0-9]*$/.test(String(state.uid))||!/^[1-9][0-9]*$/.test(String(state.uid_validity)))throw Error('imap_attachment_location_missing');
+  const c=this.client();let lock;
+  try{
+   await c.connect();lock=await c.getMailboxLock(state.folder,{readOnly:true});
+   if(String(c.mailbox.uidValidity)!==String(state.uid_validity))throw Error('imap_uid_validity_changed');
+   const {content}=await c.download(state.uid,undefined,{uid:true,maxBytes:maxBytes+1});
+   const chunks=[];let total=0;
+   for await(const part of content){const chunk=Buffer.from(part);total+=chunk.length;
+    if(total>maxBytes){content.destroy();throw Error('mail_message_too_large');}chunks.push(chunk);}
+   return Buffer.concat(chunks,total);
+  }finally{lock?.release();await c.logout().catch(()=>{});}
+ }
  async folders(){
   await this.initialize();
   if(!this.configured())throw Error('hostinger_account_not_connected');

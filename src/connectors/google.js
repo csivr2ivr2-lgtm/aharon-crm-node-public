@@ -99,6 +99,18 @@ export class GoogleConnector{
   const result=(await gmail.users.messages.modify({userId:'me',id:message_id,requestBody})).data;
   return {ok:true,account_id:account.id,message_id:result.id,labels:result.labelIds||[],local_sync_pending:true};
  }
+ async downloadMessageRaw({account_id,message_id,maxBytes}){
+  if(typeof message_id!=='string'||!/^[-a-zA-Z0-9_]{1,200}$/.test(message_id))throw Error('invalid_gmail_message_id');
+  const account=await this.permittedAccount(account_id,'gmail_read');
+  const gmail=google.gmail({version:'v1',auth:await this.clientFor(account)});
+  const limit=Math.ceil(maxBytes*4/3)+65536;
+  const item=(await gmail.users.messages.get({userId:'me',id:message_id,format:'raw'},
+   {timeout:15000,maxContentLength:limit,retry:false})).data;
+  if(item.id!==message_id||typeof item.raw!=='string'||item.raw.length>limit||!/^[A-Za-z0-9_-]*={0,2}$/.test(item.raw))throw Error('gmail_message_invalid');
+  const raw=Buffer.from(item.raw,'base64url');
+  if(raw.length>maxBytes)throw Error('mail_message_too_large');
+  return raw;
+ }
  async gmailFolders({account_id=""}={}){
   const account=await this.permittedAccount(account_id,'gmail_read');
   const auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});

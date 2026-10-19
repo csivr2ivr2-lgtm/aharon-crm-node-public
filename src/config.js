@@ -19,6 +19,7 @@ export const config=Object.freeze({
  googleClientId:e("GOOGLE_CLIENT_ID"),googleClientSecret:e("GOOGLE_CLIENT_SECRET"),googleRedirectUri:e("GOOGLE_REDIRECT_URI"),
  googleScopes:["openid","email","profile","https://www.googleapis.com/auth/gmail.readonly","https://www.googleapis.com/auth/gmail.send","https://www.googleapis.com/auth/calendar.readonly","https://www.googleapis.com/auth/drive.metadata.readonly"],
  gmailIncrementalSync:b("GMAIL_INCREMENTAL_SYNC",false),
+ mailAttachmentDownloads:b("MAIL_ATTACHMENT_DOWNLOADS",false),
  gmailWritesEnabled:b("GMAIL_WRITES_ENABLED",false),
  googleCalendarSync:b("GOOGLE_CALENDAR_SYNC",false),
  googlePeopleSync:b("GOOGLE_PEOPLE_SYNC",false),
