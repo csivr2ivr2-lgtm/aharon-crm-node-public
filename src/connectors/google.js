@@ -50,6 +50,11 @@ export class GoogleConnector{
   if(id){const v=await this.vault.get("google:"+id);if(!v)throw Error("Google account not found");return v;}
   const all=await this.vault.entries("google:");if(all.length===0)throw Error("No Google account is connected");if(all.length>1)throw Error("account_id is required");return all[0].value;
  }
+ async permittedAccount(id,permission){
+  const account=await this.accountRecord(id);
+  if(!googlePermissions(account.tokens)[permission])throw Error(permission+'_permission_required');
+  return account;
+ }
  async clientFor(record){
   const revision=record.auth_revision;
   return this.oauthClient(record.tokens,async fresh=>{
@@ -94,13 +99,13 @@ export class GoogleConnector{
   return {ok:true,account_id:account.id,message_id:result.id,labels:result.labelIds||[],local_sync_pending:true};
  }
  async gmailFolders({account_id=""}={}){
-  const account=await this.accountRecord(account_id);
+  const account=await this.permittedAccount(account_id,'gmail_read');
   const auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});
   const summary=await gmailFolderOverview(gmail);
   return {...summary,account:publicAccount(account)};
  }
  async gmailRecent({account_id="",max_results=20,q=""}={}){
-  const account=await this.accountRecord(account_id),auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});
+  const account=await this.permittedAccount(account_id,'gmail_read'),auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});
   const list=await gmail.users.messages.list({userId:"me",maxResults:Math.min(100,Math.max(1,Number(max_results||20))),q:q||undefined});
   const messages=[];
   const ids=new Set(),threads=new Set();
@@ -121,7 +126,7 @@ export class GoogleConnector{
 
  // History crawl uses page tokens and processes each message once; do not expand entire threads.
  async historyPage({account_id,page_token='',limit=10}={}){
-  const account=await this.accountRecord(account_id),auth=await this.clientFor(account),gmail=google.gmail({version:'v1',auth});
+  const account=await this.permittedAccount(account_id,'gmail_read'),auth=await this.clientFor(account),gmail=google.gmail({version:'v1',auth});
   const list=await gmail.users.messages.list({userId:'me',maxResults:Math.max(1,Math.min(20,limit)),includeSpamTrash:true,...(page_token?{pageToken:page_token}:{})});
   const messages=[];
   for(const entry of list.data.messages||[]){
@@ -140,7 +145,7 @@ export class GoogleConnector{
   return {account,calendar:google.calendar({version:'v3',auth:await this.clientFor(account)})};
  }
  async calendarUpcoming({account_id="",max_results=20}={}){
-  const account=await this.accountRecord(account_id),auth=await this.clientFor(account),calendar=google.calendar({version:"v3",auth});
+  const account=await this.permittedAccount(account_id,'calendar_read'),auth=await this.clientFor(account),calendar=google.calendar({version:"v3",auth});
   const r=await calendar.events.list({calendarId:"primary",timeMin:new Date().toISOString(),singleEvents:true,orderBy:"startTime",maxResults:Math.min(50,Math.max(1,Number(max_results||20)))});
   return {ok:true,account:publicAccount(account),events:(r.data.items||[]).map(e=>({id:e.id,summary:e.summary||"",description:e.description||"",start:e.start?.dateTime||e.start?.date||"",end:e.end?.dateTime||e.end?.date||"",location:e.location||"",html_link:e.htmlLink||""}))};
  }
@@ -157,12 +162,12 @@ export class GoogleConnector{
   return {account,drive:google.drive({version:'v3',auth:await this.clientFor(account)})};
  }
  async driveSearch({account_id="",q="",max_results=20}={}){
-  const account=await this.accountRecord(account_id),auth=await this.clientFor(account),drive=google.drive({version:"v3",auth}),safe=String(q||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+  const account=await this.permittedAccount(account_id,'drive_metadata'),auth=await this.clientFor(account),drive=google.drive({version:"v3",auth}),safe=String(q||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
   const r=await drive.files.list({q:"trashed=false and name contains '"+safe+"'",pageSize:Math.min(50,Math.max(1,Number(max_results||20))),fields:"files(id,name,mimeType,modifiedTime,webViewLink,owners(displayName,emailAddress))",orderBy:"modifiedTime desc"});
   return {ok:true,account:publicAccount(account),files:r.data.files||[]};
  }
  async sendEmail({account_id="",to,subject,body,cc="",thread_id="",in_reply_to="",references=[]}){
-  const account=await this.accountRecord(account_id),auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});
+  const account=await this.permittedAccount(account_id,'gmail_send'),auth=await this.clientFor(account),gmail=google.gmail({version:"v1",auth});
   const r=await gmail.users.messages.send({userId:"me",requestBody:{raw:mimeMessage({to,subject,body,cc,from:account.email,in_reply_to,references}),...(thread_id?{threadId:thread_id}:{})}});
   return {ok:true,account:publicAccount(account),message_id:r.data.id,thread_id:r.data.threadId};
  }
@@ -170,7 +175,7 @@ export class GoogleConnector{
  async gmailIncrementalEvents(account){
   const key='gmail-sync:'+account.id,previous=await this.vault.get(key);
   const expected=JSON.stringify(previous);
-  const record=await this.accountRecord(account.id),auth=await this.clientFor(record);
+  const record=await this.permittedAccount(account.id,'gmail_read'),auth=await this.clientFor(record);
   const page=await gmailSyncPage(google.gmail({version:'v1',auth}),previous);
   const events=[];
   for(const entry of page.items){

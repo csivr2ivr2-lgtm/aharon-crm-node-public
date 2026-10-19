@@ -36,3 +36,24 @@ test('sync status exposes no OAuth tokens, raw cursor or message body',async()=>
  assert.equal(status.sync.has_cursor,true);
  assert.doesNotMatch(JSON.stringify(status),/private|access_token/);
 });
+
+test('all Google data entry points reject missing scopes before constructing a provider client',async()=>{
+ const c=new GoogleConnector({get:async()=>({id:'a',tokens:{}})});
+ c.clientFor=async()=>{assert.fail('must not contact the provider without permission');};
+ for(const [method,permission] of [['gmailFolders','gmail_read'],['gmailRecent','gmail_read'],['historyPage','gmail_read'],['calendarUpcoming','calendar_read'],['driveSearch','drive_metadata'],['sendEmail','gmail_send']]){
+  await assert.rejects(c[method]({account_id:'a'}),new RegExp(permission+'_permission_required'));
+ }
+ await assert.rejects(c.gmailIncrementalEvents({id:'a'}),/gmail_read_permission_required/);
+});
+test('Google read and send grants are independent and exact',async()=>{
+ for(const scope of ['', 'https://www.googleapis.com/auth/gmail.readonly','https://www.googleapis.com/auth/gmail.send.evil']){
+  const c=new GoogleConnector({get:async()=>({id:'a',tokens:{scope}})});
+  await assert.rejects(c.permittedAccount('a','gmail_send'),/gmail_send_permission_required/);
+ }
+ for(const scope of [GMAIL_MODIFY,'https://www.googleapis.com/auth/gmail.send','https://www.googleapis.com/auth/gmail.compose','https://mail.google.com/']){
+  const c=new GoogleConnector({get:async()=>({id:'a',tokens:{scope}})});
+  assert.equal((await c.permittedAccount('a','gmail_send')).id,'a');
+ }
+ const c=new GoogleConnector({get:async()=>({id:'a',tokens:{scope:'https://www.googleapis.com/auth/gmail.send'}})});
+ await assert.rejects(c.permittedAccount('a','gmail_read'),/gmail_read_permission_required/);
+});
