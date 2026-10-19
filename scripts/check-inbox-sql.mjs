@@ -7,6 +7,7 @@ import {peopleSyncPage} from '../src/google-people-sync.js';
 import {syncProviderMirror,listProviderMirror} from '../src/provider-mirror.js';
 import {syncCalendarMirror,listCalendarMirror} from '../src/google-calendar-sync.js';
 import {ingestMessage} from '../src/workspace-service.js';
+import {migrateMailAttachmentMetadata,listConversationAttachmentMetadata} from '../src/mail-attachment-metadata.js';
 import {updateMailProviderState} from '../src/mail-provider-state.js';
 // Isolated integration test: only the CI database set through DB_* is modified.
 import assert from 'node:assert/strict';
@@ -32,6 +33,8 @@ const run=async()=>{
  const [[version]]=await db.query('SELECT VERSION() AS version');
  console.log('Connected to actual SQL server version:',version.version);
  await migrate();
+ await migrateMailAttachmentMetadata(db);
+ await migrateMailAttachmentMetadata(db);
  await migrateExtras();
  await migrateExtras(); // All additive mirror migrations are idempotent.
  await migratePlatform();
@@ -312,6 +315,21 @@ const run=async()=>{
  assert.equal(JSON.parse(providerRows.find(x=>x.id===b.message_id).provider_state_json).available,true);
  assert.ok(providerRows.every(x=>x.body==='Synthetic sync record'));
  console.log('PASS: Gmail provider flags/replay/tombstones preserve CRM reads, bodies and account isolation');
+ // MIME metadata must be stored together with messages, idempotently and per account.
+ const fixtureA={...gmailFixture('sql-mail-attach-a'),external_id:'attachment-mail',
+  attachments:[{filename:'proposal.pdf',mime_type:'application/pdf',size_bytes:123,disposition:'attachment'}]};
+ const fixtureB={...gmailFixture('sql-mail-attach-b'),external_id:'attachment-mail'};
+ const first=await ingestMessage(fixtureA),second=await ingestMessage(fixtureB);
+ await ingestMessage(fixtureA);
+ const attachmentsA=await listConversationAttachmentMetadata(first.conversation_id,db);
+ const attachmentsB=await listConversationAttachmentMetadata(second.conversation_id,db);
+ assert.equal(attachmentsA.items.length,1);
+ assert.equal(attachmentsA.items[0].filename,'proposal.pdf');
+ assert.equal(attachmentsA.content_available,false);
+ assert.equal(attachmentsB.items.length,0,'cross-account metadata must remain isolated');
+ const [[rowCount]]=await db.execute('SELECT COUNT(*) AS n FROM message_attachment_metadata WHERE message_id=?',[first.message_id]);
+ assert.equal(Number(rowCount.n),1,'repeated imports must not duplicate attachment rows');
+ console.log('PASS: real SQL MIME metadata, idempotent replay and account separation');
  const calendarFixture=summary=>({events:{list:async()=>({data:{items:[{id:'same-event',summary,start:{date:'2026-10-20'}}],nextSyncToken:'checkpoint'}})}});
  await syncCalendarMirror({account_id:'calendar-a',calendar:calendarFixture('Account A'),db});
  await syncCalendarMirror({account_id:'calendar-b',calendar:calendarFixture('Account B'),db});
