@@ -1,3 +1,4 @@
+import {downloadMailAttachment} from '../src/mail-attachment-download.js';
 import {migrateFileIntelligence} from '../src/file-intelligence.js';
 import {migrateCrmIntelligence} from '../src/crm-intelligence.js';
 import {loadProjectRisks} from '../src/ai/project-risks.js';
@@ -317,7 +318,7 @@ const run=async()=>{
  console.log('PASS: Gmail provider flags/replay/tombstones preserve CRM reads, bodies and account isolation');
  {
  // MIME metadata must be stored together with messages, idempotently and per account.
- const fixtureA={...gmailFixture('sql-mail-attach-a'),external_id:'attachment-mail',
+ const fixtureA={...gmailFixture('sql-mail-attach-a'),external_id:'attachment-mail',body_html:'<p>Safe HTML</p><script>bad()</script>',
   attachments:[{filename:'proposal.pdf',mime_type:'application/pdf',size_bytes:123,disposition:'attachment'}]};
  const fixtureB={...gmailFixture('sql-mail-attach-b'),external_id:'attachment-mail'};
  const first=await ingestMessage(fixtureA),second=await ingestMessage(fixtureB);
@@ -330,6 +331,19 @@ const run=async()=>{
  assert.equal(attachmentsB.items.length,0,'cross-account metadata must remain isolated');
  const [[rowCount]]=await db.execute('SELECT COUNT(*) AS n FROM message_attachment_metadata WHERE message_id=?',[first.message_id]);
  assert.equal(Number(rowCount.n),1,'repeated imports must not duplicate attachment rows');
+ const [[htmlStored]]=await db.execute('SELECT body_html FROM messages WHERE id=?',[first.message_id]);
+ assert.equal(htmlStored.body_html,'<p>Safe HTML</p>');
+ const mime=Buffer.from(['MIME-Version: 1.0','Content-Type: multipart/mixed; boundary=B','','--B',
+  'Content-Type: application/pdf','Content-Disposition: attachment; filename=proposal.pdf','Content-Transfer-Encoding: base64','',
+  Buffer.alloc(123,65).toString('base64'),'--B--',''].join('\r\n'));
+ let selectedAccount='';
+ const provider={downloadMessageRaw:async args=>{selectedAccount=args.account_id;return mime;}};
+ const request={conversationId:first.conversation_id,messageId:first.message_id,ordinal:0,enabled:true,db,google:provider};
+ const bytes=await downloadMailAttachment(request);
+ assert.equal(bytes.content.length,123);assert.equal(selectedAccount,'sql-mail-attach-a');
+ selectedAccount='';
+ await assert.rejects(downloadMailAttachment({...request,conversationId:second.conversation_id}),/mail_attachment_missing/);
+ assert.equal(selectedAccount,'');
  console.log('PASS: real SQL MIME metadata, idempotent replay and account separation');
  }
  const calendarFixture=summary=>({events:{list:async()=>({data:{items:[{id:'same-event',summary,start:{date:'2026-10-20'}}],nextSyncToken:'checkpoint'}})}});
