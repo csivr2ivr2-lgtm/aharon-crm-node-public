@@ -1,3 +1,4 @@
+import {mailHtmlDocument} from './mail-html.js';
 import {downloadMailAttachment,attachmentDownloadHeaders} from './mail-attachment-download.js';
 import {peopleSyncPage} from './google-people-sync.js';
 import {syncProviderMirror,listProviderMirror} from './provider-mirror.js';
@@ -132,6 +133,14 @@ app.get("/api/conversations/:id/attachments/:message/:ordinal/download",async(re
  const file=await downloadMailAttachment({conversationId:req.params.id,messageId:req.params.message,ordinal:req.params.ordinal,
   enabled:config.mailAttachmentDownloads,db,google:googleConnector,hostinger:hostingerMail});
  return attachmentDownloadHeaders(reply,file.filename).send(file.content);
+});
+app.get("/api/conversations/:id/messages/:message/html",async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ if(!config.mailHtmlPreview)throw Error('mail_html_disabled');
+ if(!/^[A-Za-z0-9_-]{1,128}$/.test(req.params.id)||!/^[A-Za-z0-9_-]{1,128}$/.test(req.params.message))throw Error('invalid_message_reference');
+ const [rows]=await db.execute("SELECT body_html FROM messages WHERE id=? AND conversation_id=? AND source IN ('google.gmail','hostinger.imap') LIMIT 1",[req.params.message,req.params.id]);
+ if(!rows[0]?.body_html)throw Error('mail_html_unavailable');
+ return {ok:true,document:mailHtmlDocument(rows[0].body_html)};
 });
 app.get("/api/conversations/:id/attachments",async(req,reply)=>{
  if(!uiAuth(req,reply))return;

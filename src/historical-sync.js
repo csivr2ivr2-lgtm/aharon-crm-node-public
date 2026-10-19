@@ -53,7 +53,7 @@ export async function historyPageJob(payload,{database=defaultDb,google=googleCo
     account_id:accountId,account:{provider:'google',type:'email',identifier:page.account.email,label:page.account.name||page.account.email},
     conversation_external_id:'gmail:'+accountId+':'+(m.thread_id||m.id),external_id:m.id,thread_id:m.thread_id,
     direction:fromSelf?'out':'in',sender:m.from,recipient:m.to,cc:m.cc,headers:m.headers,
-    rfc_message_id:m.message_id,references:m.references,subject:m.subject,body:m.body,is_read:!m.unread,sent_at:m.sent_at};
+    rfc_message_id:m.message_id,references:m.references,subject:m.subject,attachments:m.attachments,body_html:m.body_html,body:m.body,is_read:!m.unread,sent_at:m.sent_at};
   });
  }else{
   if(!hostinger.configured()||hostinger.settings().user.toLowerCase()!==accountId.toLowerCase())throw Error('hostinger_history_account_unavailable');
