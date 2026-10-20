@@ -88,3 +88,30 @@ test('Gmail HTTP actions require login, same origin, confirmation, scoped identi
   assert.equal(calls,1);assert.equal(audits.length,2);
  }finally{await app.close();}
 });
+
+test('client resource HTTP routes enforce authentication, confirmation and current provider permission',async t=>{
+ let authorized=0,reads=0;
+ t.mock.method(db,'execute',async(sql,args)=>{
+  reads++;
+  if(sql.includes('FROM client_resource_links'))return [[{id:'a'.repeat(64),client_id:'client_a',provider:'google.drive',account_id:'account-a',external_id:'private-file'}]];
+  assert.fail('No provider payload may be read after permission rejection');
+ });
+ t.mock.method(googleConnector,'driveApi',async account=>{authorized++;assert.equal(account,'account-a');throw Error('drive_metadata_permission_required');});
+ const app=await buildApp({initializeDatabase:false,startBackground:false});
+ try{
+  const url='/api/clients/client_a/resources';
+  for(const method of ['GET','POST'])assert.equal((await app.inject({method,url})).statusCode,401);
+  const cookie=await login(app);
+  const input={provider:'google.drive',account_id:'account-a',external_id:'private-file'};
+  assert.equal((await app.inject({method:'POST',url,payload:input,headers:{cookie}})).statusCode,400);
+  assert.equal(authorized,0);assert.equal(reads,0);
+  assert.equal((await app.inject({method:'POST',url,payload:{...input,confirmed:true},headers:{cookie}})).statusCode,400);
+  assert.equal(authorized,1);assert.equal(reads,0);
+  const list=await app.inject({url,headers:{cookie}});
+  assert.equal(list.statusCode,200);
+  assert.deepEqual(list.json().items,[{id:'a'.repeat(64),client_id:'client_a',provider:'google.drive',available:false}]);
+  const unlink=url+'/'+ 'a'.repeat(64)+'/unlink';
+  assert.equal((await app.inject({method:'POST',url:unlink,payload:{confirmed:true}})).statusCode,401);
+  assert.equal((await app.inject({method:'POST',url:unlink,payload:{},headers:{cookie}})).statusCode,400);
+ }finally{await app.close();}
+});
