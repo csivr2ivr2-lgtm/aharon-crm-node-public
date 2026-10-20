@@ -39,6 +39,7 @@ try{
     result={ok:true,item:row};
    }
    else if(url.pathname==='/api/tasks')result={ok:true,items:[{id:'task_a',title:'בדיקת מועד',status:'open',due_date:'2026-10-20',notes:'<img src=x onerror=alert(1)>'},{id:'task_b',title:'מעקב ללא תאריך',status:'done'}]};
+   else if(url.pathname==='/api/clients')result={ok:true,items:[{id:'client-a',name:'לקוח בדיקה',email:'client@example.test'}]};
    else if(url.pathname==='/api/connectors')result={ok:true,connectors:[{key:'google',configured:true,status:'connected',accounts:[{id:'drive-a',email:'a@example.test'},{id:'drive-b',email:'b@example.test'}]}]};
    else if(url.pathname==='/api/google/people/cache'){const account=url.searchParams.get('account_id');assert.ok(['drive-a','drive-b'].includes(account));result={ok:true,sync:{checked_at:null,has_next_page:false},items:[{id:'people/same',name:account+' contact',emails:[{value:'<img src=x onerror=alert(1)>'}],phones:[{value:'+972501234567'}]}]};}
    else if(url.pathname==='/api/google/people/sync'){assert.equal(body.account_id,'drive-b');result={ok:true};}
@@ -156,6 +157,21 @@ try{
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   assert.equal(await page.getByText('drive-a document',{exact:true}).count(),0);checks++;
   assert.equal(await page.getByText('drive-b document',{exact:true}).count(),1);checks++;
+
+  phase='resource-client-link-'+width;
+  await page.locator('[data-action="link-client-resource"][data-id="safe"]').click();
+  await page.getByRole('dialog',{name:'שיוך מקור ללקוח'}).waitFor();
+  const resourceWrites=()=>writes.filter(x=>x.path==='/api/clients/client-a/resources');
+  assert.equal(resourceWrites().length,0);checks++;
+  await page.getByRole('button',{name:'ביטול',exact:true}).click();
+  assert.equal(resourceWrites().length,0);checks++;
+  await page.locator('[data-action="link-client-resource"][data-id="safe"]').click();
+  await page.getByLabel('לקוח',{exact:true}).selectOption('client-a');
+  await page.getByRole('button',{name:'אישור שיוך',exact:true}).click();
+  await page.getByText('המקור שויך ללקוח. ניתן לראות אותו בכרטיס הלקוח.',{exact:true}).waitFor();
+  assert.deepEqual(resourceWrites().map(x=>x.body),[{provider:'google.drive',account_id:'drive-b',external_id:'safe',confirmed:true}]);checks++;
+  await accessibility(page,'resource-link-'+width);
+  await page.getByRole('button',{name:'ביטול',exact:true}).click();
   phase='people-mirror-'+width;
   await page.locator('[data-action="people-mirror"][data-id="drive-a"]').click();
   await page.getByText('drive-a contact',{exact:true}).waitFor();

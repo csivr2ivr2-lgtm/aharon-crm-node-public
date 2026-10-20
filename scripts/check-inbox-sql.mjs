@@ -1,3 +1,5 @@
+import {migrateClientResourceLinks,linkClientResource,listClientResources} from '../src/client-resource-links.js';
+import {audit} from '../src/platform/audit.js';
 import {downloadMailAttachment} from '../src/mail-attachment-download.js';
 import {migrateFileIntelligence} from '../src/file-intelligence.js';
 import {migrateCrmIntelligence} from '../src/crm-intelligence.js';
@@ -417,6 +419,26 @@ const run=async()=>{
  assert.ok(clientA.tasks.every(t=>t.source.client_id==='ci360_a'));
  assert.doesNotMatch(JSON.stringify(clientA),/ci360_task_b|ci360_conv_b|ci360_project_b/);
  console.log('PASS: real SQL customer 360 excludes lookalikes and shared-project inference');
+ await migrateClientResourceLinks(db);await migrateClientResourceLinks(db);
+ {
+  const authorize=async(provider,account)=>{assert.equal(provider,'google.drive');assert.ok(['link-account-a','link-account-b'].includes(account));};
+  for(const account_id of ['link-account-a','link-account-b']){
+   await syncProviderMirror({provider:'google.drive',account_id,db,fetchPage:async()=>({items:[{id:'same-file',available:true,name:account_id}],nextState:{generation:'links-generation',mode:'delta',page:''}})});
+  }
+  const ref={client_id:'ci360_a',provider:'google.drive',account_id:'link-account-a',external_id:'same-file',confirmed:true,db,authorize,audit};
+  const first=await linkClientResource(ref),again=await linkClientResource(ref);assert.equal(first.id,again.id);
+  await assert.rejects(linkClientResource({...ref,client_id:'ci360_b'}),/another_client/);
+  const a=await listClientResources({client_id:'ci360_a',db,authorize}),b=await listClientResources({client_id:'ci360_b',db,authorize});
+  assert.equal(a.items.length,1);assert.equal(a.items[0].item.name,'link-account-a');assert.equal(b.items.length,0);
+  assert.equal((await listClientResources({client_id:'CI360_A',db,authorize})).items.length,0);
+  await assert.rejects(linkClientResource({...ref,client_id:'ci360_b',account_id:'link-account-b',audit:async()=>{throw Error('audit unavailable');}}),/audit unavailable/);
+  assert.equal((await listClientResources({client_id:'ci360_b',db,authorize})).items.length,0);
+  await syncProviderMirror({provider:'google.drive',account_id:'link-account-a',db,fetchPage:async()=>({items:[{id:'same-file',available:false}],nextState:{generation:'links-generation',mode:'delta',page:''}})});
+  const removed=await listClientResources({client_id:'ci360_a',db,authorize});
+  assert.equal(removed.items[0].available,false);assert.equal(removed.items[0].item,undefined);
+  console.log('PASS: real SQL external links isolate clients/accounts, reject reassignment, roll back failed audit and hide tombstones');
+ }
+
  await db.execute("UPDATE tasks SET due_date='2000-01-01',status='open' WHERE id='ci360_task_a'");
  await db.execute("UPDATE tasks SET due_date='2000-01-01',status='done' WHERE id='ci360_task_b'");
  const risks=await loadProjectRisks({database:db});
