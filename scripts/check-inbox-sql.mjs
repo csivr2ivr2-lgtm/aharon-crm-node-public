@@ -1,5 +1,5 @@
 import {findCommitmentCandidates} from '../src/ai/commitment-candidates.js';
-import {migrateClientResourceLinks,linkClientResource,listClientResources} from '../src/client-resource-links.js';
+import {migrateClientResourceLinks,linkClientResource,listClientResources,unlinkClientResource} from '../src/client-resource-links.js';
 import {audit} from '../src/platform/audit.js';
 import {downloadMailAttachment} from '../src/mail-attachment-download.js';
 import {migrateFileIntelligence} from '../src/file-intelligence.js';
@@ -449,6 +449,15 @@ const run=async()=>{
   await syncProviderMirror({provider:'google.drive',account_id:'link-account-a',db,fetchPage:async()=>({items:[{id:'same-file',available:false}],nextState:{generation:'links-generation',mode:'delta',page:''}})});
   const removed=await listClientResources({client_id:'ci360_a',db,authorize});
   assert.equal(removed.items[0].available,false);assert.equal(removed.items[0].item,undefined);
+
+  const race=await Promise.allSettled(['ci360_a','ci360_b'].map(client_id=>linkClientResource({...ref,client_id,account_id:'link-account-b'})));
+  assert.equal(race.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(race.filter(x=>x.status==='rejected').length,1);
+  const winner=race[0].status==='fulfilled'?'ci360_a':'ci360_b',winnerId=race.find(x=>x.status==='fulfilled').value.id;
+  await assert.rejects(unlinkClientResource({client_id:winner==='ci360_a'?'ci360_b':'ci360_a',id:winnerId,confirmed:true,db,audit}),/not_found/);
+  await unlinkClientResource({client_id:winner,id:winnerId,confirmed:true,db,audit});
+  const [retained]=await db.execute("SELECT COUNT(*) AS n FROM provider_records WHERE external_id='same-file'");
+  assert.equal(Number(retained[0].n),2,'unlink must retain all provider records');
   console.log('PASS: real SQL external links isolate clients/accounts, reject reassignment, roll back failed audit and hide tombstones');
  }
 
