@@ -455,9 +455,10 @@ const run=async()=>{
   assert.equal(race.filter(x=>x.status==='rejected').length,1);
   const winner=race[0].status==='fulfilled'?'ci360_a':'ci360_b',winnerId=race.find(x=>x.status==='fulfilled').value.id;
   await assert.rejects(unlinkClientResource({client_id:winner==='ci360_a'?'ci360_b':'ci360_a',id:winnerId,confirmed:true,db,audit}),/not_found/);
+  const [beforeUnlink]=await db.execute('SELECT id,available,payload_json FROM provider_records ORDER BY id');
   await unlinkClientResource({client_id:winner,id:winnerId,confirmed:true,db,audit});
-  const [retained]=await db.execute("SELECT COUNT(*) AS n FROM provider_records WHERE external_id='same-file'");
-  assert.equal(Number(retained[0].n),2,'unlink must retain all provider records');
+  const [afterUnlink]=await db.execute('SELECT id,available,payload_json FROM provider_records ORDER BY id');
+  assert.deepEqual(afterUnlink,beforeUnlink,'unlink must preserve every provider record and its payload');
   console.log('PASS: real SQL external links isolate clients/accounts, reject reassignment, roll back failed audit and hide tombstones');
  }
 
