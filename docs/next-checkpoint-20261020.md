@@ -88,3 +88,11 @@ Provider flags remain off by default pending authorized validation. No OAuth sco
 expanded, no customer message was sent, no production data or WhatsApp auth was changed.
 The user's conditional merge authorization remains valid; do not request it again merely
 because a PR form exists. Merge only after ALL required quality and backup gates.
+
+## Final SQL preservation follow-up
+CI #184/#185 exposed a test-fixture counting error: earlier scenarios also use the
+external ID same-file, so the database legitimately contains more than two records.
+eff964f replaces the hard-coded total with exact before/after snapshots of every
+provider record (ID, availability and payload). The concurrent-assignment and
+wrong-client rejection assertions remain intact. This strengthens the preservation
+check rather than suppressing a product failure. Verify the latest CI after this fix.
