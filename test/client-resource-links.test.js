@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveClientResource,linkClientResource,listClientResources} from '../src/client-resource-links.js';
+import {resolveClientResource,linkClientResource,listClientResources,unlinkClientResource} from '../src/client-resource-links.js';
 const ref={client_id:'client_a',provider:'google.drive',account_id:'account_a',external_id:'file_a'};
 const record={generation:'current',available:1,state_json:JSON.stringify({generation:'current'}),payload_json:JSON.stringify({id:'file_a',name:'Private A'}),checked_at:'2026-10-20'};
 test('resource lookup binds exact provider/account/source and rejects removed, old or mismatched records',async()=>{
@@ -35,4 +35,14 @@ test('client resource list returns no cached payload after permission loss',asyn
  }};
  const result=await listClientResources({client_id:'client_a',db,authorize:async()=>{throw Error('revoked');}});
  assert.deepEqual(result.items,[{id:'link',client_id:'client_a',provider:'google.drive',available:false}]);
+});
+
+test('unlink is scoped to an exact client, requires confirmation and audits transactionally',async()=>{
+ const calls=[];let found=true;
+ const c={beginTransaction:async()=>{},commit:async()=>calls.push('commit'),rollback:async()=>calls.push('rollback'),release:()=>{},
+  execute:async(sql,args)=>{assert.deepEqual(args,['a'.repeat(64),'client_a']);calls.push(sql.startsWith('SELECT')?'read':'delete');return [found?[{id:args[0]}]:[]];}};
+ const args={client_id:'client_a',id:'a'.repeat(64),db:{getConnection:async()=>c},audit:async(e,o)=>{assert.equal(o.db,c);assert.equal(e.action,'client.resource.unlink');calls.push('audit');}};
+ await assert.rejects(unlinkClientResource(args),/confirmation/);
+ await unlinkClientResource({...args,confirmed:true});assert.deepEqual(calls,['read','audit','delete','commit']);
+ calls.length=0;found=false;await assert.rejects(unlinkClientResource({...args,confirmed:true}),/not_found/);assert.deepEqual(calls,['read','rollback']);
 });

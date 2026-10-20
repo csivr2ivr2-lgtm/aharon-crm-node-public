@@ -292,6 +292,11 @@ async function showDriveSearch(accountId){
   '<p class="muted">לא נמצאו קבצים מתאימים או שאין גישה אליהם בחשבון הנבחר.</p>';
 }
 
+function resourceSourceLink(item){
+ try{const u=new URL(item.webViewLink||item.htmlLink);
+  if(u.protocol==='https:'&&['drive.google.com','docs.google.com','calendar.google.com','www.google.com'].includes(u.hostname)&&!u.username&&!u.password)return '<a href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">פתח מקור</a>';
+ }catch{}return '';
+}
 function resourceLinkButton(provider,account,external){
  return '<button class="btn" data-action="link-client-resource" data-provider="'+esc(provider)+'" data-account="'+esc(account)+'" data-id="'+esc(external)+'">שייך ללקוח</button>';
 }
@@ -319,7 +324,7 @@ async function showClient360(clientId){
  ];
  let sections=groups.map(([key,title,format])=>'<section class="panel"><h3>'+esc(title)+' · '+(info[key]||[]).length+'</h3>'+
   ((info[key]||[]).length?'<ul>'+(info[key]||[]).map(x=>'<li>'+esc(format(x))+'</li>').join('')+'</ul>':'<p class="muted">אין פריטים משויכים ישירות.</p>')+'</section>').join('');
- sections+='<section class="panel"><h3>מקורות Google משויכים</h3>'+((resources.items||[]).map(r=>'<article><strong>'+esc(r.available?(r.item.name||r.item.summary||r.external_id):'המקור אינו זמין בהרשאות הנוכחיות')+'</strong><p>'+esc(r.provider)+(r.available?' · '+esc(r.account_id)+' · '+esc(r.external_id)+' · עדכון '+esc(formatDate(r.checked_at)):'')+'</p></article>').join('')||'<p>אין מקורות משויכים. ניתן לשייך פריטים מהתצוגות המסונכרנות במסך חיבורים.</p>')+'</section>';
+ sections+='<section class="panel"><h3>מקורות Google משויכים</h3>'+((resources.items||[]).map(r=>'<article><strong>'+esc(r.available?(r.item.name||r.item.summary||r.external_id):'המקור אינו זמין בהרשאות הנוכחיות')+'</strong><p>'+esc(r.provider)+(r.available?' · '+esc(r.account_id)+' · '+esc(r.external_id)+' · עדכון '+esc(formatDate(r.checked_at)):'')+'</p>'+(r.available?resourceSourceLink(r.item):'')+'<button class="btn" data-action="unlink-client-resource" data-client="'+esc(clientId)+'" data-id="'+esc(r.id)+'">בטל שיוך</button></article>').join('')||'<p>אין מקורות משויכים. ניתן לשייך פריטים מהתצוגות המסונכרנות במסך חיבורים.</p>')+'</section>';
  const html='<dialog id="client360Dialog" aria-label="כרטיס לקוח 360" style="width:min(94vw,1040px);max-height:90vh;overflow:auto;border-radius:18px;padding:18px">'+
  '<header class="row"><div><h2>'+esc(client.name||'כרטיס לקוח')+'</h2><p class="muted">'+esc([client.company,client.email,client.phone].filter(Boolean).join(' · '))+'</p></div>'+
  button('client-360-close','סגירה')+'</header><p class="muted">מידע מתוך CRM, עם שיוך מפורש בלבד. אין זיהוי אוטומטי לפי שם דומה או מספר חלקי.</p>'+
@@ -389,6 +394,11 @@ document.addEventListener('click',async e=>{
    dialog.append(note,frame,form);document.body.append(dialog);dialog.showModal();return;
   }
   if(action==='conversation-attachments'){await showConversationAttachments(id);return;}
+  if(action==='unlink-client-resource'){
+   if(!confirm('לבטל את השיוך לכרטיס לקוח זה? המקור אצל Google לא משתנה.'))return;
+   await post('/api/clients/'+encodeURIComponent(b.dataset.client)+'/resources/'+encodeURIComponent(id)+'/unlink',{confirmed:true});
+   await showClient360(b.dataset.client);return;
+  }
   if(action==='link-client-resource'){await showResourceLink(b.dataset.provider,b.dataset.account,id);return;}
   if(action==='confirm-client-resource'){
    const dialog=$('#resourceLinkDialog'),status=$('#resourceLinkStatus'),client=$('#resourceClient').value;

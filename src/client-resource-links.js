@@ -49,3 +49,17 @@ export async function listClientResources({client_id,db,authorize}){
  }
  return {ok:true,items,limited:rows.length>40};
 }
+
+export async function unlinkClientResource({client_id,id,confirmed,db,audit}){
+ if(confirmed!==true)throw Error('explicit_confirmation_required');
+ if(typeof client_id!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(client_id)||typeof id!=='string'||!/^[a-f0-9]{64}$/.test(id))throw Error('invalid_resource_reference');
+ const c=await db.getConnection();
+ try{
+  await c.beginTransaction();
+  const [rows]=await c.execute('SELECT id FROM client_resource_links WHERE id=? AND BINARY client_id=BINARY ? FOR UPDATE',[id,client_id]);
+  if(!rows.length)throw Error('client_resource_link_not_found');
+  await audit({action:'client.resource.unlink',entityType:'client',entityId:client_id,confirmation:'explicit',before:{link_id:id}},{db:c});
+  await c.execute('DELETE FROM client_resource_links WHERE id=? AND BINARY client_id=BINARY ?',[id,client_id]);
+  await c.commit();return {ok:true};
+ }catch(error){await c.rollback();throw error;}finally{c.release();}
+}

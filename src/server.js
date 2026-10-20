@@ -1,4 +1,4 @@
-import {migrateClientResourceLinks,linkClientResource,listClientResources} from './client-resource-links.js';
+import {migrateClientResourceLinks,linkClientResource,listClientResources,unlinkClientResource} from './client-resource-links.js';
 import {applyGmailMessageAction} from './gmail-message-actions.js';
 import {mailHtmlDocument} from './mail-html.js';
 import {downloadMailAttachment,attachmentDownloadHeaders} from './mail-attachment-download.js';
@@ -123,6 +123,10 @@ const authorizeClientResource=async(provider,account)=>{
  else if(provider==='google.calendar')await googleConnector.calendarApi(account);
  else throw Error('invalid_resource_provider');
 };
+app.post('/api/clients/:id/resources/:link/unlink',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ return unlinkClientResource({client_id:req.params.id,id:req.params.link,confirmed:req.body?.confirmed,db,audit});
+});
 app.get('/api/clients/:id/resources',async(req,reply)=>{
  if(!uiAuth(req,reply))return;
  return listClientResources({client_id:req.params.id,db,authorize:authorizeClientResource});
