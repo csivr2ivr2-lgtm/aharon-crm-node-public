@@ -354,13 +354,13 @@ document.addEventListener('click',async e=>{
   if(action==='conversation')await openConversation(b.dataset.id);
   if(action==='gmail-message-actions'){
    document.querySelector('#gmailActionDialog')?.remove();
-   const dialog=document.createElement('dialog');dialog.id='gmailActionDialog';dialog.setAttribute('aria-label','פעולות Gmail');
+   const dialog=document.createElement('dialog');dialog.id='gmailActionDialog';dialog.dataset.conversationId=conversation;dialog.setAttribute('aria-label','פעולות Gmail');
    dialog.innerHTML='<h2>פעולות Gmail</h2><p>השינוי חל על הודעה זו אצל Google. מצב הטיפול ב־CRM נשאר נפרד.</p><label for="gmailAction">פעולה</label><select id="gmailAction"><option value="read">סמן כנקרא</option><option value="unread">סמן כלא נקרא</option><option value="archive">העבר לארכיון</option><option value="inbox">החזר לדואר נכנס</option><option value="star">הוסף כוכב</option><option value="unstar">הסר כוכב</option></select>'+button('gmail-message-confirm','אישור שינוי ב־Gmail',id)+'<form method="dialog"><button class="btn">ביטול</button></form><p id="gmailActionStatus" role="status"></p>';
    document.body.append(dialog);dialog.showModal();return;
   }
   if(action==='gmail-message-confirm'){
    const selected=$('#gmailAction').value,status=$('#gmailActionStatus');status.textContent='מעדכן אצל Google…';
-   try{await post('/api/conversations/'+encodeURIComponent(conversation)+'/messages/'+encodeURIComponent(id)+'/gmail-state',{action:selected,confirmed:true});
+   try{await post('/api/conversations/'+encodeURIComponent($('#gmailActionDialog').dataset.conversationId)+'/messages/'+encodeURIComponent(id)+'/gmail-state',{action:selected,confirmed:true});
     status.textContent='השינוי התקבל ב־Google. התצוגה המקומית תתעדכן בסנכרון הבא.';
    }catch(error){status.textContent=userError(error.message);}return;
   }

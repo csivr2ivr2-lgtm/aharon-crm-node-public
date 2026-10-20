@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 process.env.NODE_ENV='test';process.env.DB_NAME='crm_test';process.env.DB_USER='crm_test';
 process.env.SESSION_SECRET=randomBytes(32).toString('hex');process.env.DASHBOARD_PASSWORD=randomBytes(32).toString('hex');
-process.env.MAIL_ATTACHMENT_DOWNLOADS='true';process.env.MAIL_HTML_PREVIEW='true';
+process.env.GMAIL_WRITES_ENABLED='true';process.env.MAIL_ATTACHMENT_DOWNLOADS='true';process.env.MAIL_HTML_PREVIEW='true';
 const {buildApp}=await import('../src/server.js');
 const {db}=await import('../src/db.js');
 const {googleConnector}=await import('../src/clients/connectors.js');
@@ -46,5 +46,45 @@ test('HTTP mail preview is scoped and sanitizes stored content again before serv
   assert.equal(r.statusCode,200);assert.match(r.json().document,/<p>שלום<\/p>/);
   assert.doesNotMatch(r.json().document,/evil|tracker|<script|<img/);
   assert.equal((await app.inject({url:url.replace('conv_a','conv_b'),headers:{cookie}})).statusCode,400);
+ }finally{await app.close();}
+});
+
+test('Gmail HTTP actions require login, same origin, confirmation, scoped identity and audit',async t=>{
+ let calls=0,scopeAllowed=true;const audits=[];
+ t.mock.method(db,'execute',async(sql,params)=>{
+  if(sql.includes('INSERT INTO ai_audit')){audits.push(params);return [{affectedRows:1}];}
+  if(sql.includes('SELECT m.external_id')){
+   assert.deepEqual(params[0],'msg_a');
+   return params[1]==='conv_a'?[[{external_id:'provider-a',integration_key:'google:account-a'}]]:[[]];
+  }
+  return [[]];
+ });
+ t.mock.method(googleConnector,'permittedAccount',async(account,capability)=>{
+  assert.equal(account,'account-a');assert.equal(capability,'gmail_modify');
+  if(!scopeAllowed)throw Error('google_permission_required');
+  return {};
+ });
+ t.mock.method(googleConnector,'gmailModifyLabels',async args=>{
+  calls++;assert.equal(audits.length,1);
+  assert.deepEqual(args,{account_id:'account-a',message_id:'provider-a',confirmed:true,add:[],remove:['INBOX']});
+  return {ok:true};
+ });
+ const app=await buildApp({initializeDatabase:false,startBackground:false});
+ try{
+  const url='/api/conversations/conv_a/messages/msg_a/gmail-state',payload={action:'archive',confirmed:true};
+  assert.equal((await app.inject({method:'POST',url,payload})).statusCode,401);
+  const cookie=await login(app);
+  assert.equal((await app.inject({method:'POST',url,payload,headers:{cookie,origin:'https://untrusted.example'}})).statusCode,403);
+  for(const confirmed of [undefined,false,'true']){
+   assert.equal((await app.inject({method:'POST',url,payload:{action:'archive',confirmed},headers:{cookie}})).statusCode,400);
+  }
+  assert.equal((await app.inject({method:'POST',url:url.replace('conv_a','conv_b'),payload,headers:{cookie}})).statusCode,400);
+  scopeAllowed=false;
+  assert.equal((await app.inject({method:'POST',url,payload,headers:{cookie}})).statusCode,400);
+  assert.equal(calls,0);assert.equal(audits.length,0);
+  scopeAllowed=true;
+  const response=await app.inject({method:'POST',url,payload:{...payload,account_id:'attacker-account'},headers:{cookie}});
+  assert.equal(response.statusCode,200);assert.equal(response.json().local_sync_pending,true);
+  assert.equal(calls,1);assert.equal(audits.length,2);
  }finally{await app.close();}
 });
