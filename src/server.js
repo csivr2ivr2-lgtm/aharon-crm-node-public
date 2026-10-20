@@ -1,3 +1,4 @@
+import {migrateClientResourceLinks,linkClientResource,listClientResources} from './client-resource-links.js';
 import {applyGmailMessageAction} from './gmail-message-actions.js';
 import {mailHtmlDocument} from './mail-html.js';
 import {downloadMailAttachment,attachmentDownloadHeaders} from './mail-attachment-download.js';
@@ -57,7 +58,7 @@ import {migrateWhatsAppHistory,discoverWhatsAppChat,recordWhatsAppHistoryBatch,l
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateMailAttachmentMetadata(db);await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateMailAttachmentMetadata(db);await migrateClientResourceLinks(db);await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -116,6 +117,22 @@ app.get("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return w
 app.post("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.create",req.body||{})});
 app.get("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.list",{limit:100})});
 app.get("/api/clients/:id/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return loadClient360(req.params.id,db);});
+const authorizeClientResource=async(provider,account)=>{
+ if(provider==='google.drive')await googleConnector.driveApi(account);
+ else if(provider==='google.people')await googleConnector.peopleApi(account);
+ else if(provider==='google.calendar')await googleConnector.calendarApi(account);
+ else throw Error('invalid_resource_provider');
+};
+app.get('/api/clients/:id/resources',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ return listClientResources({client_id:req.params.id,db,authorize:authorizeClientResource});
+});
+app.post('/api/clients/:id/resources',async(req,reply)=>{
+ if(!uiAuth(req,reply))return;
+ const {provider,account_id,external_id,confirmed}=req.body||{};
+ return linkClientResource({client_id:req.params.id,provider,account_id,external_id,confirmed,db,authorize:authorizeClientResource,audit});
+});
+
 app.post("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.create",req.body||{})});
 app.get("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.list",{limit:100})});
 app.post("/api/tasks",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("task.create",{status:"open",priority:"normal",worker_state:"idle",...(req.body||{})})});
