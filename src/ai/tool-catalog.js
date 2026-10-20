@@ -1,6 +1,7 @@
 // Fit a task-relevant, allowlisted tool catalog inside the CRM character budget.
 // Actual permissions and argument schemas are enforced by the server-side ActionEngine.
 const focus=[
+ [/הבטח|התחייב|commitment|promise/iu,/commitment|client|conversation|search_crm/],
  [/לקוח|לקוחות|client|customer|contact/iu,/client|search_crm/],
  [/פרויקט|פרויקטים|project/iu,/project|search_crm/],
  [/משימ|task|todo/iu,/task|search_crm/],

@@ -1,3 +1,4 @@
+import {findCommitmentCandidates} from '../src/ai/commitment-candidates.js';
 import {migrateClientResourceLinks,linkClientResource,listClientResources} from '../src/client-resource-links.js';
 import {audit} from '../src/platform/audit.js';
 import {downloadMailAttachment} from '../src/mail-attachment-download.js';
@@ -419,6 +420,18 @@ const run=async()=>{
  assert.ok(clientA.tasks.every(t=>t.source.client_id==='ci360_a'));
  assert.doesNotMatch(JSON.stringify(clientA),/ci360_task_b|ci360_conv_b|ci360_project_b/);
  console.log('PASS: real SQL customer 360 excludes lookalikes and shared-project inference');
+ {
+  const stamp='2026-10-20T12:00:00.000Z';
+  for(const suffix of ['a','b']){
+   await db.execute('INSERT INTO messages(id,conversation_id,direction,body,sent_at,created_at) VALUES(?,?,?,?,?,?)',['commitment_'+suffix,'ci360_conv_'+suffix,'out','אשלח הצעה ללקוח '+suffix,stamp,stamp]);
+  }
+  const candidates=await findCommitmentCandidates({client_id:'ci360_a',database:db,clock:Date.parse(stamp)});
+  assert.deepEqual(candidates.items.map(x=>x.source.id),['commitment_a']);
+  assert.equal(candidates.items[0].classification,'unverified_commitment_candidate');
+  assert.equal((await findCommitmentCandidates({client_id:'CI360_A',database:db,clock:Date.parse(stamp)})).items.length,0);
+  console.log('PASS: real SQL commitment retrieval isolates exact clients and retains message sources');
+ }
+
  await migrateClientResourceLinks(db);await migrateClientResourceLinks(db);
  {
   const authorize=async(provider,account)=>{assert.equal(provider,'google.drive');assert.ok(['link-account-a','link-account-b'].includes(account));};

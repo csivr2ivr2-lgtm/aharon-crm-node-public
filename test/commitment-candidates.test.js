@@ -1,3 +1,4 @@
+import {selectToolCatalog} from '../src/ai/tool-catalog.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {findCommitmentCandidates} from '../src/ai/commitment-candidates.js';
@@ -29,4 +30,11 @@ test('candidate inputs fail before querying and results are bounded',async()=>{
  const database={execute:async()=>[Array.from({length:101},(_,i)=>({id:String(i),conversation_id:'c',body:'אבדוק '+ 'x'.repeat(1000)}))]};
  const result=await findCommitmentCandidates({client_id:'client_a',database});
  assert.equal(result.items.length,100);assert.equal(result.limited,true);assert.equal(result.items[0].quotes[0].length,600);
+});
+
+test('Hebrew commitment question promotes evidence retrieval in a bounded tool catalog',()=>{
+ const catalog=['send_email','find_commitment_candidates','list_clients'].map(name=>({name}));
+ const selected=selectToolCatalog(catalog,'מה הבטחתי ללקוח בשבוע שעבר?',90);
+ assert.ok(selected.some(t=>t.name==='find_commitment_candidates'));
+ assert.equal(selected[0].name,'find_commitment_candidates');
 });
