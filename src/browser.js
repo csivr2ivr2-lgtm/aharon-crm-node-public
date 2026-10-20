@@ -360,7 +360,7 @@ document.addEventListener('click',async e=>{
   }
   if(action==='gmail-message-confirm'){
    const selected=$('#gmailAction').value,status=$('#gmailActionStatus');status.textContent='מעדכן אצל Google…';
-   try{await api('/api/conversations/'+encodeURIComponent(conversation)+'/messages/'+encodeURIComponent(id)+'/gmail-state',{method:'POST',body:{action:selected,confirmed:true}});
+   try{await post('/api/conversations/'+encodeURIComponent(conversation)+'/messages/'+encodeURIComponent(id)+'/gmail-state',{action:selected,confirmed:true});
     status.textContent='השינוי התקבל ב־Google. התצוגה המקומית תתעדכן בסנכרון הבא.';
    }catch(error){status.textContent=userError(error.message);}return;
   }

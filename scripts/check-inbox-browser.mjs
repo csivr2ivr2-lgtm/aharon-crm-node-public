@@ -76,6 +76,22 @@ try{
   await page.getByRole('link',{name:'פתח שיחת מקור'}).click();await page.locator('.conversation-layout').waitFor();assert.equal(await page.locator('.message img').count(),0);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,`conversation overflow at ${width}`);checks++;
   await accessibility(page,'conversation-'+width);
+  const gmailWritesBefore=writes.filter(w=>w.path.endsWith('/gmail-state')).length;
+  await page.getByRole('button',{name:'פעולות Gmail',exact:true}).click();
+  await page.locator('#gmailActionDialog').waitFor();
+  await page.locator('#gmailActionDialog').getByRole('button',{name:'ביטול',exact:true}).click();
+  assert.equal(writes.filter(w=>w.path.endsWith('/gmail-state')).length,gmailWritesBefore);checks++;
+  await page.getByRole('button',{name:'פעולות Gmail',exact:true}).click();
+  await page.getByLabel('פעולה',{exact:true}).selectOption('archive');
+  await page.getByRole('button',{name:'אישור שינוי ב־Gmail',exact:true}).click();
+  await page.getByText('השינוי התקבל ב־Google. התצוגה המקומית תתעדכן בסנכרון הבא.',{exact:true}).waitFor();
+  const gmailWrites=writes.filter(w=>w.path.endsWith('/gmail-state'));
+  assert.equal(gmailWrites.length,gmailWritesBefore+1);checks++;
+  assert.deepEqual(gmailWrites.at(-1).body,{action:'archive',confirmed:true});checks++;
+  assert.equal(gmailWrites.at(-1).path,'/api/conversations/conv_test/messages/msg_test/gmail-state');checks++;
+  await accessibility(page,'gmail-action-'+width);
+  await page.locator('#gmailActionDialog').getByRole('button',{name:'ביטול',exact:true}).click();
+
   await page.getByRole('button',{name:'קבצים מצורפים',exact:true}).click();
   await page.locator('#attachmentInfoDialog').waitFor();
   assert.equal(await page.getByRole('link',{name:'הורדה מהספק',exact:true}).getAttribute('href'),'/api/conversations/conv_test/attachments/msg_test/0/download');checks++;
