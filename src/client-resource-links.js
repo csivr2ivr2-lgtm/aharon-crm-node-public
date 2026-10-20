@@ -29,7 +29,7 @@ export async function linkClientResource({confirmed,db,authorize,audit,...ref}){
  const c=await db.getConnection();
  try{
   await c.beginTransaction();
-  const [clients]=await c.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[ref.client_id]);
+  const [clients]=await c.execute('SELECT id FROM clients WHERE BINARY id=BINARY ? FOR UPDATE',[ref.client_id]);
   if(!clients.length)throw Error('client_not_found');
   const id=resourceKey(ref),stamp=new Date().toISOString();
   await c.execute('INSERT IGNORE INTO client_resource_links(id,client_id,provider,account_id,external_id,linked_at) VALUES(?,?,?,?,?,?)',[id,ref.client_id,ref.provider,ref.account_id,ref.external_id,stamp]);
@@ -41,7 +41,7 @@ export async function linkClientResource({confirmed,db,authorize,audit,...ref}){
 }
 export async function listClientResources({client_id,db,authorize}){
  if(typeof client_id!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(client_id))throw Error('invalid_client_id');
- const [rows]=await db.execute('SELECT id,client_id,provider,account_id,external_id,linked_at FROM client_resource_links WHERE client_id=? ORDER BY linked_at DESC,id LIMIT 41',[client_id]);
+ const [rows]=await db.execute('SELECT id,client_id,provider,account_id,external_id,linked_at FROM client_resource_links WHERE BINARY client_id=BINARY ? ORDER BY linked_at DESC,id LIMIT 41',[client_id]);
  const items=[];
  for(const row of rows.slice(0,40)){
   try{const result=await resolveClientResource(row,db,authorize);items.push({...row,...result,available:true});}

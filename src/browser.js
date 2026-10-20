@@ -232,7 +232,7 @@ async function showCalendarMirror(accountId,sync=false){
  if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>עותק מקומי · Google Calendar</h3><p>מקור: היומן הראשי של החשבון שנבחר. מופעים חוזרים נשמרים לפי הגדרת הסדרה.</p><p>'+esc('עדכון מוצלח: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'טרם סונכרן'))+'</p>'+
  button('calendar-sync',d.sync.has_next_page?'סנכרן את הדף הבא':'בדוק שינויים ביומן',accountId)+
- (d.events||[]).map(e=>'<article class="row"><div><strong>'+esc(e.summary||'אירוע ללא כותרת')+'</strong><p>'+esc(e.start?.dateTime||e.start?.date||'ללא מועד')+' · '+esc(e.start?.timeZone||'')+'</p><p>'+esc(e.status==='cancelled'?'בוטל אצל הספק':e.status)+'</p><small>'+esc('Google Calendar · '+e.id)+'</small></div></article>').join('')+
+ (d.events||[]).map(e=>'<article class="row"><div><strong>'+esc(e.summary||'אירוע ללא כותרת')+'</strong><p>'+esc(e.start?.dateTime||e.start?.date||'ללא מועד')+' · '+esc(e.start?.timeZone||'')+'</p><p>'+esc(e.status==='cancelled'?'בוטל אצל הספק':e.status)+'</p><small>'+esc('Google Calendar · '+e.id)+'</small>'+(e.status==='cancelled'?'':resourceLinkButton('google.calendar',accountId,e.id))+'</div></article>').join('')+
  (d.limited?'<p>מוצגים 100 אירועים לכל היותר.</p>':'');
 }
 
@@ -264,7 +264,7 @@ async function showPeopleMirror(accountId,sync=false){
  root.innerHTML='<h3>אנשי קשר Google</h3><p>מקור: החשבון שנבחר. אנשי הקשר אינם ממוזגים אוטומטית עם לקוחות CRM. פרטי קשר אינם אימות זהות.</p>'+
  '<p>'+esc('עדכון מוצלח: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'טרם סונכרן'))+'</p>'+
  button('people-sync',d.sync.has_next_page?'סנכרן את הדף הבא':'בדוק שינויים באנשי קשר',accountId)+
- (d.items||[]).map(p=>'<article class="row"><div><strong>'+esc(p.name||'ללא שם')+'</strong><p>'+esc((p.emails||[]).map(e=>e.value).join(' · '))+'</p><p>'+esc((p.phones||[]).map(e=>e.value).join(' · '))+'</p><small>'+esc('Google Contacts · '+p.id)+'</small></div></article>').join('')+
+ (d.items||[]).map(p=>'<article class="row"><div><strong>'+esc(p.name||'ללא שם')+'</strong><p>'+esc((p.emails||[]).map(e=>e.value).join(' · '))+'</p><p>'+esc((p.phones||[]).map(e=>e.value).join(' · '))+'</p><small>'+esc('Google Contacts · '+p.id)+'</small>'+resourceLinkButton('google.people',accountId,p.id)+'</div></article>').join('')+
  (!(d.items||[]).length?'<p>אין אנשי קשר בעותק המסונכרן. ניתן לבדוק שינויים.</p>':'')+
  (d.limited?'<p>מוצגים 100 אנשי קשר לכל היותר.</p>':'');
 }
@@ -277,7 +277,7 @@ async function showDriveMirror(accountId,sync=false){
  if(!root.isConnected||root.dataset.providerRequest!==request)return;
  root.innerHTML='<h3>Google Drive · פרטי קבצים מסונכרנים</h3><p>קריאה בלבד. תוכן הקבצים אינו מועתק. קבצים שהוסרו או שאינם נגישים אינם מוצגים.</p><p>'+esc('עדכון מוצלח: '+(d.sync.checked_at?formatDate(d.sync.checked_at):'טרם סונכרן'))+'</p>'+
  button('drive-sync',d.sync.has_next_page?'סנכרן את הדף הבא':'בדוק שינויים ב־Drive',accountId)+
- (d.items||[]).map(f=>'<article class="row"><div><strong>'+esc(f.name||'קובץ')+'</strong><p>'+esc(f.mimeType)+' · '+esc(formatDate(f.modifiedTime))+'</p><small>'+esc('Google Drive · '+f.id+' · גרסה '+(f.version||'לא ידועה'))+'</small><p>'+link(f)+'</p></div></article>').join('')+
+ (d.items||[]).map(f=>'<article class="row"><div><strong>'+esc(f.name||'קובץ')+'</strong><p>'+esc(f.mimeType)+' · '+esc(formatDate(f.modifiedTime))+'</p><small>'+esc('Google Drive · '+f.id+' · גרסה '+(f.version||'לא ידועה'))+'</small><p>'+link(f)+'</p>'+resourceLinkButton('google.drive',accountId,f.id)+'</div></article>').join('')+
  (d.limited?'<p>מוצגים 100 קבצים לכל היותר. החיפוש אצל הספק זמין במסך חיפוש Drive.</p>':'');
 }
 
@@ -292,9 +292,21 @@ async function showDriveSearch(accountId){
   '<p class="muted">לא נמצאו קבצים מתאימים או שאין גישה אליהם בחשבון הנבחר.</p>';
 }
 
+function resourceLinkButton(provider,account,external){
+ return '<button class="btn" data-action="link-client-resource" data-provider="'+esc(provider)+'" data-account="'+esc(account)+'" data-id="'+esc(external)+'">שייך ללקוח</button>';
+}
+async function showResourceLink(provider,account_id,external_id){
+ const clients=await api('/api/clients');document.querySelector('#resourceLinkDialog')?.remove();
+ const dialog=document.createElement('dialog');dialog.id='resourceLinkDialog';dialog.setAttribute('aria-label','שיוך מקור ללקוח');
+ dialog.resourceReference={provider,account_id,external_id};
+ dialog.innerHTML='<h2>שיוך מקור ללקוח</h2><p>'+esc(provider+' · '+account_id+' · '+external_id)+'</p><p>בחר את הלקוח המתאים. זו הצהרת שיוך ידנית, ואינה אימות של פרטי הקשר אצל הספק.</p><label for="resourceClient">לקוח</label><select id="resourceClient">'+(clients.items||[]).map(c=>'<option value="'+esc(c.id)+'">'+esc(c.name+' · '+(c.email||c.phone||c.id))+'</option>').join('')+'</select>'+button('confirm-client-resource','אישור שיוך')+'<form method="dialog"><button class="btn">ביטול</button></form><p role="status" id="resourceLinkStatus"></p>';
+ document.body.append(dialog);dialog.showModal();
+}
+
 async function showClient360(clientId){
  const info=await api('/api/clients/'+encodeURIComponent(clientId)+'/overview');
  document.querySelector('#client360Dialog')?.remove();
+ const resources=await api('/api/clients/'+encodeURIComponent(clientId)+'/resources');
  const client=info.client;
  const groups=[
   ['conversations','שיחות',x=>(x.title||x.external_id||'שיחה')+' · '+(x.channel||'')+' · '+formatDate(x.last_message_at)],
@@ -305,8 +317,9 @@ async function showClient360(clientId){
   ['notes','הערות',x=>x.body||''],
   ['activities','פעילות',x=>(x.title||x.event||'אירוע')+' · '+formatDate(x.created_at)]
  ];
- const sections=groups.map(([key,title,format])=>'<section class="panel"><h3>'+esc(title)+' · '+(info[key]||[]).length+'</h3>'+
+ let sections=groups.map(([key,title,format])=>'<section class="panel"><h3>'+esc(title)+' · '+(info[key]||[]).length+'</h3>'+
   ((info[key]||[]).length?'<ul>'+(info[key]||[]).map(x=>'<li>'+esc(format(x))+'</li>').join('')+'</ul>':'<p class="muted">אין פריטים משויכים ישירות.</p>')+'</section>').join('');
+ sections+='<section class="panel"><h3>מקורות Google משויכים</h3>'+((resources.items||[]).map(r=>'<article><strong>'+esc(r.available?(r.item.name||r.item.summary||r.external_id):'המקור אינו זמין בהרשאות הנוכחיות')+'</strong><p>'+esc(r.provider)+(r.available?' · '+esc(r.account_id)+' · '+esc(r.external_id)+' · עדכון '+esc(formatDate(r.checked_at)):'')+'</p></article>').join('')||'<p>אין מקורות משויכים. ניתן לשייך פריטים מהתצוגות המסונכרנות במסך חיבורים.</p>')+'</section>';
  const html='<dialog id="client360Dialog" aria-label="כרטיס לקוח 360" style="width:min(94vw,1040px);max-height:90vh;overflow:auto;border-radius:18px;padding:18px">'+
  '<header class="row"><div><h2>'+esc(client.name||'כרטיס לקוח')+'</h2><p class="muted">'+esc([client.company,client.email,client.phone].filter(Boolean).join(' · '))+'</p></div>'+
  button('client-360-close','סגירה')+'</header><p class="muted">מידע מתוך CRM, עם שיוך מפורש בלבד. אין זיהוי אוטומטי לפי שם דומה או מספר חלקי.</p>'+
@@ -376,6 +389,13 @@ document.addEventListener('click',async e=>{
    dialog.append(note,frame,form);document.body.append(dialog);dialog.showModal();return;
   }
   if(action==='conversation-attachments'){await showConversationAttachments(id);return;}
+  if(action==='link-client-resource'){await showResourceLink(b.dataset.provider,b.dataset.account,id);return;}
+  if(action==='confirm-client-resource'){
+   const dialog=$('#resourceLinkDialog'),status=$('#resourceLinkStatus'),client=$('#resourceClient').value;
+   if(!client){status.textContent='יש לבחור לקוח.';return;}
+   try{await post('/api/clients/'+encodeURIComponent(client)+'/resources',{...dialog.resourceReference,confirmed:true});status.textContent='המקור שויך ללקוח. ניתן לראות אותו בכרטיס הלקוח.';}
+   catch(error){status.textContent=userError(error.message);}return;
+  }
   if(action==='client-360'){await showClient360(id);return;}
   if(action==='client-360-close'){document.querySelector('#client360Dialog')?.close();document.querySelector('#client360Dialog')?.remove();return;}
   if(action==='google-status'){await showGoogleStatus(id);return;}
