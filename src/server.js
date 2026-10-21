@@ -1,3 +1,4 @@
+import {migrateSales,listSales,saveLead,renameSalesStage} from './sales-pipeline.js';
 import {migrateClientResourceLinks,linkClientResource,listClientResources,unlinkClientResource} from './client-resource-links.js';
 import {applyGmailMessageAction} from './gmail-message-actions.js';
 import {mailHtmlDocument} from './mail-html.js';
@@ -58,7 +59,7 @@ import {migrateWhatsAppHistory,discoverWhatsAppChat,recordWhatsAppHistoryBatch,l
 import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
-assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateMailAttachmentMetadata(db);await migrateClientResourceLinks(db);await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
+assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateMailAttachmentMetadata(db);await migrateClientResourceLinks(db);await migrateExtras();await migrateSales(db);await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -69,6 +70,7 @@ function apiAuth(req,reply){if(equalToken(bearerToken(req),config.coreApiToken))
 const cookieOpts={path:"/",httpOnly:true,sameSite:"strict",secure:config.env==="production",maxAge:60*60*24*14};
 
 app.get("/health",async()=>({ok:true,service:"aharon-crm-node",locked:await loginSecurity.isLocked()}));
+app.get("/assets/sales-workspace.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./sales-workspace.js",import.meta.url),"utf8")));
 app.get("/assets/customer-workspace.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./customer-workspace.js",import.meta.url),"utf8")));
 app.get("/assets/work-views.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./work-views.js",import.meta.url),"utf8")));
 app.get("/assets/app.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./browser.js",import.meta.url),"utf8")));
@@ -116,6 +118,10 @@ app.get("/api/insights/changes",async(req,reply)=>{
 });
 app.get("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.list",{...req.query,limit:100})});
 app.post("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.create",req.body||{})});
+app.get('/api/sales',async(req,reply)=>{if(!uiAuth(req,reply))return;return listSales(db,req.query||{});});
+app.post('/api/sales',async(req,reply)=>{if(!uiAuth(req,reply))return;return saveLead({...req.body,id:undefined,db,audit});});
+app.patch('/api/sales/:id',async(req,reply)=>{if(!uiAuth(req,reply))return;return saveLead({...req.body,id:req.params.id,db,audit});});
+app.patch('/api/sales/stages/:id',async(req,reply)=>{if(!uiAuth(req,reply))return;return renameSalesStage({...req.body,id:req.params.id,db,audit});});
 app.get("/api/clients",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("client.list",{limit:100})});
 app.get("/api/clients/:id/overview",async(req,reply)=>{if(!uiAuth(req,reply))return;return loadClient360(req.params.id,db);});
 const authorizeClientResource=async(provider,account)=>{

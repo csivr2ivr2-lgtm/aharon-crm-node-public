@@ -9,6 +9,7 @@ import {decideInbox} from '../src/ai/inbox-decision.js';
 const {chromium}=await import(process.env.CRM_PLAYWRIGHT_MODULE||'playwright');
 const browser=await chromium.launch({headless:true,...(process.env.CRM_CHROMIUM?{executablePath:process.env.CRM_CHROMIUM}:{}),args:['--no-sandbox','--disable-gpu']});
 const source=await readFile(new URL('../src/browser.js',import.meta.url),'utf8');
+const salesSource=await readFile(new URL('../src/sales-workspace.js',import.meta.url),'utf8');
 const customerSource=await readFile(new URL('../src/customer-workspace.js',import.meta.url),'utf8');
 const workSource=await readFile(new URL('../src/work-views.js',import.meta.url),'utf8');
 const original={id:'conv_test',message_id:'msg_test',sender:'lead@example.test',contact_name:'פונה לדוגמה',title:'הצעת מחיר',subject:'הצעת מחיר',body:'אני מעוניין בעשרה מספרים לקבלת SMS ובאפשרות להרחבה למאה מספרים. <img src=x onerror=alert(1)>',channel:'email',account_label:'בדיקה',integration_key:'google:test',waiting_since:new Date(Date.now()-3600000).toISOString(),revision:0,unread_count:1};
@@ -24,6 +25,8 @@ async function accessibility(page,label){
 try{
  for(const width of [360,390,768,1440]){
   const context=await browser.newContext({viewport:{width,height:900}}),page=await context.newPage();const errors=[],writes=[];let row={...original,...decideInbox(original)},taskCreated=false,holdDriveA=false,releaseDriveA;
+  let salesItems=[];
+  const salesStages=[{id:'new',label:'ליד חדש',position:0,revision:0},{id:'won',label:'נסגר בהצלחה',position:1,revision:0}];
   const driveAGate=new Promise(resolve=>{releaseDriveA=resolve;});
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/*',async route=>{
@@ -31,10 +34,20 @@ try{
    if(url.hostname!=='crm.test')return route.abort();
    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:appHtml()});
    if(url.pathname==='/assets/app.js')return route.fulfill({contentType:'text/javascript',body:source});
+   if(url.pathname==='/assets/sales-workspace.js')return route.fulfill({contentType:'text/javascript',body:salesSource});
    if(url.pathname==='/assets/customer-workspace.js')return route.fulfill({contentType:'text/javascript',body:customerSource});
    if(url.pathname==='/assets/work-views.js')return route.fulfill({contentType:'text/javascript',body:workSource});
    const body=req.postDataJSON();if(!['GET','HEAD'].includes(req.method()))writes.push({path:url.pathname,body});
    let result={ok:true,items:[]};
+   if(url.pathname==='/api/sales'){
+    if(req.method()==='POST'){assert.equal(body.confirmed,true);salesItems.push({...body,id:'lead_test',client_name:'לקוח בדיקה',revision:0});}
+    return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,stages:salesStages,items:salesItems})});
+   }
+   if(url.pathname==='/api/sales/lead_test'&&req.method()==='PATCH'){
+    assert.equal(body.revision,salesItems[0].revision);assert.equal(body.confirmed,true);
+    salesItems[0]={...salesItems[0],...body,revision:salesItems[0].revision+1};
+    return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true})});
+   }
    if(url.pathname==='/api/clients/client-a/overview')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,client:{id:'client-a',name:'לקוח בדיקה',email:'client@example.test'},conversations:[{id:'conv_test',title:'הצעת מחיר',channel:'email',account_id:'business',last_message_at:original.waiting_since}],tasks:[{id:'task_a',title:'מעקב לקוח',status:'open',due_date:'2026-10-22'}],notes:[],activities:[],files:[],projects:[],reminders:[]})});
    if(url.pathname==='/api/clients/client-b/overview')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,client:{id:'client-b',name:'לקוח אחר'},conversations:[],tasks:[],notes:[]})});
    if(url.pathname==='/api/inbox/work'){const v=url.searchParams.get('view');result={ok:true,items:matchesInbox(row,v)?[row]:[],complete:true,done:true,next_cursor:row.id,sync:{state:'verified'}};}
@@ -244,6 +257,28 @@ try{
   await accessibility(page,'customer-'+width);
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/customer-${width}.png`,fullPage:true});}
 
+
+  phase='sales-workflow-'+width;
+  await page.goto('https://crm.test/#sales');
+  await page.getByRole('button',{name:'ליד חדש',exact:true}).click();
+  await page.getByLabel('שם הליד',{exact:true}).fill('הזדמנות חדשה');
+  await page.getByLabel('לקוח משויך',{exact:true}).selectOption('client-a');
+  await page.getByLabel('מקור הגעה',{exact:true}).fill('אתר');
+  await page.getByLabel('הפעולה הבאה',{exact:true}).fill('שיחת היכרות');
+  await page.getByRole('button',{name:'אישור ושמירת ליד',exact:true}).click();
+  await page.locator('.sales-card').waitFor();
+  assert.equal(salesItems[0].client_id,'client-a');checks++;
+  page.once('dialog',d=>d.dismiss());
+  await page.locator('[data-lead-stage="lead_test"]').selectOption('won');
+  assert.equal(salesItems[0].stage_id,'new');checks++;
+  page.once('dialog',d=>d.accept());
+  await page.locator('[data-lead-stage="lead_test"]').selectOption('won');
+  await page.getByRole('heading',{name:'נסגר בהצלחה · 1',exact:true}).waitFor();
+  await page.reload();await page.locator('.sales-card').waitFor();
+  assert.equal(await page.locator('[data-lead-stage="lead_test"]').inputValue(),'won');checks++;
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'sales overflow '+width);checks++;
+  await accessibility(page,'sales-'+width);
+  if(process.env.CRM_SCREENSHOTS)await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/sales-${width}.png`,fullPage:true});
   assert.deepEqual(errors,[]);checks++;
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/conversation-${width}.png`,fullPage:true});await page.goto('https://crm.test/#inbox');row={...original,...decideInbox(original)};await page.reload();await page.locator('.work-card').waitFor();await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/inbox-${width}.png`,fullPage:true});}
   await context.close();

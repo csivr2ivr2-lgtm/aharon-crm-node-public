@@ -1,7 +1,7 @@
 /* Browser-only UI. Record data is escaped and never inserted into executable attributes. */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const labels={more:'עוד',calendar:'יומן',followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'היום שלי',inbox:'תיבת תקשורת',sent:'נשלחו',drafts:'טיוטות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
+const labels={sales:'מכירות',more:'עוד',calendar:'יומן',followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'היום שלי',inbox:'תיבת תקשורת',sent:'נשלחו',drafts:'טיוטות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
 const entityNames={clients:'client',projects:'project',tasks:'task',systems:'system',accounts:'account'};
 let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
@@ -35,7 +35,7 @@ async function api(url,opt={}){
 }
 const post=(url,data={})=>api(url,{method:'POST',body:JSON.stringify(data)});
 async function render(next){
- view=labels[next]?next:'home';conversation='';$('#title').textContent=labels[view];$('#error').textContent='';
+ view=labels[next.split('?')[0]]?next.split('?')[0]:'home';conversation='';$('#title').textContent=labels[view];$('#error').textContent='';
  document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
  $('#content').innerHTML='<div class="panel">טוען…</div>';
  if(view==='home'){
@@ -43,8 +43,9 @@ async function render(next){
   try{await renderRecentChangesBrief();}catch{ $('#content').insertAdjacentHTML('beforeend','<section class="panel"><p class="muted">סקירת 24 השעות האחרונות אינה זמינה כרגע. תור העבודה עדיין פועל.</p></section>'); }
   return;
  }
+ if(view==='sales'){const {renderSales}=await import('/assets/sales-workspace.js');await renderSales({root:$('#content'),api,post});return;}
  if(view==='more'){
-  $('#content').innerHTML='<section class="panel"><h2>כלים וחיבורים</h2><div class="workspace-links">'+['calendar','files','assistant','connectors','accounts','settings','systems','knowledge','ai','suggestions','notifications','reminders','followups','updates'].map(key=>'<a class="btn" href="#'+key+'">'+esc(labels[key])+'</a>').join('')+'</div></section>';return;
+  $('#content').innerHTML='<section class="panel"><h2>כלים וחיבורים</h2><div class="workspace-links">'+['sales','calendar','files','assistant','connectors','accounts','settings','systems','knowledge','ai','suggestions','notifications','reminders','followups','updates'].map(key=>'<a class="btn" href="#'+key+'">'+esc(labels[key])+'</a>').join('')+'</div></section>';return;
  }
  if(view==='calendar'){
   const d=await api('/api/connectors'),accounts=(d.connectors||[]).filter(x=>x.key==='google').flatMap(x=>x.accounts||[]);

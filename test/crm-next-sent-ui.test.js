@@ -4,7 +4,9 @@ import {readFileSync} from 'node:fs';
 const browser=readFileSync(new URL('../src/browser.js',import.meta.url),'utf8');
 const ui=readFileSync(new URL('../src/ui.js',import.meta.url),'utf8');
 test('CRM has an accessible Sent navigation route backed by a dedicated API',()=>{
- assert.match(ui,/\["sent", "send-check", "נשלחו"\]/);
+ assert.match(browser,/\['sent','נשלחו'\]/);
+ assert.match(browser,/aria-label="תיקיות תקשורת"/);
+ assert.match(ui,/\["inbox","inbox","תיבת תקשורת"\]/);
  assert.match(browser,/if\(view==='sent'\)/);
  assert.match(browser,/api\/sent\?/);
  assert.match(browser,/sentCursor/);

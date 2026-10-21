@@ -10,7 +10,13 @@ function harness(responses={}){
  const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn},window:{addEventListener(){}},location:{hash:'',href:'https://crm.example/'},crypto:{randomUUID:()=> 'request-id'},URL,URLSearchParams,console,setTimeout:()=>0,clearTimeout(){},confirm:()=>true,alert(){},prompt:()=>null,FormData:class {},fetch:async(url,opt={})=>{calls.push({url,...opt});const value=responses[url]??(url.startsWith('/api/inbox/work/')?{ok:true,item:{handling_state:'review',message_type:'unknown',revision:0}}:{ok:true,items:[]});return {ok:true,status:200,json:async()=>value};}});
  vm.runInContext(source,context);return {run:code=>vm.runInContext(code,context),element,calls,context,listeners};
 }
-test('Hebrew RTL navigation reaches all intelligence and CRM screens',()=>{const html=appHtml();assert.match(html,/lang="he" dir="rtl"/);for(const page of ['assistant','spam','suggestions','reminders','notifications','settings','files','followups','knowledge'])assert.ok(html.includes('data-view="'+page+'"'));assert.match(html,/bi bi-/);});
+test('Hebrew RTL navigation reaches grouped CRM screens without removing secondary routes',async()=>{
+ const html=appHtml();assert.match(html,/lang="he" dir="rtl"/);
+ for(const page of ['home','inbox','clients','sales','tasks','calendar','files','assistant','more'])assert.ok(html.includes('data-view="'+page+'"'));
+ const h=harness();await h.run("render('more')");
+ for(const page of ['suggestions','reminders','notifications','settings','followups','knowledge','connectors'])assert.ok(h.element('#content').innerHTML.includes('href="#'+page+'"'));
+ assert.ok(source.includes("['spam','ספאם']"));assert.match(html,/bi bi-/);
+});
 test('untrusted assistant reply and action arguments are escaped, confirmation includes server token',async()=>{
  const h=harness({'/api/assistant/actions/a1/confirm':{ok:true,status:'completed'}});h.run(`assistantMessages=[{role:'assistant',text:'<img src=x onerror=alert(1)>',actions:[{id:'a1',summary:'שליחה',args:{body:'<script>bad()</script>'},status:'pending',confirmation_token:'server-issued'}]}];renderChat();`);
  assert.ok(h.element('#chatLog').innerHTML.includes('&lt;script&gt;'));assert.ok(!h.element('#chatLog').innerHTML.includes('<img'));

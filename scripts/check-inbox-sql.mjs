@@ -1,3 +1,4 @@
+import {migrateSales,saveLead,listSales,renameSalesStage} from '../src/sales-pipeline.js';
 import {findCommitmentCandidates} from '../src/ai/commitment-candidates.js';
 import {migrateClientResourceLinks,linkClientResource,listClientResources,unlinkClientResource} from '../src/client-resource-links.js';
 import {audit} from '../src/platform/audit.js';
@@ -462,6 +463,28 @@ const run=async()=>{
   console.log('PASS: real SQL external links isolate clients/accounts, reject reassignment, roll back failed audit and hide tombstones');
  }
 
+ {
+  await migrateSales(db);await migrateSales(db);
+  const [statusesBefore]=await db.execute("SELECT id,status FROM clients ORDER BY id");
+  const lead={db,audit,confirmed:true,client_id:'ci360_a',title:'SQL sales lead',source:'test',stage_id:'new',next_action:'Follow up',followup_date:'2026-10-23'};
+  const created=await saveLead(lead);
+  await assert.rejects(saveLead({...lead,id:created.id,revision:4,stage_id:'won'}),/revision_conflict/);
+  await saveLead({...lead,id:created.id,revision:0,stage_id:'proposal'});
+  const listed=await listSales(db,{client_id:'ci360_a',q:'SQL sales'});
+  assert.equal(listed.items.length,1);assert.equal(listed.items[0].stage_id,'proposal');assert.equal(listed.items[0].revision,1);
+  assert.equal((await listSales(db,{client_id:'ci360_b'})).items.some(x=>x.id===created.id),false);
+  await assert.rejects(saveLead({...lead,client_id:'CI360_A'}),/client_not_found/);
+  await assert.rejects(saveLead({...lead,id:created.id,revision:1,stage_id:'won',audit:async()=>{throw Error('audit unavailable');}}),/audit unavailable/);
+  assert.equal((await listSales(db,{client_id:'ci360_a'})).items.find(x=>x.id===created.id).stage_id,'proposal');
+  const races=await Promise.allSettled(['won','lost'].map(stage_id=>saveLead({...lead,id:created.id,revision:1,stage_id})));
+  assert.equal(races.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(races.filter(x=>x.status==='rejected').length,1);
+  await renameSalesStage({db,audit,id:'proposal',revision:0,label:'Custom proposal',confirmed:true});
+  await migrateSales(db);
+  assert.equal((await listSales(db)).stages.find(x=>x.id==='proposal').label,'Custom proposal');
+  const [statusesAfter]=await db.execute("SELECT id,status FROM clients ORDER BY id");assert.deepEqual(statusesAfter,statusesBefore);
+  console.log('PASS: sales migrations, exact customer scope, audit rollback, stale revision and concurrent stage updates');
+ }
  await db.execute("UPDATE tasks SET due_date='2000-01-01',status='open' WHERE id='ci360_task_a'");
  await db.execute("UPDATE tasks SET due_date='2000-01-01',status='done' WHERE id='ci360_task_b'");
  const risks=await loadProjectRisks({database:db});
