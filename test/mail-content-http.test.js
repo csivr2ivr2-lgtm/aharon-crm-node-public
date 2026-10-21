@@ -115,3 +115,16 @@ test('client resource HTTP routes enforce authentication, confirmation and curre
   assert.equal((await app.inject({method:'POST',url:unlink,payload:{},headers:{cookie}})).statusCode,400);
  }finally{await app.close();}
 });
+
+test('CRM search and sales APIs enforce login, origin and explicit confirmation',async()=>{
+ const app=await buildApp({initializeDatabase:false,startBackground:false});
+ try{
+  for(const url of ['/api/search?q=client','/api/sales','/api/entity/task/task_a'])assert.equal((await app.inject({url})).statusCode,401);
+  assert.equal((await app.inject({method:'POST',url:'/api/sales',payload:{}})).statusCode,401);
+  const cookie=await login(app);
+  assert.equal((await app.inject({method:'POST',url:'/api/sales',headers:{cookie,origin:'https://untrusted.example'},payload:{confirmed:true}})).statusCode,403);
+  assert.equal((await app.inject({method:'POST',url:'/api/sales',headers:{cookie},payload:{}})).statusCode,400);
+  assert.equal((await app.inject({url:'/api/search?q=a',headers:{cookie}})).statusCode,400);
+  assert.equal((await app.inject({url:'/api/entity/accounts/private',headers:{cookie}})).statusCode,400);
+ }finally{await app.close();}
+});

@@ -1,3 +1,4 @@
+import {globalSearch} from './global-search.js';
 import {migrateSales,listSales,saveLead,renameSalesStage} from './sales-pipeline.js';
 import {migrateClientResourceLinks,linkClientResource,listClientResources,unlinkClientResource} from './client-resource-links.js';
 import {applyGmailMessageAction} from './gmail-message-actions.js';
@@ -118,6 +119,8 @@ app.get("/api/insights/changes",async(req,reply)=>{
 });
 app.get("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.list",{...req.query,limit:100})});
 app.post("/api/projects",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("project.create",req.body||{})});
+app.get('/api/search',async(req,reply)=>{if(!uiAuth(req,reply))return;return globalSearch(db,req.query||{});});
+app.get('/api/entity/:type/:id',async(req,reply)=>{if(!uiAuth(req,reply))return;if(!['task','project'].includes(req.params.type))throw Error('invalid_entity_type');return workspace.call(req.params.type+'.get',{id:req.params.id});});
 app.get('/api/sales',async(req,reply)=>{if(!uiAuth(req,reply))return;return listSales(db,req.query||{});});
 app.post('/api/sales',async(req,reply)=>{if(!uiAuth(req,reply))return;return saveLead({...req.body,id:undefined,db,audit});});
 app.patch('/api/sales/:id',async(req,reply)=>{if(!uiAuth(req,reply))return;return saveLead({...req.body,id:req.params.id,db,audit});});

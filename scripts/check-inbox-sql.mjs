@@ -1,3 +1,4 @@
+import {globalSearch} from '../src/global-search.js';
 import {migrateSales,saveLead,listSales,renameSalesStage} from '../src/sales-pipeline.js';
 import {findCommitmentCandidates} from '../src/ai/commitment-candidates.js';
 import {migrateClientResourceLinks,linkClientResource,listClientResources,unlinkClientResource} from '../src/client-resource-links.js';
@@ -483,6 +484,10 @@ const run=async()=>{
   await migrateSales(db);
   assert.equal((await listSales(db)).stages.find(x=>x.id==='proposal').label,'Custom proposal');
   const [statusesAfter]=await db.execute("SELECT id,status FROM clients ORDER BY id");assert.deepEqual(statusesAfter,statusesBefore);
+  await db.execute("UPDATE clients SET phone='050-123-4567',email='crm-search@example.test' WHERE id='ci360_a'");
+  const byPhone=await globalSearch(db,{q:'0501234567'}),byEmail=await globalSearch(db,{q:'crm-search@example.test'});
+  assert.ok(byPhone.groups.find(x=>x.type==='client').items.some(x=>x.id==='ci360_a'));
+  assert.ok(byEmail.groups.find(x=>x.type==='client').items.some(x=>x.id==='ci360_a'));
   console.log('PASS: sales migrations, exact customer scope, audit rollback, stale revision and concurrent stage updates');
  }
  await db.execute("UPDATE tasks SET due_date='2000-01-01',status='open' WHERE id='ci360_task_a'");

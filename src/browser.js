@@ -1,7 +1,7 @@
 /* Browser-only UI. Record data is escaped and never inserted into executable attributes. */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const labels={sales:'מכירות',more:'עוד',calendar:'יומן',followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'היום שלי',inbox:'תיבת תקשורת',sent:'נשלחו',drafts:'טיוטות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
+const labels={search:'חיפוש',sales:'מכירות',more:'עוד',calendar:'יומן',followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'היום שלי',inbox:'תיבת תקשורת',sent:'נשלחו',drafts:'טיוטות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
 const entityNames={clients:'client',projects:'project',tasks:'task',systems:'system',accounts:'account'};
 let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
@@ -43,6 +43,7 @@ async function render(next){
   try{await renderRecentChangesBrief();}catch{ $('#content').insertAdjacentHTML('beforeend','<section class="panel"><p class="muted">סקירת 24 השעות האחרונות אינה זמינה כרגע. תור העבודה עדיין פועל.</p></section>'); }
   return;
  }
+ if(view==='search'){await renderGlobalSearch();return;}
  if(view==='sales'){const {renderSales}=await import('/assets/sales-workspace.js');await renderSales({root:$('#content'),api,post});return;}
  if(view==='more'){
   $('#content').innerHTML='<section class="panel"><h2>כלים וחיבורים</h2><div class="workspace-links">'+['sales','calendar','files','assistant','connectors','accounts','settings','systems','knowledge','ai','suggestions','notifications','reminders','followups','updates'].map(key=>'<a class="btn" href="#'+key+'">'+esc(labels[key])+'</a>').join('')+'</div></section>';return;
@@ -70,7 +71,7 @@ async function render(next){
  if(entityNames[view]){
   const d=await api('/api/'+view+(showArchived?'?include_archived=1':''));records=d.items;$('#content').innerHTML='<div class="panel">'+button('create','הוספה')+(['projects','systems'].includes(view)?button('toggle-archived',showArchived?'הסתר ארכיון':'הצג ארכיון'):'')+'</div><div class="panel">'+(records.map(x=>'<div class="row"><div><b>'+esc(x.name||x.title||x.did||x.label)+'</b><div class="muted">'+esc([statusLabel(x.status),x.email,x.phone,x.identifier,statusLabel(x.automation_mode),statusLabel(x.worker_state)].filter(Boolean).join(' · '))+'</div><div class="note">'+esc(x.description||x.notes||'')+'</div>'+(x.next_step?'<p>הצעד הבא: '+esc(x.next_step)+'</p>':'')+(x.worker_result?'<p class="draft note">'+esc(x.worker_result)+'</p>':'')+'</div><div>'+(view==='clients'?button('client-360','תיק לקוח 360°',x.id):'')+button('edit','עריכה',x.id||x.did)+button('notes','הערות',x.id||x.did)+(['projects','systems'].includes(view)?lifecycleButtons(x):'')+'</div></div>').join('')||'<p class="empty">אין רשומות.</p>')+'</div>';return;
  }
- if(view==='files'){await renderFiles();return;}
+ if(view==='files'){await renderFiles(new URLSearchParams(location.hash.split('?')[1]||'').get('q')||'');return;}
  if(view==='connectors'){
   const d=await api('/api/connectors');$('#content').innerHTML='<div class="panel">'+d.connectors.map(x=>'<div class="row"><div><b>'+esc(({google:'Google', 'hostinger-mail':'דואר Hostinger',whatsapp:'WhatsApp'})[x.key]||x.key)+'</b><p>'+esc(x.configured?'מוגדר':'לא מוגדר')+' · '+esc(statusLabel(x.status))+'</p>'+(x.accounts||[]).map(a=>'<p>'+esc(a.email)+' '+button('gmail-folders','תוויות ותיקיות',a.id)+' '+button('google-status','מצב סנכרון והרשאות',a.id)+' '+button('google-calendar','יומן Google',a.id)+' '+button('google-drive','חיפוש Drive',a.id)+' '+button('drive-mirror','שינויי Drive',a.id)+' '+button('people-mirror','אנשי קשר Google',a.id)+' '+button('people-permission','הרשאת קריאת אנשי קשר',a.id)+' '+button('google-disconnect','ניתוק החשבון',a.id)+'</p>').join('')+(x.key==='hostinger-mail'&&x.configured?'<p>'+esc(x.account)+' '+button('hostinger-folders','תיקיות דואר')+' '+button('hostinger-disconnect','ניתוק הדואר')+'</p>':'')+'</div></div>').join('')+'</div><div class="panel">'+button('google','הוסף חשבון Google')+'<p class="muted">אישור מאובטח לחיבור דואר, יומן וקבצים בחשבון שלך.</p>'+'</div><div class="panel"><h2>WhatsApp — חשבונות מקושרים</h2><p>לכל מספר סשן נפרד. קוד הקישור מוצג כאן ומוזן בטלפון הראשי.</p><div id="wa"></div><form id="waPairForm"><label>מספר WhatsApp חדש עם קידומת מדינה וללא +<input name="phone_number" inputmode="numeric" pattern="[1-9][0-9]{7,14}" required autocomplete="tel" placeholder="972501234567"></label><button class="btn primary" type="submit">הוסף חשבון וקבל קוד קישור</button><p class="muted">בטלפון: WhatsApp ← מכשירים מקושרים ← קישור מכשיר ← קישור באמצעות מספר טלפון.</p></form></div>';await loadWa();$('#content').insertAdjacentHTML('beforeend','<section id="providerFolders" class="panel" role="region" aria-label="תיקיות ספק דואר" hidden></section>');$('#content').insertAdjacentHTML('beforeend','<form id="mailSetup" class="panel"><h2>הוסף דואר Hostinger</h2><p>החיבור נבדק לפני שמירת החשבון.</p><label>כתובת אימייל<input type="email" name="email" autocomplete="username" required></label><label>סיסמת הדואר<input type="password" name="password" autocomplete="new-password" required></label><button class="btn primary" type="submit">בדיקה וחיבור</button><p id="mailStatus" role="status"></p></form>');return;
  }
@@ -871,7 +872,7 @@ async function renderLocalAi(){
 }
 
 
-async function navigateHash(){if(!visitRecorded){await post('/api/inbox/visit');visitRecorded=true;}const hash=location.hash.slice(1);if(hash.startsWith('client=')){await showClient360(new URLSearchParams(hash).get('client'));return;}if(hash.startsWith('conversation=')){await openConversation(decodeURIComponent(hash.slice(13)));return;}await render(hash||'home');}
+async function navigateHash(){if(!visitRecorded){await post('/api/inbox/visit');visitRecorded=true;}const hash=location.hash.slice(1);if(hash.startsWith('entity=')){await renderEntitySource(new URLSearchParams(hash).get('entity'),new URLSearchParams(hash).get('id'));return;}if(hash.startsWith('client=')){await showClient360(new URLSearchParams(hash).get('client'));return;}if(hash.startsWith('conversation=')){await openConversation(decodeURIComponent(hash.slice(13)));return;}await render(hash||'home');}
 const workLabels={inbox:'תיבה ראשית',needs_reply:'דורש טיפול',waiting_customer:'ממתין ללקוח',lead:'לידים',in_progress:'בטיפול',done:'הושלם',review:'דורש בדיקה',snoozed:'נדחה',updates:'עדכונים',spam:'ספאם',all:'כל השיחות',no_action:'לא דורש תשובה'};
 async function renderRecentChangesBrief(){
  const d=await api('/api/insights/changes?hours=24');
@@ -1021,4 +1022,24 @@ document.addEventListener('submit',async e=>{
  if(e.target.id!=='entityFilterForm')return;e.preventDefault();
  entityFilters=Object.fromEntries(new FormData(e.target));
  try{await render(view);}catch(error){$('#error').textContent=userError(error.message);}
+});
+
+async function renderGlobalSearch(){
+ const route=location.hash,params=new URLSearchParams(location.hash.split('?')[1]||''),q=params.get('q')||'';
+ const input=$('#globalQuery');if(input)input.value=q;
+ if(q.trim().length<2){$('#content').innerHTML='<p>הזן לפחות שני תווים בחיפוש העליון.</p>';return;}
+ const result=await api('/api/search?'+new URLSearchParams({q,page:params.get('page')||'0'}));if(location.hash!==route)return;
+ const names={client:'לקוחות',lead:'לידים',conversation:'שיחות',task:'משימות',project:'פרויקטים',file:'קבצים'};
+ const href=(type,item)=>type==='client'?'#client='+encodeURIComponent(item.id):type==='conversation'?'#conversation='+encodeURIComponent(item.id):type==='lead'?'#sales?'+new URLSearchParams({q:item.title}):type==='file'?'#files?'+new URLSearchParams({q:item.title}):'#entity='+type+'&id='+encodeURIComponent(item.id);
+ $('#content').innerHTML='<section><h2>תוצאות חיפוש</h2><p>חיפוש במידע המקומי. התאמה בטקסט אינה אימות זהות ואינה משייכת לקוחות.</p><div class="work-grid">'+result.groups.map(g=>'<section class="panel"><h3>'+names[g.type]+'</h3>'+(g.items.length?'<ul class="customer-list">'+g.items.map(x=>'<li><a href="'+esc(href(g.type,x))+'">'+esc(x.title||x.id)+'</a></li>').join('')+'</ul>':'<p>אין תוצאות בעמוד זה.</p>')+'</section>').join('')+'</div><nav class="workspace-links" aria-label="עמודי חיפוש">'+(result.page>0?'<a class="btn" href="#search?'+esc(new URLSearchParams({q,page:result.page-1}))+'">הקודם</a>':'')+(result.has_more?'<a class="btn" href="#search?'+esc(new URLSearchParams({q,page:result.page+1}))+'">תוצאות נוספות</a>':'')+'</nav></section>';
+}
+async function renderEntitySource(type,id){
+ if(!['task','project'].includes(type)||!/^[A-Za-z0-9_-]{1,64}$/.test(id||''))throw Error('קישור מקור לא תקין');
+ const route=location.hash,d=await api('/api/entity/'+type+'/'+encodeURIComponent(id));if(location.hash!==route)return;
+ view=type==='task'?'tasks':'projects';conversation='';records=[d.item];$('#title').textContent=d.item.title||d.item.name;
+ $('#content').innerHTML='<section class="panel"><a href="#'+view+'">'+esc(labels[view])+'</a><h2>'+esc(d.item.title||d.item.name)+'</h2><p>'+esc(statusLabel(d.item.status))+'</p><p class="note">'+esc(d.item.notes||d.item.description||'')+'</p><p>'+esc(d.item.due_date||d.item.next_step||'')+'</p>'+button('edit','עריכה',id)+'</section>';
+}
+document.addEventListener('submit',e=>{
+ if(e.target.id!=='globalSearchForm')return;e.preventDefault();
+ location.hash='search?'+new URLSearchParams({q:$('#globalQuery').value});
 });

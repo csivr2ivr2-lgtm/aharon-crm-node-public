@@ -39,6 +39,10 @@ try{
    if(url.pathname==='/assets/work-views.js')return route.fulfill({contentType:'text/javascript',body:workSource});
    const body=req.postDataJSON();if(!['GET','HEAD'].includes(req.method()))writes.push({path:url.pathname,body});
    let result={ok:true,items:[]};
+   if(url.pathname==='/api/search'){
+    assert.ok(['0501234567','client@example.test'].includes(url.searchParams.get('q')));
+    return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,page:0,has_more:false,groups:[{type:'client',items:[{id:'client-a',title:'לקוח בדיקה'}]}]})});
+   }
    if(url.pathname==='/api/sales'){
     if(req.method()==='POST'){assert.equal(body.confirmed,true);salesItems.push({...body,id:'lead_test',client_name:'לקוח בדיקה',revision:0});}
     return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,stages:salesStages,items:salesItems})});
@@ -258,6 +262,13 @@ try{
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/customer-${width}.png`,fullPage:true});}
 
 
+  phase='global-search-'+width;
+  for(const term of ['0501234567','client@example.test']){
+   await page.getByRole('searchbox',{name:'חיפוש בכל המערכת',exact:true}).fill(term);
+   await page.locator('#globalSearchForm').getByRole('button',{name:'חיפוש',exact:true}).click();
+   await page.getByRole('link',{name:'לקוח בדיקה',exact:true}).click();
+   await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();checks++;
+  }
   phase='sales-workflow-'+width;
   await page.goto('https://crm.test/#sales');
   await page.getByRole('button',{name:'ליד חדש',exact:true}).click();
