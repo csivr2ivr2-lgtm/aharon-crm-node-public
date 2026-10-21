@@ -196,7 +196,7 @@ try{
 
   phase='customer-workspace-'+width;
   await page.goto('https://crm.test/#client=client-a');
-  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();
   assert.equal(await page.locator('#client360Dialog').count(),0);checks++;
   await page.getByRole('link',{name:'משימות ומעקבים',exact:true}).click();
   await page.getByText('מעקב לקוח',{exact:true}).waitFor();
@@ -205,12 +205,12 @@ try{
   await page.getByLabel('תוכן ההערה').fill('טיוטה ללקוח א');
   await page.getByRole('button',{name:'סגירה ושמירת טיוטה',exact:true}).click();
   await page.goto('https://crm.test/#client=client-b');
-  await page.getByRole('heading',{name:'לקוח אחר',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'לקוח אחר',exact:true,level:2}).waitFor();
   await page.getByRole('button',{name:'הוסף הערה',exact:true}).click();
   assert.equal(await page.getByLabel('תוכן ההערה').inputValue(),'');checks++;
   await page.getByRole('button',{name:'סגירה ושמירת טיוטה',exact:true}).click();
   await page.goto('https://crm.test/#client=client-a');
-  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();
   await page.getByRole('button',{name:'הוסף הערה',exact:true}).click();
   assert.equal(await page.getByLabel('תוכן ההערה').inputValue(),'טיוטה ללקוח א');checks++;
   await page.getByRole('button',{name:'שמירה ללקוח זה',exact:true}).click();
@@ -222,12 +222,12 @@ try{
   await page.getByRole('button',{name:'שמירה ללקוח זה',exact:true}).click();
   await page.locator('#customerAction').waitFor({state:'detached'});
   assert.equal(writes.filter(w=>w.path==='/api/tasks').at(-1).body.client_id,'client-a');checks++;
-  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();
   await page.getByRole('link',{name:'שיחות',exact:true}).click();
   await page.getByRole('link',{name:'הצעת מחיר',exact:true}).click();
   await page.locator('.conversation-layout').waitFor();
   await page.getByRole('link',{name:'פתח כרטיס לקוח',exact:true}).click();
-  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();checks++;
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'customer overflow '+width);checks++;
   await accessibility(page,'customer-'+width);
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/customer-${width}.png`,fullPage:true});}
@@ -237,4 +237,4 @@ try{
   await context.close();
  }
  console.log(JSON.stringify({ok:true,widths:[360,390,768,1440],checks,source:'synthetic HTTP fixtures; no live provider or SQL'}));
-}catch(error){console.error('::error title=Browser regression::Failed phase '+phase+' ('+String(error.name).replace(/[^a-zA-Z]/g,'')+')');throw error;}finally{await browser.close();}
+}catch(error){console.error('::error title=Browser regression::Failed phase '+phase+' ('+String(error.name).replace(/[^a-zA-Z]/g,'')+')');console.error('::error title=Synthetic browser detail::'+String(error.message).slice(0,1800).replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A'));throw error;}finally{await browser.close();}
