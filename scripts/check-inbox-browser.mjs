@@ -224,10 +224,22 @@ try{
   assert.equal(writes.filter(w=>w.path==='/api/tasks').at(-1).body.client_id,'client-a');checks++;
   await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();
   await page.getByRole('link',{name:'שיחות',exact:true}).click();
+  await page.getByRole('heading',{name:'שיחות משויכות',exact:true}).waitFor();
   await page.getByRole('link',{name:'הצעת מחיר',exact:true}).click();
   await page.locator('.conversation-layout').waitFor();
+  await page.getByLabel('תשובה',{exact:true}).fill('תשובה שטרם נשמרה');
   await page.getByRole('link',{name:'פתח כרטיס לקוח',exact:true}).click();
   await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();checks++;
+  await page.goBack();await page.locator('.conversation-layout').waitFor();
+  assert.equal(await page.getByLabel('תשובה',{exact:true}).inputValue(),'תשובה שטרם נשמרה');checks++;
+  await page.reload();await page.locator('.conversation-layout').waitFor();
+  assert.equal(await page.getByLabel('תשובה',{exact:true}).inputValue(),'תשובה שטרם נשמרה');checks++;
+  await page.getByRole('button',{name:'צור משימה מהשיחה',exact:true}).click();
+  await page.getByRole('button',{name:'אישור יצירת המשימה',exact:true}).waitFor();
+  await page.getByRole('button',{name:'ביטול',exact:true}).click();
+  await page.getByText('ההצעה בוטלה.',{exact:true}).waitFor();checks++;
+  await page.getByRole('link',{name:'פתח כרטיס לקוח',exact:true}).click();
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true,level:2}).waitFor();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'customer overflow '+width);checks++;
   await accessibility(page,'customer-'+width);
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/customer-${width}.png`,fullPage:true});}

@@ -1,7 +1,7 @@
 /* Browser-only UI. Record data is escaped and never inserted into executable attributes. */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const labels={followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'ראשי',inbox:'תיבת הודעות',sent:'נשלחו',drafts:'טיוטות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
+const labels={more:'עוד',calendar:'יומן',followups:'מעקבים',knowledge:'ידע עסקי',assistant:'העוזר האישי',spam:'דואר זבל',suggestions:'הצעות חכמות',reminders:'תזכורות',notifications:'התראות',files:'קבצים',home:'היום שלי',inbox:'תיבת תקשורת',sent:'נשלחו',drafts:'טיוטות',updates:'עדכונים ומערכת',clients:'לקוחות',projects:'פרויקטים',tasks:'משימות',systems:'מערכות',accounts:'חשבונות',connectors:'חיבורים',ai:'בינה מלאכותית',settings:'הגדרות'};
 const entityNames={clients:'client',projects:'project',tasks:'task',systems:'system',accounts:'account'};
 let view='home',records=[],conversation='',requestId='',editing=null;
 let knowledgeCandidates=[],knowledgeArticles=[],knowledgeEditing=null;
@@ -43,6 +43,13 @@ async function render(next){
   try{await renderRecentChangesBrief();}catch{ $('#content').insertAdjacentHTML('beforeend','<section class="panel"><p class="muted">סקירת 24 השעות האחרונות אינה זמינה כרגע. תור העבודה עדיין פועל.</p></section>'); }
   return;
  }
+ if(view==='more'){
+  $('#content').innerHTML='<section class="panel"><h2>כלים וחיבורים</h2><div class="workspace-links">'+['calendar','files','assistant','connectors','accounts','settings','systems','knowledge','ai','suggestions','notifications','reminders','followups','updates'].map(key=>'<a class="btn" href="#'+key+'">'+esc(labels[key])+'</a>').join('')+'</div></section>';return;
+ }
+ if(view==='calendar'){
+  const d=await api('/api/connectors'),accounts=(d.connectors||[]).filter(x=>x.key==='google').flatMap(x=>x.accounts||[]);
+  $('#content').innerHTML='<section class="panel"><h2>יומן ופגישות</h2><p>בחר חשבון לצפייה ביומן המסונכרן. הנתונים עשויים להיות חלקיים.</p><div class="actions">'+accounts.map(a=>button('calendar-mirror',a.email||a.id,a.id)).join('')+'</div>'+(accounts.length?'':'<p>אין חשבון Google מחובר.</p><a href="#connectors">חיבור חשבון</a>')+'</section><section id="providerFolders" class="panel" aria-label="אירועי יומן" hidden></section>';return;
+ }
  if(await renderIntelligence(view))return;
  if(view==='sent'){await renderSentMessages();return;}
  if(view==='drafts'){await renderDraftOverview();return;}
@@ -55,6 +62,7 @@ async function render(next){
   const {renderWorkView}=await import('/assets/work-views.js');
   $('#content').innerHTML=renderWorkView({items:records,layout:entityLayout,...entityFilters,
    statusLabel,button,renderRow:x=>'<div class="row"><div><b>'+esc(x.name||x.title||x.did||x.label)+'</b><div class="muted">'+esc([statusLabel(x.status),x.email,x.phone,x.identifier,statusLabel(x.automation_mode),statusLabel(x.worker_state)].filter(Boolean).join(' · '))+'</div><div class="note">'+esc(x.description||x.notes||'')+'</div>'+(x.next_step?'<p>הצעד הבא: '+esc(x.next_step)+'</p>':'')+(x.worker_result?'<p class="draft note">'+esc(x.worker_result)+'</p>':'')+'</div><div>'+(view==='clients'?button('client-360','תיק לקוח 360°',x.id):'')+button('edit','עריכה',x.id||x.did)+button('notes','הערות',x.id||x.did)+(['projects','systems'].includes(view)?lifecycleButtons(x):'')+'</div></div>'});
+  $('#content').insertAdjacentHTML('afterbegin','<nav class="workspace-links" aria-label="משימות ופרויקטים"><a class="btn" href="#tasks">משימות</a><a class="btn" href="#projects">פרויקטים</a><a class="btn" href="#reminders">תזכורות</a><a class="btn" href="#followups">מעקבים</a></nav>');
   if(view==='projects')$('#content').insertAdjacentHTML('afterbegin','<div class="panel">'+button('toggle-archived',showArchived?'הסתר ארכיון':'הצג ארכיון')+'</div>');
   return;
  }
@@ -180,8 +188,10 @@ async function showGoogleStatus(id){
 }
 
 async function openConversation(id){
+ const requestedRoute=location.hash;
  const [d,clients,projects,drafts]=await Promise.all([api('/api/conversations/'+encodeURIComponent(id)),api('/api/clients'),api('/api/projects'),api('/api/conversations/'+encodeURIComponent(id)+'/drafts')]);
  conversationWork=(await api('/api/inbox/work/'+encodeURIComponent(id))).item;
+ if(location.hash!==requestedRoute)return;
  conversation=id;requestId=crypto.randomUUID();conversationOutbox=new Map((d.messages||[]).filter(m=>m.direction==='out').map(m=>[m.id,m]));$('#title').textContent=d.item.title||'שיחה';
  const newestInbound=[...(d.messages||[])].reverse().find(m=>m.direction==='in');
  conversationReplyEligible=!['spam','suspicious','marketing','system','reaction'].includes(conversationWork.message_type);
@@ -191,11 +201,21 @@ async function openConversation(id){
  $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+button('thread-merge','אחד עם שיחה אחרת')+button('thread-split','הפרד הודעות מסומנות')+button('conversation-attachments','קבצים מצורפים',id)+'<h2>'+esc(displayContact(d.item.title||d.item.external_id||'שיחה',d.item.channel))+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מקצועית','professional')+button('reply-suggestion','ידידותית','friendly')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
  if(d.item.client_id)$('.conversation-sidebar').insertAdjacentHTML('afterbegin','<a class="btn" href="#client='+encodeURIComponent(d.item.client_id)+'">פתח כרטיס לקוח</a>');
  $('.conversation-sidebar').insertAdjacentHTML('beforeend','<div class="workflow-controls"><p>'+esc(workLabels[conversationWork.handling_state]||'דורש בדיקה')+'</p>'+button('work-done','טופל',id)+button('work-waiting','מחכה ללקוח',id)+button('work-noaction','לא דורש תשובה',id)+button('work-auto','איפוס החלטות ידניות',id)+'</div>');
+ $('.conversation-sidebar').insertAdjacentHTML('beforeend','<div class="actions">'+button('work-task','צור משימה מהשיחה',id)+button('work-snooze','קבע מעקב לשיחה',id)+'</div><div id="workAction-'+esc(id)+'" role="status"></div>');
  const draft=(drafts.items||[]).find(x=>x.status==='draft');if(draft){$('#reply').value=draft.body;$('#reply').dataset.draftId=draft.id;}
+ try{
+  const local=JSON.parse(sessionStorage.getItem('crm.reply.'+id)||'null');
+  if(local){$('#reply').value=local.body||'';$('#instruction').value=local.instruction||'';if(local.draftId)$('#reply').dataset.draftId=local.draftId;}
+ }catch{}
  await post('/api/conversations/'+encodeURIComponent(id)+'/read');
  const timeline=$('.conversation');if(timeline)timeline.scrollTop=timeline.scrollHeight;
 }
 
+document.addEventListener('input',e=>{
+ if(!['reply','instruction'].includes(e.target.id)||!conversation)return;
+ try{sessionStorage.setItem('crm.reply.'+conversation,JSON.stringify({body:$('#reply')?.value||'',instruction:$('#instruction')?.value||'',draftId:$('#reply')?.dataset.draftId||''}));}
+ catch{$('#notice').textContent='שמירה מקומית אינה זמינה. שמור טיוטה לפני ניווט.';}
+});
 async function showConversationAttachments(id){
  const result=await api('/api/conversations/'+encodeURIComponent(id)+'/attachments');
  if(conversation!==id)return;
@@ -532,7 +552,7 @@ document.addEventListener('click',async e=>{
   }
   if(action==='send'){
    const body=$('#reply').value.trim();if(!body||!confirm('לשלוח את ההודעה הבאה?\n\n'+body))return;
-   await post('/api/conversations/'+encodeURIComponent(conversation)+'/send',{body,confirmed:true,draft_id:$('#reply').dataset.draftId||'',request_id:requestId});await openConversation(conversation);
+   await post('/api/conversations/'+encodeURIComponent(conversation)+'/send',{body,confirmed:true,draft_id:$('#reply').dataset.draftId||'',request_id:requestId});try{sessionStorage.removeItem('crm.reply.'+conversation);}catch{}await openConversation(conversation);
   }
  }catch(error){$('#error').textContent=error.message;}finally{b.disabled=false;}
 });
@@ -942,7 +962,7 @@ async function loadSentBatch(){
 async function renderWorkInbox(){
  workCursor='';inboxItems=[];
  const [accounts,clients]=await Promise.all([api('/api/accounts'),api('/api/clients')]);
- $('#content').innerHTML='<section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('refresh-view','רענון התיבה')+button('sync','סנכרון')+button('compose-new','הודעה חדשה')+button('history-sync','סנכרון היסטוריה ברקע')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['time','מהחדש לישן'],['priority','חשיבות בתוצאות שנסרקו']],workFilters.sort||'time')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
+ $('#content').innerHTML='<nav class="workspace-links" aria-label="תיקיות תקשורת">'+[['inbox','פניות'],['sent','נשלחו'],['drafts','טיוטות'],['spam','ספאם'],['updates','עדכונים']].map(([key,label])=>'<a class="btn" href="#'+key+'">'+label+'</a>').join('')+'</nav><section class="panel inbox-hub"><div class="section-heading"><h2>תיבת העבודה</h2>'+button('refresh-view','רענון התיבה')+button('sync','סנכרון')+button('compose-new','הודעה חדשה')+button('history-sync','סנכרון היסטוריה ברקע')+button('historical-triage','בדיקת הודעות ישנות')+'</div><div class="work-tabs" role="group" aria-label="תצוגת פניות">'+Object.entries(workLabels).filter(([k])=>k!=='no_action').map(([k,v])=>'<button class="btn '+(k===workView?'primary':'')+'" data-action="work-view" data-id="'+k+'" aria-pressed="'+(k===workView)+'">'+v+'</button>').join('')+'</div><form id="workSearch" class="work-filters"><label>חיפוש בכל ההיסטוריה<input name="q" type="search" value="'+esc(workFilters.q||'')+'"></label><details class="work-advanced"><summary>סינון מתקדם</summary><div class="work-filter-fields"><label>חשבון<select name="account_id">'+optionHtml([['','כל החשבונות'],...accounts.items.map(a=>[a.id,a.label||a.identifier])],workFilters.account_id||'')+'</select></label><label>לקוח<select name="client_id">'+optionHtml([['','כל הפונים'],...clients.items.map(c=>[c.id,c.name])],workFilters.client_id||'')+'</select></label><label>ערוץ<select name="channel">'+optionHtml([['','כל הערוצים'],['email','דואר'],['whatsapp','WhatsApp']],workFilters.channel||'')+'</select></label><label>מתאריך<input type="date" name="from" value="'+esc(workFilters.from||'')+'"></label><label>עד תאריך<input type="date" name="to" value="'+esc(workFilters.to||'')+'"></label><label>עדיפות<select name="priority">'+optionHtml([['','כל העדיפויות'],['high','גבוהה'],['normal','רגילה']],workFilters.priority||'')+'</select></label><label>מיון<select name="sort">'+optionHtml([['time','מהחדש לישן'],['priority','חשיבות בתוצאות שנסרקו']],workFilters.sort||'time')+'</select></label></div></details><button class="btn primary">סינון</button></form><p id="workCoverage" role="status"></p><div id="inboxItems" class="work-grid"></div>'+button('work-more','המשך סריקה')+'</section>';
  await loadWorkBatch();
 }
 async function loadWorkBatch(){
