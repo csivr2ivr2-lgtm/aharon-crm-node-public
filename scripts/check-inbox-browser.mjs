@@ -9,6 +9,7 @@ import {decideInbox} from '../src/ai/inbox-decision.js';
 const {chromium}=await import(process.env.CRM_PLAYWRIGHT_MODULE||'playwright');
 const browser=await chromium.launch({headless:true,...(process.env.CRM_CHROMIUM?{executablePath:process.env.CRM_CHROMIUM}:{}),args:['--no-sandbox','--disable-gpu']});
 const source=await readFile(new URL('../src/browser.js',import.meta.url),'utf8');
+const customerSource=await readFile(new URL('../src/customer-workspace.js',import.meta.url),'utf8');
 const workSource=await readFile(new URL('../src/work-views.js',import.meta.url),'utf8');
 const original={id:'conv_test',message_id:'msg_test',sender:'lead@example.test',contact_name:'פונה לדוגמה',title:'הצעת מחיר',subject:'הצעת מחיר',body:'אני מעוניין בעשרה מספרים לקבלת SMS ובאפשרות להרחבה למאה מספרים. <img src=x onerror=alert(1)>',channel:'email',account_label:'בדיקה',integration_key:'google:test',waiting_since:new Date(Date.now()-3600000).toISOString(),revision:0,unread_count:1};
 let checks=0,phase='startup';
@@ -30,9 +31,12 @@ try{
    if(url.hostname!=='crm.test')return route.abort();
    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:appHtml()});
    if(url.pathname==='/assets/app.js')return route.fulfill({contentType:'text/javascript',body:source});
+   if(url.pathname==='/assets/customer-workspace.js')return route.fulfill({contentType:'text/javascript',body:customerSource});
    if(url.pathname==='/assets/work-views.js')return route.fulfill({contentType:'text/javascript',body:workSource});
    const body=req.postDataJSON();if(!['GET','HEAD'].includes(req.method()))writes.push({path:url.pathname,body});
    let result={ok:true,items:[]};
+   if(url.pathname==='/api/clients/client-a/overview')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,client:{id:'client-a',name:'לקוח בדיקה',email:'client@example.test'},conversations:[{id:'conv_test',title:'הצעת מחיר',channel:'email',account_id:'business',last_message_at:original.waiting_since}],tasks:[{id:'task_a',title:'מעקב לקוח',status:'open',due_date:'2026-10-22'}],notes:[],activities:[],files:[],projects:[],reminders:[]})});
+   if(url.pathname==='/api/clients/client-b/overview')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,client:{id:'client-b',name:'לקוח אחר'},conversations:[],tasks:[],notes:[]})});
    if(url.pathname==='/api/inbox/work'){const v=url.searchParams.get('view');result={ok:true,items:matchesInbox(row,v)?[row]:[],complete:true,done:true,next_cursor:row.id,sync:{state:'verified'}};}
    else if(url.pathname==='/api/inbox/work/conv_test'){
     if(req.method()==='PATCH'){row={...row,manual_status:body.status,handling_state:body.status,revision:row.revision+1};}
@@ -50,7 +54,7 @@ try{
    else if(url.pathname==='/api/assistant/actions/act_browser_test/confirm'){assert.equal(body.confirmed,true);taskCreated=true;result={ok:true,status:'completed'};}
    else if(url.pathname==='/api/conversations/conv_test/attachments')result={ok:true,downloads_enabled:true,items:[{message_id:'msg_test',ordinal:0,filename:'report.pdf',mime_type:'application/pdf',size_bytes:3,source:'google.gmail',sent_at:original.waiting_since}]};
    else if(url.pathname==='/api/conversations/conv_test/messages/msg_test/html')result={ok:true,document:mailHtmlDocument('<p>שלום בטוח</p><script>window.top.pwned=true</script><img src="https://tracker.invalid/pixel"><a href="https://tracker.invalid">קישור חסום</a>')};
-   else if(url.pathname==='/api/conversations/conv_test')result={ok:true,item:row,messages:[{id:'msg_test',direction:'in',body:original.body,body_html:'<p>שלום בטוח</p>',source:'google.gmail',sent_at:original.waiting_since}]};
+   else if(url.pathname==='/api/conversations/conv_test')result={ok:true,item:{...row,client_id:'client-a'},messages:[{id:'msg_test',direction:'in',body:original.body,body_html:'<p>שלום בטוח</p>',source:'google.gmail',sent_at:original.waiting_since}]};
    else if(url.pathname==='/api/assistant/sessions')result={ok:true,items:[{id:'chat_test',title:'שיחת בדיקה'}]};
    else if(url.pathname==='/api/assistant/sessions/chat_test')result={ok:true,messages:[{role:'assistant',text:'ממתין לאישור',actions:[{id:'act_chat_test',tool:'create_task',status:'pending',args:{title:'בדיקת רצף'},confirmation_token:'test'}]},{role:'user',text:'הודעה מאוחרת'},{role:'assistant',text:'מקור: /#conversation=conv_test',actions:[]}]};
    return route.fulfill({contentType:'application/json',body:JSON.stringify(result)});
@@ -189,6 +193,45 @@ try{
   assert.equal(writes.filter(x=>x.path==='/api/google/permission-url').length,0);checks++;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'Contacts overflow '+width);checks++;
   await accessibility(page,'connectors-'+width);
+
+  phase='customer-workspace-'+width;
+  await page.goto('https://crm.test/#client=client-a');
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();
+  assert.equal(await page.locator('#client360Dialog').count(),0);checks++;
+  await page.getByRole('link',{name:'משימות ומעקבים',exact:true}).click();
+  await page.getByText('מעקב לקוח',{exact:true}).waitFor();
+  await page.reload();await page.getByText('מעקב לקוח',{exact:true}).waitFor();checks++;
+  await page.getByRole('button',{name:'הוסף הערה',exact:true}).click();
+  await page.getByLabel('תוכן ההערה').fill('טיוטה ללקוח א');
+  await page.getByRole('button',{name:'סגירה ושמירת טיוטה',exact:true}).click();
+  await page.goto('https://crm.test/#client=client-b');
+  await page.getByRole('heading',{name:'לקוח אחר',exact:true}).waitFor();
+  await page.getByRole('button',{name:'הוסף הערה',exact:true}).click();
+  assert.equal(await page.getByLabel('תוכן ההערה').inputValue(),'');checks++;
+  await page.getByRole('button',{name:'סגירה ושמירת טיוטה',exact:true}).click();
+  await page.goto('https://crm.test/#client=client-a');
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();
+  await page.getByRole('button',{name:'הוסף הערה',exact:true}).click();
+  assert.equal(await page.getByLabel('תוכן ההערה').inputValue(),'טיוטה ללקוח א');checks++;
+  await page.getByRole('button',{name:'שמירה ללקוח זה',exact:true}).click();
+  await page.getByText('הפעולה נשמרה ללקוח.',{exact:true}).waitFor();
+  assert.deepEqual(writes.filter(w=>w.path==='/api/notes').at(-1).body,{entity_type:'client',entity_id:'client-a',body:'טיוטה ללקוח א'});checks++;
+  await page.getByRole('button',{name:'צור משימה',exact:true}).click();
+  await page.getByLabel('כותרת המשימה').fill('לחזור ללקוח א');
+  await page.getByLabel('מועד יעד').fill('2026-10-23');
+  await page.getByRole('button',{name:'שמירה ללקוח זה',exact:true}).click();
+  await page.locator('#customerAction').waitFor({state:'detached'});
+  assert.equal(writes.filter(w=>w.path==='/api/tasks').at(-1).body.client_id,'client-a');checks++;
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();
+  await page.getByRole('link',{name:'שיחות',exact:true}).click();
+  await page.getByRole('link',{name:'הצעת מחיר',exact:true}).click();
+  await page.locator('.conversation-layout').waitFor();
+  await page.getByRole('link',{name:'פתח כרטיס לקוח',exact:true}).click();
+  await page.getByRole('heading',{name:'לקוח בדיקה',exact:true}).waitFor();checks++;
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),true,'customer overflow '+width);checks++;
+  await accessibility(page,'customer-'+width);
+  if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/customer-${width}.png`,fullPage:true});}
+
   assert.deepEqual(errors,[]);checks++;
   if(process.env.CRM_SCREENSHOTS){await mkdir(process.env.CRM_SCREENSHOTS,{recursive:true});await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/conversation-${width}.png`,fullPage:true});await page.goto('https://crm.test/#inbox');row={...original,...decideInbox(original)};await page.reload();await page.locator('.work-card').waitFor();await page.screenshot({path:process.env.CRM_SCREENSHOTS+`/inbox-${width}.png`,fullPage:true});}
   await context.close();

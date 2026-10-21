@@ -189,6 +189,7 @@ async function openConversation(id){
  const options=(items,selected)=>'<option value="">ללא שיוך</option>'+items.map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(x.name)+'</option>').join('');
  const messages=(d.messages||[]).map(m=>'<article class="message '+(m.direction==='out'?'out':'in')+'"><div class="message-meta"><span>'+esc(m.direction==='out'?'נשלח':'מאת '+displayContact(m.sender_display||m.sender,d.item.channel))+'</span><time>'+esc(formatDate(m.sent_at))+'</time></div>'+classificationHtml(m)+providerStateHtml(m)+'<div class="message-text">'+esc(m.body||'')+'</div>'+(m.cc?'<small>העתק: '+esc(m.cc)+'</small>':'')+'<div class="message-tools"><label><input type="checkbox" class="thread-pick" value="'+esc(m.id)+'">בחר להפרדה</label>'+(m.direction==='out'&&d.item.channel==='whatsapp'?'<span class="muted">'+esc(({server:'נשלח לשרת',delivered:'נמסר',read:'נקרא',played:'נוגן'})[m.delivery_status]||'קריאה לא אומתה')+'</span>':'')+(m.deletion_status?'<span class="muted">'+esc(m.deletion_status==='requested'?'בקשת מחיקה נשלחה · לא אומת אצל הלקוח':'מצב המחיקה דורש בדיקה')+'</span>':'')+(m.can_delete_for_everyone?button('conversation-delete-for-all','מחק לכולם',m.id):'')+(m.source==='google.gmail'?button('gmail-message-actions','פעולות Gmail',m.id):'')+(m.body_html?button('mail-html','תצוגת דואר מעוצבת',m.id):'')+button('knowledge-propose','הפק נוהל',m.id)+'</div></article>').join('');
  $('#content').innerHTML='<section class="conversation-layout"><div class="conversation-main"><header class="conversation-header"><div>'+button('back-inbox','← חזרה לתיבה')+button('thread-merge','אחד עם שיחה אחרת')+button('thread-split','הפרד הודעות מסומנות')+button('conversation-attachments','קבצים מצורפים',id)+'<h2>'+esc(displayContact(d.item.title||d.item.external_id||'שיחה',d.item.channel))+'</h2><p class="muted">כל ההודעות והטיוטות בשיחה אחת</p></div><span class="tag">'+esc(channel(d.item))+'</span></header><div class="chat-timeline conversation" role="log" aria-label="הודעות בשיחה">'+(messages||'<p class="empty">אין הודעות עדיין.</p>')+'</div><section class="reply-composer"><h3>כתיבת תשובה</h3><label class="sr-only" for="reply">תשובה</label><textarea id="reply" rows="5" placeholder="הקלד תשובה או בקש הצעת נוסח…"></textarea><label for="instruction">הנחיה לעוזר (רשות)</label><input id="instruction" placeholder="למשל: קצר, מקצועי וענייני"><div class="reply-variants"><span class="muted">הצעות לפי ההיסטוריה והמידע המשויך:</span>'+button('reply-suggestion','קצרה','short')+button('reply-suggestion','מקצועית','professional')+button('reply-suggestion','ידידותית','friendly')+button('reply-suggestion','מפורטת','detailed')+button('reply-suggestion','מעקב ידידותי','followup')+'</div><div class="composer-actions">'+button('draft','הצע תשובה')+button('save-draft','שמור טיוטה')+button('reject-draft','דחה')+button('send','אישור ושליחה')+'</div><p id="draftInfo" class="muted" role="status">'+(conversationReplyEligible?'טיוטות מבוססות על הקשר ה־CRM, וללא שליחה אוטומטית.':'ההודעה האחרונה סווגה כעדכון או כחשודה; הצעות AI הושבתו עד לשינוי הסיווג.')+'</p></section></div><aside class="conversation-sidebar"><h3>פרטי השיחה</h3><label>לקוח<select id="convClient">'+options(clients.items,d.item.client_id)+'</select></label><label>פרויקט<select id="convProject">'+options(projects.items,d.item.project_id)+'</select></label>'+button('associate','שמור שיוך')+'</aside></section>';
+ if(d.item.client_id)$('.conversation-sidebar').insertAdjacentHTML('afterbegin','<a class="btn" href="#client='+encodeURIComponent(d.item.client_id)+'">פתח כרטיס לקוח</a>');
  $('.conversation-sidebar').insertAdjacentHTML('beforeend','<div class="workflow-controls"><p>'+esc(workLabels[conversationWork.handling_state]||'דורש בדיקה')+'</p>'+button('work-done','טופל',id)+button('work-waiting','מחכה ללקוח',id)+button('work-noaction','לא דורש תשובה',id)+button('work-auto','איפוס החלטות ידניות',id)+'</div>');
  const draft=(drafts.items||[]).find(x=>x.status==='draft');if(draft){$('#reply').value=draft.body;$('#reply').dataset.draftId=draft.id;}
  await post('/api/conversations/'+encodeURIComponent(id)+'/read');
@@ -308,30 +309,40 @@ async function showResourceLink(provider,account_id,external_id){
  document.body.append(dialog);dialog.showModal();
 }
 
+let customerRequest=0;
 async function showClient360(clientId){
- const info=await api('/api/clients/'+encodeURIComponent(clientId)+'/overview');
- document.querySelector('#client360Dialog')?.remove();
- const resources=await api('/api/clients/'+encodeURIComponent(clientId)+'/resources');
- const client=info.client;
- const groups=[
-  ['conversations','שיחות',x=>(x.title||x.external_id||'שיחה')+' · '+(x.channel||'')+' · '+formatDate(x.last_message_at)],
-  ['projects','פרויקטים',x=>(x.name||'פרויקט')+' · '+(x.status||'')],
-  ['tasks','משימות',x=>(x.title||'משימה')+' · '+(x.status||'')+(x.due_date?' · יעד '+x.due_date:'')],
-  ['files','קבצים',x=>x.name||'קובץ'],
-  ['reminders','תזכורות',x=>(x.title||'תזכורת')+' · '+(x.status||'')+' · '+formatDate(x.due_at)],
-  ['notes','הערות',x=>x.body||''],
-  ['activities','פעילות',x=>(x.title||x.event||'אירוע')+' · '+formatDate(x.created_at)]
- ];
- let sections=groups.map(([key,title,format])=>'<section class="panel"><h3>'+esc(title)+' · '+(info[key]||[]).length+'</h3>'+
-  ((info[key]||[]).length?'<ul>'+(info[key]||[]).map(x=>'<li>'+esc(format(x))+'</li>').join('')+'</ul>':'<p class="muted">אין פריטים משויכים ישירות.</p>')+'</section>').join('');
- sections+='<section class="panel"><h3>מקורות Google משויכים</h3>'+((resources.items||[]).map(r=>'<article><strong>'+esc(r.available?(r.item.name||r.item.summary||r.external_id):'המקור אינו זמין בהרשאות הנוכחיות')+'</strong><p>'+esc(r.provider)+(r.available?' · '+esc(r.account_id)+' · '+esc(r.external_id)+' · עדכון '+esc(formatDate(r.checked_at)):'')+'</p>'+(r.available?resourceSourceLink(r.item):'')+'<button class="btn" data-action="unlink-client-resource" data-client="'+esc(clientId)+'" data-id="'+esc(r.id)+'">בטל שיוך</button></article>').join('')||'<p>אין מקורות משויכים. ניתן לשייך פריטים מהתצוגות המסונכרנות במסך חיבורים.</p>')+'</section>';
- const html='<dialog id="client360Dialog" aria-label="כרטיס לקוח 360" style="width:min(94vw,1040px);max-height:90vh;overflow:auto;border-radius:18px;padding:18px">'+
- '<header class="row"><div><h2>'+esc(client.name||'כרטיס לקוח')+'</h2><p class="muted">'+esc([client.company,client.email,client.phone].filter(Boolean).join(' · '))+'</p></div>'+
- button('client-360-close','סגירה')+'</header><p class="muted">מידע מתוך CRM, עם שיוך מפורש בלבד. אין זיהוי אוטומטי לפי שם דומה או מספר חלקי.</p>'+
- '<div class="client-360-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">'+sections+'</div>'+
- '<p class="muted">עד 20–40 פריטים מכל סוג מוצגים בכרטיס. לא מוצגים כאן נתוני ספק שטרם סונכרנו.</p></dialog>';
- document.body.insertAdjacentHTML('beforeend',html);
- $('#client360Dialog').showModal();
+ if(!/^[A-Za-z0-9_-]{1,64}$/.test(clientId))throw Error('מזהה לקוח לא תקין');
+ const params=new URLSearchParams(location.hash.slice(1));
+ if(params.get('client')!==clientId){location.hash='client='+encodeURIComponent(clientId);return;}
+ const route=location.hash,request=++customerRequest;
+ view='clients';conversation='';$('#title').textContent='כרטיס לקוח';$('#error').textContent='';
+ document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view==='clients'));
+ $('#content').innerHTML='<p role="status">טוען כרטיס לקוח…</p>';
+ try{
+ const [{customerWorkspace,openCustomerAction},info,resources]=await Promise.all([
+ import('/assets/customer-workspace.js'),api('/api/clients/'+encodeURIComponent(clientId)+'/overview'),
+ api('/api/clients/'+encodeURIComponent(clientId)+'/resources').catch(()=>({items:[],error:true}))
+ ]);
+ if(location.hash!==route||request!==customerRequest)return;
+ $('#title').textContent=info.client.name||'כרטיס לקוח';
+ $('#content').innerHTML=customerWorkspace(info,resources,{tab:params.get('tab'),formatDate,sourceLink:resourceSourceLink});
+ $('#content').querySelectorAll('[data-customer-action]').forEach(el=>el.onclick=async()=>{
+  try{
+   if(el.dataset.customerAction==='message'){
+    await showCompose();
+    if(info.client.email)$('#outboundDialog [name="recipient"]').value=info.client.email;
+    return;
+   }
+   openCustomerAction({client:info.client,kind:el.dataset.customerAction,post,onSaved:async()=>{
+    if(new URLSearchParams(location.hash.slice(1)).get('client')===clientId)await showClient360(clientId);
+    $('#notice').textContent='הפעולה נשמרה ללקוח.';
+   }});
+  }catch(error){$('#error').textContent=error.message;}
+ });
+ }catch(error){
+  if(location.hash!==route||request!==customerRequest)return;
+  $('#content').innerHTML='<section class="panel"><h2>לא ניתן לפתוח את כרטיס הלקוח</h2><p>'+esc(error.message)+'</p><a class="btn" href="#clients">חזרה ללקוחות</a></section>';
+ }
 }
 
 async function loadWa(){
@@ -369,7 +380,7 @@ document.addEventListener('click',async e=>{
   if(action==='entity-layout'){if(['list','kanban','calendar','month'].includes(id)){entityLayout=id;await render(view);}return;}
   if(action==='create'||action==='edit')await editRecord(b.dataset.id);
   if(action==='notes')await showNotes(b.dataset.id);
-  if(action==='conversation')await openConversation(b.dataset.id);
+  if(action==='conversation'){location.hash='conversation='+encodeURIComponent(b.dataset.id);return;}
   if(action==='gmail-message-actions'){
    document.querySelector('#gmailActionDialog')?.remove();
    const dialog=document.createElement('dialog');dialog.id='gmailActionDialog';dialog.dataset.conversationId=conversation;dialog.setAttribute('aria-label','פעולות Gmail');
@@ -406,9 +417,8 @@ document.addEventListener('click',async e=>{
    try{await post('/api/clients/'+encodeURIComponent(client)+'/resources',{...dialog.resourceReference,confirmed:true});status.textContent='המקור שויך ללקוח. ניתן לראות אותו בכרטיס הלקוח.';}
    catch(error){status.textContent=userError(error.message);}return;
   }
-  if(action==='client-360'){await showClient360(id);return;}
-  if(action==='client-360-close'){document.querySelector('#client360Dialog')?.close();document.querySelector('#client360Dialog')?.remove();return;}
-  if(action==='google-status'){await showGoogleStatus(id);return;}
+  if(action==='client-360'){location.hash='client='+encodeURIComponent(id);return;}
+    if(action==='google-status'){await showGoogleStatus(id);return;}
   if(action==='people-mirror'){await showPeopleMirror(id);return;}
   if(action==='people-sync'){await showPeopleMirror(id,true);return;}
   if(action==='people-permission'){
@@ -840,7 +850,7 @@ async function renderLocalAi(){
 }
 
 
-async function navigateHash(){if(!visitRecorded){await post('/api/inbox/visit');visitRecorded=true;}const hash=location.hash.slice(1);if(hash.startsWith('conversation=')){await openConversation(decodeURIComponent(hash.slice(13)));return;}await render(hash||'home');}
+async function navigateHash(){if(!visitRecorded){await post('/api/inbox/visit');visitRecorded=true;}const hash=location.hash.slice(1);if(hash.startsWith('client=')){await showClient360(new URLSearchParams(hash).get('client'));return;}if(hash.startsWith('conversation=')){await openConversation(decodeURIComponent(hash.slice(13)));return;}await render(hash||'home');}
 const workLabels={inbox:'תיבה ראשית',needs_reply:'דורש טיפול',waiting_customer:'ממתין ללקוח',lead:'לידים',in_progress:'בטיפול',done:'הושלם',review:'דורש בדיקה',snoozed:'נדחה',updates:'עדכונים',spam:'ספאם',all:'כל השיחות',no_action:'לא דורש תשובה'};
 async function renderRecentChangesBrief(){
  const d=await api('/api/insights/changes?hours=24');

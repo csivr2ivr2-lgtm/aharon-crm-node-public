@@ -141,3 +141,11 @@ jobs:
         env:
           CRM_SCREENSHOTS: browser-results
         run: CRM_AXE_SCRIPT="$RUNNER_TEMP/crm-browser/node_modules/axe-core/axe.min.js" CRM_PLAYWRIGHT_MODULE="$RUNNER_TEMP/crm-browser/node_modules/playwright/index.mjs" node scripts/check-inbox-browser.mjs
+
+      - name: Save browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-browser-screenshots
+          path: browser-results
+          if-no-files-found: warn
