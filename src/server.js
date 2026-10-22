@@ -114,7 +114,9 @@ app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=n
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
 
 app.post('/auth/aharon-admin',async(req,reply)=>{
- reply.header('Cache-Control','no-store').header('Referrer-Policy','no-referrer');
+ // Cross-origin HTML POSTs with no-referrer send Origin: null. Use origin-only
+ // referrer policy to satisfy the receiving service's exact Origin check.
+ reply.header('Cache-Control','no-store').header('Referrer-Policy','origin');
  if(!logged(req))return reply.code(401).type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><p>יש להתחבר קודם ל־CRM.</p><a href="/">כניסה ל־CRM</a></html>');
  const ip=verifiedVisitorIp(req);
  const escape=s=>String(s).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -125,7 +127,7 @@ app.post('/auth/aharon-admin',async(req,reply)=>{
  const nonce=randomBytes(16).toString('base64');
  const target=new URL(SSO_TARGET);
  reply.header('Content-Security-Policy',"default-src 'none'; script-src 'nonce-"+nonce+"'; form-action "+target.origin+"; base-uri 'none'; frame-ancestors 'none'");
- reply.type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>כניסה מאובטחת לאהרן בענן</title></head><body><p>מבצע מעבר מאובטח לניהול אהרן בענן...</p><form id="handoff" method="post" action="'+SSO_TARGET+'"><input type="hidden" name="ticket" value="'+ticket+'"><button type="submit">המשך לניהול אהרן בענן</button></form><script nonce="'+nonce+'">document.getElementById("handoff").submit()</script></body></html>');
+ reply.type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="referrer" content="origin"><title>כניסה מאובטחת לאהרן בענן</title></head><body><p>מבצע מעבר מאובטח לניהול אהרן בענן...</p><form id="handoff" method="post" action="'+SSO_TARGET+'"><input type="hidden" name="ticket" value="'+ticket+'"><button type="submit">המשך לניהול אהרן בענן</button></form><script nonce="'+nonce+'">document.getElementById("handoff").submit()</script></body></html>');
 });
 
 
