@@ -6,7 +6,6 @@ export const SSO_TARGET = 'https://app.aharon.cloud/auth/crm-admin-sso';
 export const SSO_ISSUER = 'aharon-crm';
 export const SSO_AUDIENCE = 'aharon-cloud-admin';
 export const SSO_TTL_MS = 60_000;
-export const RECENT_CRM_LOGIN_MS = 4 * 60 * 60 * 1000;
 export const CRM_COOKIE_MS = 14 * 24 * 60 * 60 * 1000;
 
 export function normalizeHostelIp(value) {
@@ -53,14 +52,6 @@ export function hostelSsoConfigured(){
     String(process.env.HOSTEL_SSO_ALLOWED_IPS||'').split(',').every(isPublicVisitorIp) &&
     origin.protocol==='https:' && origin.origin===config.publicBaseUrl && !origin.username && !origin.password;
  } catch { return false; }
-}
-export function isRecentCrmSession(req,now=Date.now()){
- const cookie=req.unsignCookie(req.cookies?.crm_session||'');
- if(!cookie.valid)return false;
- const expiry=Number(cookie.value);
- const issuedAt=expiry-CRM_COOKIE_MS;
- return Number.isSafeInteger(expiry) && expiry>now && issuedAt<=now &&
-   issuedAt >= now-RECENT_CRM_LOGIN_MS;
 }
 export function createHostelTicket(ip,{now=Date.now(),nonce=randomBytes(16).toString('hex')}={}){
  if(!hostelSsoConfigured()||!isAllowedHostelIp(ip))throw Error('hostel_sso_unavailable');

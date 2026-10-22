@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHmac} from 'node:crypto';
-import {createHostelTicket, hostelSsoConfigured, isAllowedHostelIp, normalizeHostelIp, verifiedVisitorIp, SSO_TARGET, CRM_COOKIE_MS, isRecentCrmSession} from '../src/aharon-admin-sso.js';
+import {createHostelTicket, hostelSsoConfigured, isAllowedHostelIp, normalizeHostelIp, verifiedVisitorIp, SSO_TARGET, CRM_COOKIE_MS} from '../src/aharon-admin-sso.js';
 
 test('Hostel ticket issuer fails closed until configured and accepts only exact IPs',()=>{
  const old={...process.env};
@@ -20,13 +20,16 @@ test('Hostel ticket issuer fails closed until configured and accepts only exact 
   assert.equal(SSO_TARGET,'https://app.aharon.cloud/auth/crm-admin-sso');
  }finally{for(const key of ['HOSTEL_SSO_SHARED_SECRET','HOSTEL_SSO_ALLOWED_IPS']){if(old[key]===undefined)delete process.env[key];else process.env[key]=old[key];}}
 });
-test('CRM session is only considered recent for four hours after password login',()=>{
- const now=1700000000000;
- function req(age){return {cookies:{crm_session:String(now-age+CRM_COOKIE_MS)},unsignCookie:raw=>({valid:true,value:raw})};}
- assert.equal(isRecentCrmSession(req(2000),now),true);
- assert.equal(isRecentCrmSession(req(5*60*60*1000),now),false);
- assert.equal(isRecentCrmSession(req(-5000),now),false);
- assert.equal(isRecentCrmSession({cookies:{},unsignCookie:()=>({valid:false})},now),false);
+test('CRM handoff requires a signed active CRM login, but not an additional 4-hour recency restriction', async()=>{
+ const {readFileSync}=await import('node:fs');
+ const server=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
+ const start=server.indexOf("app.post('/auth/aharon-admin'");
+ assert.notEqual(start,-1);
+ const route=server.slice(start,server.indexOf('app.get("/api/status"',start));
+ assert.match(route,/if\(!logged\(req\)\)/);
+ assert.match(route,/createHostelTicket\(ip\)/);
+ assert.doesNotMatch(route,/isRecentCrmSession|RECENT_CRM_LOGIN_MS|4 \* 60 \* 60/);
+ assert.equal(CRM_COOKIE_MS,14*24*60*60*1000);
 });
 
 test('Hostinger localhost proxy resolves only last forwarded IP with an explicit trusted peer',()=>{
