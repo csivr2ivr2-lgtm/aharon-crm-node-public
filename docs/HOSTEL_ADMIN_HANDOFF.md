@@ -11,3 +11,7 @@ The action requires a valid signed CRM cookie from the last 4 hours and the allo
 **Important:** Wi-Fi is not a reliable identity factor; everyone on the same public network may share an IP. Anyone with the CRM password on that network could gain admin access. For best security, protect the CRM password and use private browsing on public machines; a passkey/WebAuthn or separate admin step-up is recommended for stronger identity assurance.
 
 Production remains disabled until the actual public IP, shared secret, origin, and any trusted reverse-proxy addresses are set, and live HTTPS verification succeeds.
+
+## Hostinger localhost reverse-proxy diagnosis (2026-10-22)
+
+The CRM displayed `127.0.0.1` (Node's direct socket peer) although hostel internet egress was `93.173.169.138`. The SSO resolver now reads the **rightmost** `X-Forwarded-For` value only if `HOSTEL_SSO_TRUSTED_PROXY_IPS` explicitly matches the **direct socket peer**; it never trusts the leftmost value or generic `TRUST_PROXY=true`. For the *observed* localhost socket peer, configure `HOSTEL_SSO_TRUSTED_PROXY_IPS=127.0.0.1` in the CRM's private Hostinger env **only after confirming** the reverse proxy appends/overwrites XFF with a genuine upstream IP. No need to change global `TRUST_PROXY` for SSO. Without a trusted forwarded public IP, the SSO is denied; the existing CRM login remains unchanged. Test with an unauthorised external network and a deliberately spoofed XFF before production use.

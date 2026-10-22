@@ -28,3 +28,14 @@ test('CRM session is only considered recent for four hours after password login'
  assert.equal(isRecentCrmSession(req(-5000),now),false);
  assert.equal(isRecentCrmSession({cookies:{},unsignCookie:()=>({valid:false})},now),false);
 });
+
+test('Hostinger localhost proxy resolves only last forwarded IP with an explicit trusted peer',()=>{
+ const make=(peer,header,reported='93.173.169.138')=>({raw:{socket:{remoteAddress:peer},headers:header===undefined?{}:{'x-forwarded-for':header}},ip:reported});
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','93.173.169.138'),'127.0.0.1'),'93.173.169.138');
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','93.173.169.138, 203.0.113.70'),'127.0.0.1'),'203.0.113.70');
+ assert.equal(verifiedVisitorIp(make('203.0.113.70','93.173.169.138'),'127.0.0.1'),'203.0.113.70');
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','93.173.169.138')),'127.0.0.1');
+ assert.equal(verifiedVisitorIp(make('127.0.0.1',undefined),'127.0.0.1'),'');
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','192.168.1.2'),'127.0.0.1'),'');
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','not-an-ip'),'127.0.0.1'),'');
+});

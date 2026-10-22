@@ -26,15 +26,20 @@ export function isPublicVisitorIp(value) {
  if(type===6)return ip!=='::'&&ip!=='::1'&&!ip.startsWith('fc')&&!ip.startsWith('fd')&&!/^fe[89ab]/.test(ip)&&!ip.startsWith('ff');
  return false;
 }
-// Restrict trust to a known reverse-proxy socket peer, even if general Fastify
-// trustProxy is more permissive. Otherwise use the real direct socket IP.
+// SSO-only client IP detection; does NOT trust Fastify trustProxy=true or a
+// client-controlled leftmost X-Forwarded-For. A verified immediate proxy peer
+// must append/overwrite the true upstream IP as the RIGHTMOST XFF entry.
 export function verifiedVisitorIp(req,proxies=process.env.HOSTEL_SSO_TRUSTED_PROXY_IPS){
  const direct=normalizeHostelIp(req?.raw?.socket?.remoteAddress||req?.socket?.remoteAddress);
- const reported=normalizeHostelIp(req?.ip);
  if(!direct)return '';
- if(direct===reported)return direct;
  const trusted=String(proxies||'').split(',').map(normalizeHostelIp).filter(Boolean);
- return trusted.includes(direct)?reported:direct;
+ if(!trusted.includes(direct))return direct;
+ const forwarded=req?.raw?.headers?.['x-forwarded-for']??req?.headers?.['x-forwarded-for'];
+ if(typeof forwarded!=='string'||forwarded.length>512)return '';
+ const hops=forwarded.split(',');
+ if(!hops.length||hops.length>12)return '';
+ const nearest=normalizeHostelIp(hops[hops.length-1]);
+ return isPublicVisitorIp(nearest)?nearest:'';
 }
 export function isAllowedHostelIp(value,allowlist=process.env.HOSTEL_SSO_ALLOWED_IPS){
  const parts=String(allowlist||'').split(',').map(normalizeHostelIp);
