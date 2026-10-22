@@ -41,7 +41,7 @@ import {migrateWhatsAppMessageControls,recordWhatsAppReceipt,requestWhatsAppDele
 import {handleMcp} from "./mcp.js";
 import {appHtml,loginHtml,lockedHtml,blockedHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
-import {createHostelTicket,hostelSsoConfigured,isAllowedHostelIp,isRecentCrmSession,normalizeHostelIp,SSO_TARGET} from './aharon-admin-sso.js';
+import {createHostelTicket,hostelSsoConfigured,isAllowedHostelIp,isRecentCrmSession,verifiedVisitorIp,SSO_TARGET} from './aharon-admin-sso.js';
 import {migratePlatform} from "./platform/schema.js";
 import {enqueueJob,startJobWorker} from "./platform/jobs.js";
 import {migrateHistorySync,discoverHistoryAccounts,historyPageJob} from './historical-sync.js';
@@ -116,7 +116,7 @@ app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"}
 app.post('/auth/aharon-admin',async(req,reply)=>{
  reply.header('Cache-Control','no-store').header('Referrer-Policy','no-referrer');
  if(!logged(req))return reply.code(401).type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><p>יש להתחבר קודם ל־CRM.</p><a href="/">כניסה ל־CRM</a></html>');
- const ip=normalizeHostelIp(req.ip);
+ const ip=verifiedVisitorIp(req);
  const escape=s=>String(s).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
  const errorPage=(message,status=403)=>reply.code(status).type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><title>ניהול אהרן בענן</title><main style="font:16px system-ui;max-width:550px;margin:60px auto;padding:20px"><h1>הכניסה לא זמינה</h1><p>'+escape(message)+'</p><a href="/">חזרה ל־CRM</a></main></html>');
  if(!hostelSsoConfigured()||!isAllowedHostelIp(ip))return errorPage('המעבר פעיל רק מכתובת ה־IP הציבורית המאושרת של ההוסטל. כתובת שהשרת מזהה: '+(ip||'לא זוהתה'));
