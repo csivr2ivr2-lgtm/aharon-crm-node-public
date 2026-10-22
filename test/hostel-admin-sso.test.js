@@ -16,7 +16,7 @@ test('Hostel ticket issuer fails closed until configured and accepts only exact 
   assert.equal(normalizeHostelIp('::ffff:203.0.113.21'),'203.0.113.21');
   assert.equal(isAllowedHostelIp('192.168.1.1','192.168.1.1'),false);
   assert.equal(verifiedVisitorIp({ip:'203.0.113.21',raw:{socket:{remoteAddress:'192.168.1.1'}}}), '192.168.1.1');
-  assert.equal(verifiedVisitorIp({ip:'203.0.113.21',raw:{socket:{remoteAddress:'192.168.1.1'}}},'192.168.1.1'), '203.0.113.21');
+  assert.equal(verifiedVisitorIp({ip:'203.0.113.21',raw:{socket:{remoteAddress:'192.168.1.1'},headers:{'x-forwarded-for':'203.0.113.21'}}},'192.168.1.1'), '203.0.113.21');
   assert.equal(SSO_TARGET,'https://app.aharon.cloud/auth/crm-admin-sso');
  }finally{for(const key of ['HOSTEL_SSO_SHARED_SECRET','HOSTEL_SSO_ALLOWED_IPS']){if(old[key]===undefined)delete process.env[key];else process.env[key]=old[key];}}
 });
