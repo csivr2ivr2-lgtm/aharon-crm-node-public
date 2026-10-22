@@ -2,7 +2,7 @@
 
 The CRM login stays password-only, exactly as before. The **ניהול אהרן בענן** top-bar button uses a short-lived cross-domain form POST to \`https://app.aharon.cloud/auth/crm-admin-sso\`.
 
-Setup both Hostinger environments with \`HOSTEL_SSO_ALLOWED_IPS\` (exact approved hostel **public** IP, comma-separated when needed) and the **same randomly generated 32+ character \`HOSTEL_SSO_SHARED_SECRET\`**. Set \`HOSTEL_SSO_CRM_ORIGIN\` on the Aharon Cloud side to CRM's exact \`PUBLIC_BASE_URL\` origin. Never add secrets to GitHub.
+Hostel public IPv4 was supplied on 2026-10-22 as **93.173.169.138** (candidate, not independently verified as static). Setup both Hostinger environments with \`HOSTEL_SSO_ALLOWED_IPS=93.173.169.138\` and the **same randomly generated 32+ character \`HOSTEL_SSO_SHARED_SECRET\`**. Set \`HOSTEL_SSO_CRM_ORIGIN\` on the Aharon Cloud side to CRM's exact \`PUBLIC_BASE_URL\` origin. Never add secrets to GitHub.
 
 With Hostinger reverse proxies, set \`HOSTEL_SSO_TRUSTED_PROXY_IPS\` to the **direct proxy socket peer IP**, not the hostel address, and configure CRM \`TRUST_PROXY\` correctly. If the real public visitor IP cannot be validated, access stays blocked. The server will show its perceived IP on a failed click, for troubleshooting.
 
