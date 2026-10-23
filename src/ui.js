@@ -100,18 +100,18 @@ function documentHead(title="Aharon CRM"){return `<meta charset="utf-8"><meta na
 export function adminReauthHtml({challenge="",nonce="",error=false,unavailable=false}={}){
  const safeChallenge=String(challenge).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const form=unavailable?'<div class="login-error" role="alert">לא ניתן להשלים כרגע את המעבר המאובטח.</div><a class="btn primary reauth-link" href="/">חזרה ל־CRM</a>':
- \`\${error?'<div class="login-error" role="alert" id="reauthError">לא ניתן לאמת את הכניסה. בדוק את הסיסמה ונסה שוב.</div>':''}
+ `${error?'<div class="login-error" role="alert" id="reauthError">לא ניתן לאמת את הכניסה. בדוק את הסיסמה ונסה שוב.</div>':''}
  <form method="post" action="/auth/aharon-admin/confirm" autocomplete="off">
- <input type="hidden" name="challenge" value="\${safeChallenge}">
+ <input type="hidden" name="challenge" value="${safeChallenge}">
  <label class="reauth-label" for="crmPassword">סיסמת ה־CRM</label>
- <div class="field password-wrap"><input id="crmPassword" name="password" type="password" placeholder="הזן סיסמה" autocomplete="off" maxlength="4096" \${error?'aria-invalid="true" aria-describedby="reauthError"':''} required autofocus>
+ <div class="field password-wrap"><input id="crmPassword" name="password" type="password" placeholder="הזן סיסמה" autocomplete="off" maxlength="4096" ${error?'aria-invalid="true" aria-describedby="reauthError"':''} required autofocus>
  <button id="togglePassword" class="password-toggle" type="button" aria-label="הצג סיסמה" title="הצג סיסמה" aria-pressed="false">
  <svg id="eyeOpen" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
  <svg id="eyeClosed" hidden viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M10 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a14 14 0 0 1-3.4 4M7 7A16 16 0 0 0 2 12s4 7 10 7c1.8 0 3.5-.6 5-1.3"/><path d="M3 3l18 18"/></svg></button></div>
  <button type="submit" class="btn primary reauth-submit">אישור ומעבר לניהול</button></form>
  <a class="reauth-cancel" href="/">ביטול וחזרה ל־CRM</a>
- <p class="reauth-note">הסיסמה נדרשת שוב לאישור הגישה לניהול.</p>\`;
- return \`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>אימות כניסה לניהול | Aharon CRM</title><style nonce="\${nonce}">\${css}
+ <p class="reauth-note">הסיסמה נדרשת שוב לאישור הגישה לניהול.</p>`;
+ return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>אימות כניסה לניהול | Aharon CRM</title><style nonce="${nonce}">${css}
  .reauth-body{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px 16px}
  .login.admin-reauth{margin:0;width:min(440px,100%);padding:clamp(22px,5vw,30px)}
  .reauth-brand{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;color:#345bd6;font-weight:800;margin-bottom:13px}
@@ -133,9 +133,9 @@ export function adminReauthHtml({challenge="",nonce="",error=false,unavailable=f
  @media(max-width:420px){.login.admin-reauth{padding:22px 19px}}
  </style></head><body class="reauth-body"><main class="login admin-reauth" aria-labelledby="reauthTitle">
  <div class="reauth-brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10.5 11V9.5a1.5 1.5 0 0 1 3 0V11"/></svg>Aharon CRM</div>
- <h1 id="reauthTitle">\${unavailable?'הכניסה לא זמינה':'אימות לפני מעבר לניהול'}</h1>
- <p class="reauth-intro">\${unavailable?'אפשר לחזור ל־CRM ולנסות שוב לאחר בדיקת הגדרות הגישה.':'כדי להמשיך לניהול אהרן בענן, יש להזין שוב את סיסמת ה־CRM.'}</p>
- \${form}</main>\${unavailable?'':\`<script nonce="\${nonce}">const input=document.getElementById('crmPassword'),toggle=document.getElementById('togglePassword'),eyeOpen=document.getElementById('eyeOpen'),eyeClosed=document.getElementById('eyeClosed');toggle.addEventListener('click',()=>{const show=input.type==='password';input.type=show?'text':'password';eyeOpen.hidden=show;eyeClosed.hidden=!show;toggle.setAttribute('aria-label',show?'הסתר סיסמה':'הצג סיסמה');toggle.setAttribute('aria-pressed',String(show));toggle.title=show?'הסתר סיסמה':'הצג סיסמה';input.focus()});</script>\`}</body></html>\`;
+ <h1 id="reauthTitle">${unavailable?'הכניסה לא זמינה':'אימות לפני מעבר לניהול'}</h1>
+ <p class="reauth-intro">${unavailable?'אפשר לחזור ל־CRM ולנסות שוב לאחר בדיקת הגדרות הגישה.':'כדי להמשיך לניהול אהרן בענן, יש להזין שוב את סיסמת ה־CRM.'}</p>
+ ${form}</main>${unavailable?'':`<script nonce="${nonce}">const input=document.getElementById('crmPassword'),toggle=document.getElementById('togglePassword'),eyeOpen=document.getElementById('eyeOpen'),eyeClosed=document.getElementById('eyeClosed');toggle.addEventListener('click',()=>{const show=input.type==='password';input.type=show?'text':'password';eyeOpen.hidden=show;eyeClosed.hidden=!show;toggle.setAttribute('aria-label',show?'הסתר סיסמה':'הצג סיסמה');toggle.setAttribute('aria-pressed',String(show));toggle.title=show?'הסתר סיסמה':'הצג סיסמה';input.focus()});</script>`}</body></html>`;
 }
 
 export function loginHtml({error=""}={}){return `<!doctype html><html lang="he" dir="rtl"><head>${documentHead()}</head><body><div class="login"><h1>Aharon CRM</h1>${error?`<div class="login-error" role="alert">${error}</div>`:""}<form method="post" action="/login"><div class="field password-wrap"><input id="crmPassword" type="password" name="password" placeholder="סיסמה" autocomplete="current-password" required autofocus><button id="togglePassword" class="password-toggle" type="button" aria-label="הצג סיסמה" title="הצג סיסמה"><i class="bi bi-eye" aria-hidden="true"></i></button></div><button class="btn primary" style="width:100%">כניסה</button></form></div><script>const input=document.getElementById('crmPassword'),button=document.getElementById('togglePassword'),icon=button.querySelector('i');button.addEventListener('click',()=>{const show=input.type==='password';input.type=show?'text':'password';icon.className=show?'bi bi-eye-slash':'bi bi-eye';button.setAttribute('aria-label',show?'הסתר סיסמה':'הצג סיסמה');button.title=show?'הסתר סיסמה':'הצג סיסמה';input.focus();});</script></body></html>`;}
