@@ -33,11 +33,11 @@ test('CRM handoff requires a signed active CRM login, but not an additional 4-ho
 });
 
 test('Hostinger localhost proxy resolves only last forwarded IP with an explicit trusted peer',()=>{
- const make=(peer,header,reported='93.173.169.138')=>({raw:{socket:{remoteAddress:peer},headers:header===undefined?{}:{'x-forwarded-for':header}},ip:reported});
- assert.equal(verifiedVisitorIp(make('127.0.0.1','93.173.169.138'),'127.0.0.1'),'93.173.169.138');
- assert.equal(verifiedVisitorIp(make('127.0.0.1','93.173.169.138, 203.0.113.70'),'127.0.0.1'),'203.0.113.70');
- assert.equal(verifiedVisitorIp(make('203.0.113.70','93.173.169.138'),'127.0.0.1'),'203.0.113.70');
- assert.equal(verifiedVisitorIp(make('127.0.0.1','93.173.169.138')),'127.0.0.1');
+ const make=(peer,header,reported='203.0.113.21')=>({raw:{socket:{remoteAddress:peer},headers:header===undefined?{}:{'x-forwarded-for':header}},ip:reported});
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','203.0.113.21'),'127.0.0.1'),'203.0.113.21');
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','203.0.113.21, 203.0.113.70'),'127.0.0.1'),'203.0.113.70');
+ assert.equal(verifiedVisitorIp(make('203.0.113.70','203.0.113.21'),'127.0.0.1'),'203.0.113.70');
+ assert.equal(verifiedVisitorIp(make('127.0.0.1','203.0.113.21')),'127.0.0.1');
  assert.equal(verifiedVisitorIp(make('127.0.0.1',undefined),'127.0.0.1'),'');
  assert.equal(verifiedVisitorIp(make('127.0.0.1','192.168.1.2'),'127.0.0.1'),'');
  assert.equal(verifiedVisitorIp(make('127.0.0.1','not-an-ip'),'127.0.0.1'),'');
@@ -50,7 +50,7 @@ test('CRM denies access without exposing network, location or visitor IP in brow
  const error=route.slice(route.indexOf('const errorPage='),route.indexOf('const ticket=createHostelTicket'));
  assert.ok(error.includes('הכניסה לא זמינה'));
  assert.ok(error.includes('Referrer-Policy'));
- assert.doesNotMatch(error,/כתובת שהשרת מזהה|הוסטל|93\.173\.169\.138|85\.250\.98\.214/);
+ assert.doesNotMatch(error,/כתובת שהשרת מזהה|הוסטל|(?:\d{1,3}\.){3}\d{1,3}/);
  assert.doesNotMatch(error,/\+\s*\(ip/);
  const html=readFileSync(new URL('../src/ui.js',import.meta.url),'utf8');
  assert.doesNotMatch(html,/מרשת ההוסטל/);
