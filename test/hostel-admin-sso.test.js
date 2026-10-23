@@ -42,3 +42,16 @@ test('Hostinger localhost proxy resolves only last forwarded IP with an explicit
  assert.equal(verifiedVisitorIp(make('127.0.0.1','192.168.1.2'),'127.0.0.1'),'');
  assert.equal(verifiedVisitorIp(make('127.0.0.1','not-an-ip'),'127.0.0.1'),'');
 });
+
+test('CRM denies access without exposing network, location or visitor IP in browser-visible HTML',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const src=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
+ const route=src.slice(src.indexOf("app.post('/auth/aharon-admin'"),src.indexOf('app.get("/api/status"'));
+ const error=route.slice(route.indexOf('const errorPage='),route.indexOf('const ticket=createHostelTicket'));
+ assert.ok(error.includes('הכניסה לא זמינה'));
+ assert.ok(error.includes('Referrer-Policy'));
+ assert.doesNotMatch(error,/כתובת שהשרת מזהה|הוסטל|93\.173\.169\.138|85\.250\.98\.214/);
+ assert.doesNotMatch(error,/\+\s*\(ip/);
+ const html=readFileSync(new URL('../src/ui.js',import.meta.url),'utf8');
+ assert.doesNotMatch(html,/מרשת ההוסטל/);
+});

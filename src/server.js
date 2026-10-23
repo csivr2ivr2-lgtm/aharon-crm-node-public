@@ -104,9 +104,16 @@ app.post('/auth/aharon-admin',async(req,reply)=>{
  reply.header('Cache-Control','no-store').header('Referrer-Policy','origin');
  if(!logged(req))return reply.code(401).type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><p>יש להתחבר קודם ל־CRM.</p><a href="/">כניסה ל־CRM</a></html>');
  const ip=verifiedVisitorIp(req);
- const escape=s=>String(s).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
- const errorPage=(message,status=403)=>reply.code(status).type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><title>ניהול אהרן בענן</title><main style="font:16px system-ui;max-width:550px;margin:60px auto;padding:20px"><h1>הכניסה לא זמינה</h1><p>'+escape(message)+'</p><a href="/">חזרה ל־CRM</a></main></html>');
- if(!hostelSsoConfigured()||!isAllowedHostelIp(ip))return errorPage('המעבר פעיל רק מכתובת ה־IP הציבורית המאושרת של ההוסטל. כתובת שהשרת מזהה: '+(ip||'לא זוהתה'));
+ const errorPage=(status=403)=>reply.code(status)
+  .header('Cache-Control','no-store')
+  .header('Referrer-Policy','no-referrer')
+  .header('X-Robots-Tag','noindex, nofollow')
+  .type('text/html; charset=utf-8')
+  .send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>הכניסה לא זמינה</title><main style="font:16px system-ui;max-width:550px;margin:60px auto;padding:20px"><h1>הכניסה לא זמינה</h1><p>לא ניתן להשלים את הכניסה המאובטחת. חזור למערכת ונסה שוב או פנה למנהל המערכת.</p><a href="/">חזרה למערכת</a></main></html>');
+ if(!hostelSsoConfigured()||!isAllowedHostelIp(ip)){
+  app.log.warn({reason:!hostelSsoConfigured()?'sso_configuration':'network_restricted'},'Admin SSO handoff denied');
+  return errorPage();
+ }
  const ticket=createHostelTicket(ip);
  const nonce=randomBytes(16).toString('base64');
  const target=new URL(SSO_TARGET);

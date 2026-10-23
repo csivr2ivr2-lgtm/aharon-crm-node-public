@@ -1,21 +1,23 @@
-# Hostel-only admin access from CRM
+# CRM to Aharon Cloud administrator handoff
 
-The CRM login stays password-only, exactly as before. The **ניהול אהרן בענן** top-bar button uses a short-lived cross-domain form POST to \`https://app.aharon.cloud/auth/crm-admin-sso\`.
+## Purpose
+A signed, one-use cross-domain POST transfers an authenticated CRM administrator to the Cloud administrator interface. All browser-facing login and denial messages must be generic and must never disclose a person's physical context, internal network conditions, visitor IP, secret configuration, or detailed rejection reason.
 
-Hostel public IPv4 was supplied on 2026-10-22 as **93.173.169.138** (candidate, not independently verified as static). Setup both Hostinger environments with \`HOSTEL_SSO_ALLOWED_IPS=93.173.169.138\` and the **same randomly generated 32+ character \`HOSTEL_SSO_SHARED_SECRET\`**. Set \`HOSTEL_SSO_CRM_ORIGIN=https://crm.ivrphone.org\` on the Aharon Cloud side and verify CRM's \`PUBLIC_BASE_URL=https://crm.ivrphone.org\`. Never add secrets to GitHub.
+## Important limitation
+Browsers do **not** provide a reliable, authenticated Wi-Fi SSID or access-point identity to websites. Network name, provider name, local IP and dynamically assigned public IP are not adequate administrator authentication. A hardware-backed WebAuthn/passkey challenge or device-bound certificate is required before replacing a fixed network policy. No Wi-Fi-name bypass exists.
 
-With Hostinger reverse proxies, set \`HOSTEL_SSO_TRUSTED_PROXY_IPS\` to the **direct proxy socket peer IP**, not the hostel address, and configure CRM \`TRUST_PROXY\` correctly. If the real public visitor IP cannot be validated, access stays blocked. The server will show its perceived IP on a failed click, for troubleshooting.
+## Current deployment
+- Existing CRM password login and signed session are still required.
+- `HOSTEL_SSO_SHARED_SECRET`: same randomly generated, private 32+ character secret in both applications. Never add it to Git.
+- `HOSTEL_SSO_ALLOWED_IPS`: current **verified** public visitor IP list; configure privately in both applications. A dynamically changing address needs an explicit update, not a wildcard range.
+- `HOSTEL_SSO_TRUSTED_PROXY_IPS`: direct reverse-proxy socket peer, only after verifying it replaces/appends a trustworthy rightmost `X-Forwarded-For` hop. Avoid global trust of arbitrary client headers.
+- `HOSTEL_SSO_CRM_ORIGIN` on Cloud: exact HTTPS CRM origin. CRM's `PUBLIC_BASE_URL` must agree.
+- Token: HMAC-SHA256, 60-second maximum, random nonce, audience-bound, verified source IP. The receiver stores used nonce hashes with a unique key.
+- Session: normal Cloud session lifetime, no special 4-hour limit; same-IP restriction remains. Signing out of CRM does not revoke the independent Cloud session.
 
-The action requires an active, signed CRM session cookie (existing default: 14 days) and the allowlisted hostel public IP. There is **no separate four-hour recent-login requirement**. It creates a 60-second HMAC-signed ticket with nonce, issuer, audience, timestamp, and IP. The Aharon Cloud verifies it and uses its normal administrator session lifetime (the standard configured site session, without a special four-hour expiry) while binding the session to the same public IP. See Aharon Cloud's \`docs/HOSTEL_CRM_ADMIN_SSO.md\`.
+## Privacy and diagnostics
+Public responses are intentionally neutral and do not disclose the restricted network type, detected IP, allowed IP, origin, or SSO reason. Server-only diagnostic codes can be inspected in restricted logs. Do not copy diagnostic information into URLs, user-visible errors or public repositories.
 
-**Important:** Wi-Fi is not a reliable identity factor; everyone on the same public network may share an IP. Anyone with the CRM password on that network could gain admin access. For best security, protect the CRM password and use private browsing on public machines; a passkey/WebAuthn or separate admin step-up is recommended for stronger identity assurance.
+Deploy both applications from current main only after testing signed transfers, proxy correctness, rejection from an unapproved IP, expiration, replay blocking and logout behavior. Use a private browser session on a shared workstation; sign out from both applications and close the window.
 
-Production remains disabled until the actual public IP, shared secret, origin, and any trusted reverse-proxy addresses are set, and live HTTPS verification succeeds.
-
-## Hostinger localhost reverse-proxy diagnosis (2026-10-22)
-
-The CRM displayed `127.0.0.1` (Node's direct socket peer) although hostel internet egress was `93.173.169.138`. The SSO resolver now reads the **rightmost** `X-Forwarded-For` value only if `HOSTEL_SSO_TRUSTED_PROXY_IPS` explicitly matches the **direct socket peer**; it never trusts the leftmost value or generic `TRUST_PROXY=true`. For the *observed* localhost socket peer, configure `HOSTEL_SSO_TRUSTED_PROXY_IPS=127.0.0.1` in the CRM's private Hostinger env **only after confirming** the reverse proxy appends/overwrites XFF with a genuine upstream IP. No need to change global `TRUST_PROXY` for SSO. Without a trusted forwarded public IP, the SSO is denied; the existing CRM login remains unchanged. Test with an unauthorised external network and a deliberately spoofed XFF before production use.
-
-## Troubleshooting Cloud HTTP 403
-
-Aharon Cloud now returns a non-sensitive denial code (SSO_CONFIG, SSO_IP, SSO_ORIGIN or SSO_TICKET) and logs the reason to private server logs. On Aharon Cloud, confirm separately the correct `HOSTEL_SSO_TRUSTED_PROXY_IPS` for its socket, the same shared secret as CRM, `HOSTEL_SSO_ALLOWED_IPS=93.173.169.138`, and `HOSTEL_SSO_CRM_ORIGIN=https://crm.ivrphone.org`. Do not whitelist 127.0.0.1 as a hostel IP or use an unverified forwarded header. Existing CRM sessions are valid until their normal expiry. Logging out of the CRM does **not** automatically log out the independent Cloud session; use both logout buttons on a shared computer.
+**Historical note:** Older repository commits might still contain obsolete network-specific documentation. This change does not rewrite repository history.
