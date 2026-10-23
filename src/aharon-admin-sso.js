@@ -7,7 +7,7 @@ export const SSO_TTL_MS=60_000;
 export const CRM_COOKIE_MS=14*24*60*60*1000;
 export function hostelSsoConfigured(){
  try{
-  const raw=String(config.publicBaseUrl||''),url=new URL(raw);
+  const raw=String(process.env.PUBLIC_BASE_URL||config.publicBaseUrl||''),url=new URL(raw);
   return String(process.env.HOSTEL_SSO_SHARED_SECRET||'').length>=32 &&
     url.protocol==='https:'&&url.origin===raw&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;
  }catch{return false;}

@@ -6,6 +6,7 @@ test('SSO v2 signs a non-IP-bound 60-second ticket only with a strong private se
  try{
   delete process.env.HOSTEL_SSO_SHARED_SECRET;
   process.env.HOSTEL_SSO_ALLOWED_IPS='203.0.113.21';
+  process.env.PUBLIC_BASE_URL='https://crm.ivrphone.org';
   assert.equal(hostelSsoConfigured(),false);
   assert.throws(()=>createHostelTicket(),/hostel_sso_unavailable/);
   process.env.HOSTEL_SSO_SHARED_SECRET='x'.repeat(64);
@@ -19,7 +20,7 @@ test('SSO v2 signs a non-IP-bound 60-second ticket only with a strong private se
   assert.equal(Object.hasOwn(item,'ip'),false);
   delete process.env.HOSTEL_SSO_ALLOWED_IPS;
   assert.equal(hostelSsoConfigured(),true);
- }finally{for(const key of ['HOSTEL_SSO_SHARED_SECRET','HOSTEL_SSO_ALLOWED_IPS']){if(old[key]===undefined)delete process.env[key];else process.env[key]=old[key];}}
+ }finally{for(const key of ['HOSTEL_SSO_SHARED_SECRET','HOSTEL_SSO_ALLOWED_IPS','PUBLIC_BASE_URL']){if(old[key]===undefined)delete process.env[key];else process.env[key]=old[key];}}
 });
 test('CRM SSO requires signed session and fresh password but no IP or four-hour rule',async()=>{
  const {readFileSync}=await import('node:fs'),s=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
