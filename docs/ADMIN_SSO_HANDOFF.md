@@ -21,3 +21,6 @@ Public responses are intentionally neutral and do not disclose the restricted ne
 Deploy both applications from current main only after testing signed transfers, proxy correctness, rejection from an unapproved IP, expiration, replay blocking and logout behavior. Use a private browser session on a shared workstation; sign out from both applications and close the window.
 
 **Historical note:** Older repository commits might still contain obsolete network-specific documentation. This change does not rewrite repository history.
+
+## Password reconfirmation for SSO (current main)
+The top-bar button always displays a dedicated CRM-password confirmation form before issuing any handoff ticket. The form uses a time-limited HMAC challenge bound to the signed CRM session cookie. The confirm action validates the password using constant-time comparison and the existing CRM login-failure throttling. The password never appears in the cross-domain ticket. **The Cloud receiver and IPv4/IPv6 allowlist remain unchanged pending a separately approved and verified replacement for administrative access control.**

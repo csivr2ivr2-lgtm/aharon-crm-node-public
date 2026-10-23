@@ -11,6 +11,7 @@ import {Transform} from "node:stream";
 import {pipeline} from "node:stream/promises";
 import {resolve,basename} from "node:path";
 import {randomBytes} from "node:crypto";
+import {createAdminReauthChallenge,verifyAdminReauthChallenge} from "./admin-sso-reauth.js";
 import {getSettings,migrateLocalModelSettings} from "./platform/settings.js";
 import {resolveLocalModel} from "./ai/local-model.js";
 import {aiStatus,localDiagnostics,closeLocalAi} from "./ai/local-ai.js";
@@ -98,27 +99,54 @@ app.get("/",async(req,reply)=>reply.type("text/html; charset=utf-8").send(logged
 app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=normalizeIp(req.ip);if(!equalToken(p,config.dashboardPassword)){const state=await loginSecurity.failed(ip);app.log.warn({remoteAddress:ip,attempt:state.count,locked:state.locked},"Dashboard login failed");if(state.locked)return reply.code(423).type("text/html; charset=utf-8").send(lockedHtml());return reply.code(401).type("text/html; charset=utf-8").send(loginHtml({error:"סיסמה שגויה"}));}loginSecurity.success(ip);reply.setCookie("crm_session",String(Date.now()+14*86400000),{...cookieOpts,signed:true});return reply.redirect("/")});
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
 
-app.post('/auth/aharon-admin',async(req,reply)=>{
- // Cross-origin HTML POSTs with no-referrer send Origin: null. Use origin-only
- // referrer policy to satisfy the receiving service's exact Origin check.
- reply.header('Cache-Control','no-store').header('Referrer-Policy','origin');
- if(!logged(req))return reply.code(401).type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><p>יש להתחבר קודם ל־CRM.</p><a href="/">כניסה ל־CRM</a></html>');
- const ip=verifiedVisitorIp(req);
- const errorPage=(status=403)=>reply.code(status)
-  .header('Cache-Control','no-store')
-  .header('Referrer-Policy','no-referrer')
+// Confirmation requires the CRM's existing signed session and freshly entered
+// password on the CRM origin. The current receiver's IP policy remains intact.
+function adminReauthPage(challenge,{error=false}={}){
+ const errorHtml=error?'<p role="alert" style="color:#991b1b">לא ניתן לאמת את הכניסה. בדוק את הסיסמה ונסה שוב.</p>':'';
+ return '<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>אימות כניסה לניהול</title></head><body style="font:16px system-ui;background:#f6f8fc;color:#172033"><main style="max-width:420px;margin:9vh auto;padding:25px;background:white;border:1px solid #e2e8f0;border-radius:16px"><h1>כניסה לניהול אהרן בענן</h1><p>יש להזין שוב את סיסמת ה־CRM לצורך מעבר מאובטח.</p>'+errorHtml+'<form method="post" action="/auth/aharon-admin/confirm" autocomplete="off"><input type="hidden" name="challenge" value="'+challenge+'"><label for="password">סיסמת CRM</label><input id="password" name="password" type="password" autocomplete="off" maxlength="4096" required autofocus style="display:block;width:100%;box-sizing:border-box;padding:12px;margin:12px 0;border:1px solid #cbd5e1;border-radius:9px"><button type="submit" style="padding:12px;background:#345bd6;color:white;border:0;border-radius:9px">אישור ומעבר לניהול</button><a style="margin-inline-start:15px" href="/">ביטול</a></form></main></body></html>';
+}
+function adminReauthHeaders(reply){
+ return reply.header('Cache-Control','no-store').header('Referrer-Policy','no-referrer')
   .header('X-Robots-Tag','noindex, nofollow')
-  .type('text/html; charset=utf-8')
-  .send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>הכניסה לא זמינה</title><main style="font:16px system-ui;max-width:550px;margin:60px auto;padding:20px"><h1>הכניסה לא זמינה</h1><p>לא ניתן להשלים את הכניסה המאובטחת. חזור למערכת ונסה שוב או פנה למנהל המערכת.</p><a href="/">חזרה למערכת</a></main></html>');
+  .header('Content-Security-Policy',"default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+  .type('text/html; charset=utf-8');
+}
+app.post('/auth/aharon-admin',async(req,reply)=>{
+ if(!logged(req))return reply.redirect(303,'/');
+ const challenge=createAdminReauthChallenge(req.cookies.crm_session,config.sessionSecret);
+ return adminReauthHeaders(reply).send(adminReauthPage(challenge));
+});
+app.post('/auth/aharon-admin/confirm',async(req,reply)=>{
+ if(!logged(req))return reply.redirect(303,'/');
+ const validChallenge=verifyAdminReauthChallenge(
+  String(req.body?.challenge||''),req.cookies.crm_session,config.sessionSecret);
+ if(!validChallenge){
+  app.log.warn({reason:'invalid_challenge'},'Administrator reauthentication denied');
+  return adminReauthHeaders(reply).code(403).send(adminReauthPage(
+    createAdminReauthChallenge(req.cookies.crm_session,config.sessionSecret),{error:true}));
+ }
+ const password=typeof req.body?.password==='string'&&req.body.password.length<=4096?req.body.password:'';
+ if(!equalToken(password,config.dashboardPassword)){
+  const state=await loginSecurity.failed(normalizeIp(req.ip));
+  app.log.warn({reason:'invalid_reauthentication',locked:state.locked},'Administrator reauthentication denied');
+  if(state.locked)return reply.code(423).type('text/html; charset=utf-8').send(lockedHtml());
+  return adminReauthHeaders(reply).code(401).send(adminReauthPage(
+    createAdminReauthChallenge(req.cookies.crm_session,config.sessionSecret),{error:true}));
+ }
+ loginSecurity.success(normalizeIp(req.ip));
+ // The legacy IP-bound receiver is deliberately left unchanged until the
+ // replacement authentication design is approved and deployed on BOTH apps.
+ const ip=verifiedVisitorIp(req);
  if(!hostelSsoConfigured()||!isAllowedHostelIp(ip)){
-  app.log.warn({reason:!hostelSsoConfigured()?'sso_configuration':'network_restricted'},'Admin SSO handoff denied');
-  return errorPage();
+  app.log.warn({reason:'sso_network_or_configuration_restricted'},'Administrator handoff denied');
+  return adminReauthHeaders(reply).code(403).send('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><title>הכניסה לא זמינה</title><p>לא ניתן להשלים את הכניסה המאובטחת.</p><a href="/">חזרה למערכת</a>');
  }
  const ticket=createHostelTicket(ip);
  const nonce=randomBytes(16).toString('base64');
  const target=new URL(SSO_TARGET);
+ reply.header('Cache-Control','no-store').header('Referrer-Policy','origin');
  reply.header('Content-Security-Policy',"default-src 'none'; script-src 'nonce-"+nonce+"'; form-action "+target.origin+"; base-uri 'none'; frame-ancestors 'none'");
- reply.type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="referrer" content="origin"><title>כניסה מאובטחת לאהרן בענן</title></head><body><p>מבצע מעבר מאובטח לניהול אהרן בענן...</p><form id="handoff" method="post" action="'+SSO_TARGET+'"><input type="hidden" name="ticket" value="'+ticket+'"><button type="submit">המשך לניהול אהרן בענן</button></form><script nonce="'+nonce+'">document.getElementById("handoff").submit()</script></body></html>');
+ return reply.type('text/html; charset=utf-8').send('<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="referrer" content="origin"><title>כניסה מאובטחת לאהרן בענן</title></head><body><p>מבצע מעבר מאובטח לניהול אהרן בענן...</p><form id="handoff" method="post" action="'+SSO_TARGET+'"><input type="hidden" name="ticket" value="'+ticket+'"><button type="submit">המשך לניהול אהרן בענן</button></form><script nonce="'+nonce+'">document.getElementById("handoff").submit()</script></body></html>');
 });
 
 app.get("/api/status",async(req,reply)=>{if(!uiAuth(req,reply))return;return workspace.call("status")});
