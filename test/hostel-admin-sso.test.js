@@ -43,7 +43,7 @@ test('Hostinger localhost proxy resolves only last forwarded IP with an explicit
  assert.equal(verifiedVisitorIp(make('127.0.0.1','not-an-ip'),'127.0.0.1'),'');
 });
 
-test('CRM password reauthentication page and denial do not expose IP or private location details',async()=>{
+test('CRM password reauthentication page and denial do not disclose private location or visitor IP',async()=>{
  const {readFileSync}=await import('node:fs');
  const source=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
  const route=source.slice(source.indexOf("app.post('/auth/aharon-admin'"),source.indexOf('app.get("/api/status"'));
@@ -51,8 +51,8 @@ test('CRM password reauthentication page and denial do not expose IP or private 
  assert.ok(route.includes('Referrer-Policy'));
  assert.match(route,/createAdminReauthChallenge/);
  assert.match(route,/verifyAdminReauthChallenge/);
- assert.doesNotMatch(route,/כתובת שהשרת מזהה|הוסטל|(?:\\d{1,3}\\.){3}\\d{1,3}/);
- assert.doesNotMatch(route,/\\+\\s*\\(ip/);
+ assert.doesNotMatch(route,/כתובת שהשרת מזהה|הוסטל|(?:[0-9]{1,3}[.]){3}[0-9]{1,3}/);
+ assert.equal(route.includes("'+(ip"),false);
  const html=readFileSync(new URL('../src/ui.js',import.meta.url),'utf8');
  assert.doesNotMatch(html,/מרשת ההוסטל/);
 });
