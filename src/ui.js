@@ -111,7 +111,7 @@ export function adminReauthHtml({challenge="",nonce="",error=false,unavailable=f
  <button type="submit" class="btn primary reauth-submit">אישור ומעבר לניהול</button></form>
  <a class="reauth-cancel" href="/">ביטול וחזרה ל־CRM</a>
  <p class="reauth-note">הסיסמה נדרשת שוב לאישור הגישה לניהול.</p>`;
- return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>אימות כניסה לניהול | Aharon CRM</title><style nonce="${nonce}">${css}
+ return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="same-origin"><title>אימות כניסה לניהול | Aharon CRM</title><style nonce="${nonce}">${css}
  .reauth-body{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px 16px}
  .login.admin-reauth{margin:0;width:min(440px,100%);padding:clamp(22px,5vw,30px)}
  .reauth-brand{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;color:#345bd6;font-weight:800;margin-bottom:13px}

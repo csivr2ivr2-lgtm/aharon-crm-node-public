@@ -9,6 +9,8 @@ test('reauth matches CRM login styling and provides responsive accessible passwo
  assert.match(html,/toggle\.addEventListener/);
  assert.match(html,/style nonce=/);
  assert.match(html,/script nonce=/);
+ assert.match(html,/<meta name="referrer" content="same-origin">/);
+ assert.doesNotMatch(html,/<meta name="referrer" content="no-referrer">/);
  assert.doesNotMatch(html,/כתובת שהשרת מזהה|HOSTEL_SSO_ALLOWED_IPS/);
 });
 test('reauth validation error stays on the same accessible card',()=>{
@@ -30,6 +32,7 @@ test('reauth CSP only allows nonce-matched inline assets',()=>{
  assert.match(part,/style-src 'nonce-/);
  assert.match(part,/script-src 'nonce-/);
  assert.match(part,/form-action 'self'/);
- assert.match(part,/no-referrer/);
+ assert.match(part,/Referrer-Policy','same-origin'/);
+ assert.doesNotMatch(part,/Referrer-Policy','no-referrer'/);
  assert.doesNotMatch(part,/unsafe-inline/);
 });

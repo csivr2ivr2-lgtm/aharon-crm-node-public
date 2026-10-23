@@ -27,3 +27,16 @@ test('CRM handoff never issues ticket before password confirmation',()=>{
  assert.match(confirm,/hostelSsoConfigured\(\)\|\|!isAllowedHostelIp\(ip\)/);
  assert.doesNotMatch(first,/HOSTEL_SSO_ALLOWED_IPS/);
 });
+
+test('password confirmation uses same-origin form policy and keeps strict origin and signed step-up validation',()=>{
+ const source=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
+ const guard=source.slice(source.indexOf('app.addHook("onRequest"'),source.indexOf('app.addHook("onRequest"',source.indexOf('app.addHook("onRequest"')+1));
+ const form=source.slice(source.indexOf('function adminReauthHeaders'),source.indexOf("app.post('/auth/aharon-admin'",source.indexOf('function adminReauthHeaders')));
+ assert.match(guard,/req\.headers\.origin!==expected/);
+ assert.match(guard,/origin_rejected/);
+ assert.match(form,/Referrer-Policy','same-origin'/);
+ assert.doesNotMatch(form,/Referrer-Policy','no-referrer'/);
+ const confirm=source.slice(source.indexOf("app.post('/auth/aharon-admin/confirm'"),source.indexOf('app.get("/api/status"'));
+ assert.match(confirm,/verifyAdminReauthChallenge/);
+ assert.match(confirm,/equalToken\(password,config.dashboardPassword\)/);
+});

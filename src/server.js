@@ -102,7 +102,7 @@ app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"}
 // Confirmation requires the CRM's existing signed session and freshly entered
 // password on the CRM origin. The current receiver's IP policy remains intact.
 function adminReauthHeaders(reply,nonce){
- return reply.header('Cache-Control','no-store').header('Referrer-Policy','no-referrer')
+ return reply.header('Cache-Control','no-store').header('Referrer-Policy','same-origin')
   .header('X-Robots-Tag','noindex, nofollow')
   .header('Content-Security-Policy',"default-src 'none'; style-src 'nonce-"+nonce+"'; script-src 'nonce-"+nonce+"'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
   .type('text/html; charset=utf-8');
