@@ -95,6 +95,49 @@ textarea{resize:vertical;line-height:1.6}.muted{color:#66768a}.tag{background:#e
 function documentHead(title="Aharon CRM"){return `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>${iconCss}<style>${css}.work-tabs,.work-filters{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.work-filters label{flex:1 1 150px;min-width:0}.work-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:14px}.work-card{padding:18px;border:1px solid #cbd5e1;border-radius:14px;min-width:0;background:#fff;margin:10px 0}.work-card-head{display:flex;gap:10px;justify-content:space-between;overflow-wrap:anywhere}.work-card h3{font-size:16px;overflow-wrap:anywhere}.work-card p{overflow-wrap:anywhere}.work-card .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.work-card summary{cursor:pointer;padding:8px;color:#334155}.work-card details .btn{margin:4px}.work-request{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.workflow-controls{display:grid;gap:8px}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #2454a6;outline-offset:3px}@media(max-width:600px){.work-card{padding:12px}.work-tabs{flex-wrap:nowrap;overflow-x:auto}.work-tabs .btn{white-space:nowrap}.work-card .btn{min-height:44px}.work-filters label{flex-basis:45%}}
 .work-filters{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end}.work-filters>.btn{grid-column:2;grid-row:1;min-height:44px;align-self:end}.work-advanced{grid-column:1 / -1}.work-advanced>summary{cursor:pointer;padding:8px 0;color:#334155}.work-filter-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}.work-filters label{margin:0}
 </style>`;}
+
+/** Reauthentication page shares the CRM's original login card and base stylesheet. */
+export function adminReauthHtml({challenge="",nonce="",error=false,unavailable=false}={}){
+ const safeChallenge=String(challenge).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const form=unavailable?'<div class="login-error" role="alert">לא ניתן להשלים כרגע את המעבר המאובטח.</div><a class="btn primary reauth-link" href="/">חזרה ל־CRM</a>':
+ \`\${error?'<div class="login-error" role="alert" id="reauthError">לא ניתן לאמת את הכניסה. בדוק את הסיסמה ונסה שוב.</div>':''}
+ <form method="post" action="/auth/aharon-admin/confirm" autocomplete="off">
+ <input type="hidden" name="challenge" value="\${safeChallenge}">
+ <label class="reauth-label" for="crmPassword">סיסמת ה־CRM</label>
+ <div class="field password-wrap"><input id="crmPassword" name="password" type="password" placeholder="הזן סיסמה" autocomplete="off" maxlength="4096" \${error?'aria-invalid="true" aria-describedby="reauthError"':''} required autofocus>
+ <button id="togglePassword" class="password-toggle" type="button" aria-label="הצג סיסמה" title="הצג סיסמה" aria-pressed="false">
+ <svg id="eyeOpen" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+ <svg id="eyeClosed" hidden viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M10 5.2A10 10 0 0 1 12 5c6 0 10 7 10 7a14 14 0 0 1-3.4 4M7 7A16 16 0 0 0 2 12s4 7 10 7c1.8 0 3.5-.6 5-1.3"/><path d="M3 3l18 18"/></svg></button></div>
+ <button type="submit" class="btn primary reauth-submit">אישור ומעבר לניהול</button></form>
+ <a class="reauth-cancel" href="/">ביטול וחזרה ל־CRM</a>
+ <p class="reauth-note">הסיסמה נדרשת שוב לאישור הגישה לניהול.</p>\`;
+ return \`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>אימות כניסה לניהול | Aharon CRM</title><style nonce="\${nonce}">\${css}
+ .reauth-body{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px 16px}
+ .login.admin-reauth{margin:0;width:min(440px,100%);padding:clamp(22px,5vw,30px)}
+ .reauth-brand{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;color:#345bd6;font-weight:800;margin-bottom:13px}
+ .reauth-brand svg{width:23px;height:23px}
+ .admin-reauth h1{font-size:clamp(23px,5vw,28px);line-height:1.3;margin:0 0 12px}
+ .reauth-intro{margin:0 0 22px;color:#64748b;font-size:14px;line-height:1.6;text-align:center}
+ .reauth-label{display:block;font-weight:750;font-size:14px;margin-bottom:8px}
+ .admin-reauth .password-wrap{margin:0 0 18px}
+ .admin-reauth .password-wrap input{min-height:48px}
+ .admin-reauth .password-toggle{display:grid;place-items:center}
+ .admin-reauth svg[hidden]{display:none!important}
+ .reauth-submit{width:100%;min-height:48px;font-size:15px}
+ .reauth-cancel{display:block;text-align:center;margin-top:10px;padding:11px;text-decoration:none;border-radius:10px;font-size:14px;font-weight:650;color:#52647c}
+ .reauth-cancel:hover{text-decoration:underline;background:#f4f7fc}
+ .reauth-cancel:focus-visible{outline:3px solid #83a5f5;outline-offset:2px}
+ .reauth-note{color:#71839b;text-align:center;font-size:12px;line-height:1.6;margin:13px 0 0}
+ .admin-reauth .login-error{text-align:right;line-height:1.6}
+ .reauth-link{display:block;text-align:center;text-decoration:none;padding:13px}
+ @media(max-width:420px){.login.admin-reauth{padding:22px 19px}}
+ </style></head><body class="reauth-body"><main class="login admin-reauth" aria-labelledby="reauthTitle">
+ <div class="reauth-brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10.5 11V9.5a1.5 1.5 0 0 1 3 0V11"/></svg>Aharon CRM</div>
+ <h1 id="reauthTitle">\${unavailable?'הכניסה לא זמינה':'אימות לפני מעבר לניהול'}</h1>
+ <p class="reauth-intro">\${unavailable?'אפשר לחזור ל־CRM ולנסות שוב לאחר בדיקת הגדרות הגישה.':'כדי להמשיך לניהול אהרן בענן, יש להזין שוב את סיסמת ה־CRM.'}</p>
+ \${form}</main>\${unavailable?'':\`<script nonce="\${nonce}">const input=document.getElementById('crmPassword'),toggle=document.getElementById('togglePassword'),eyeOpen=document.getElementById('eyeOpen'),eyeClosed=document.getElementById('eyeClosed');toggle.addEventListener('click',()=>{const show=input.type==='password';input.type=show?'text':'password';eyeOpen.hidden=show;eyeClosed.hidden=!show;toggle.setAttribute('aria-label',show?'הסתר סיסמה':'הצג סיסמה');toggle.setAttribute('aria-pressed',String(show));toggle.title=show?'הסתר סיסמה':'הצג סיסמה';input.focus()});</script>\`}</body></html>\`;
+}
+
 export function loginHtml({error=""}={}){return `<!doctype html><html lang="he" dir="rtl"><head>${documentHead()}</head><body><div class="login"><h1>Aharon CRM</h1>${error?`<div class="login-error" role="alert">${error}</div>`:""}<form method="post" action="/login"><div class="field password-wrap"><input id="crmPassword" type="password" name="password" placeholder="סיסמה" autocomplete="current-password" required autofocus><button id="togglePassword" class="password-toggle" type="button" aria-label="הצג סיסמה" title="הצג סיסמה"><i class="bi bi-eye" aria-hidden="true"></i></button></div><button class="btn primary" style="width:100%">כניסה</button></form></div><script>const input=document.getElementById('crmPassword'),button=document.getElementById('togglePassword'),icon=button.querySelector('i');button.addEventListener('click',()=>{const show=input.type==='password';input.type=show?'text':'password';icon.className=show?'bi bi-eye-slash':'bi bi-eye';button.setAttribute('aria-label',show?'הסתר סיסמה':'הצג סיסמה');button.title=show?'הסתר סיסמה':'הצג סיסמה';input.focus();});</script></body></html>`;}
 export function lockedHtml(){return `<!doctype html><html lang="he" dir="rtl"><head>${documentHead()}</head><body><div class="login security-page"><div class="security-icon"><i class="bi bi-shield-lock"></i></div><h1>Aharon CRM</h1><p>המערכת נעולה זמנית מסיבות אבטחה.</p><p class="muted">נדרשת בדיקה ידנית לפני פתיחת הגישה מחדש.</p></div></body></html>`;}
 export function blockedHtml(){return `<!doctype html><html lang="he" dir="rtl"><head>${documentHead()}</head><body><div class="login security-page"><div class="security-icon"><i class="bi bi-slash-circle"></i></div><h1>הגישה נחסמה</h1><p>כתובת הרשת הזו חסומה במערכת.</p></div></body></html>`;}

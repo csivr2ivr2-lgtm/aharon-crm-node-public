@@ -47,7 +47,9 @@ test('CRM password reauthentication page and denial do not disclose private loca
  const {readFileSync}=await import('node:fs');
  const source=readFileSync(new URL('../src/server.js',import.meta.url),'utf8');
  const route=source.slice(source.indexOf("app.post('/auth/aharon-admin'"),source.indexOf('app.get("/api/status"'));
- assert.ok(route.includes('הכניסה לא זמינה'));
+ assert.match(route,/sendAdminReauthPage/);
+ const ui=readFileSync(new URL('../src/ui.js',import.meta.url),'utf8');
+ assert.ok(ui.includes('הכניסה לא זמינה'));
  assert.ok(route.includes('Referrer-Policy'));
  assert.match(route,/createAdminReauthChallenge/);
  assert.match(route,/verifyAdminReauthChallenge/);
