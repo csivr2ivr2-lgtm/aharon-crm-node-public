@@ -30,7 +30,7 @@ import {migrateWhatsAppMessageControls,recordWhatsAppReceipt,requestWhatsAppDele
 import {handleMcp} from "./mcp.js";
 import {appHtml,loginHtml,lockedHtml,blockedHtml,adminReauthHtml} from "./ui.js";
 import {loginSecurity,normalizeIp} from "./login-security.js";
-import {createHostelTicket,hostelSsoConfigured,isAllowedHostelIp,verifiedVisitorIp,SSO_TARGET} from "./aharon-admin-sso.js";
+import {createHostelTicket,hostelSsoConfigured,SSO_TARGET} from "./aharon-admin-sso.js";
 import {migratePlatform} from "./platform/schema.js";
 import {enqueueJob,startJobWorker} from "./platform/jobs.js";
 import {migrateHistorySync,discoverHistoryAccounts,historyPageJob} from './historical-sync.js';
@@ -100,7 +100,7 @@ app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=n
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
 
 // Confirmation requires the CRM's existing signed session and freshly entered
-// password on the CRM origin. The current receiver's IP policy remains intact.
+// password on the CRM origin. IP is not an access-control factor for SSO v2.
 function adminReauthHeaders(reply,nonce){
  return reply.header('Cache-Control','no-store').header('Referrer-Policy','same-origin')
   .header('X-Robots-Tag','noindex, nofollow')
@@ -132,14 +132,11 @@ app.post('/auth/aharon-admin/confirm',async(req,reply)=>{
   return sendAdminReauthPage(reply,createAdminReauthChallenge(req.cookies.crm_session,config.sessionSecret),{status:401,error:true});
  }
  loginSecurity.success(normalizeIp(req.ip));
- // The legacy IP-bound receiver is deliberately left unchanged until the
- // replacement authentication design is approved and deployed on BOTH apps.
- const ip=verifiedVisitorIp(req);
- if(!hostelSsoConfigured()||!isAllowedHostelIp(ip)){
-  app.log.warn({reason:'sso_network_or_configuration_restricted'},'Administrator handoff denied');
+ if(!hostelSsoConfigured()){
+  app.log.warn({reason:'sso_configuration_missing'},'Administrator handoff denied');
   return sendAdminReauthPage(reply,'',{status:403,unavailable:true});
  }
- const ticket=createHostelTicket(ip);
+ const ticket=createHostelTicket();
  const nonce=randomBytes(16).toString('base64');
  const target=new URL(SSO_TARGET);
  reply.header('Cache-Control','no-store').header('Referrer-Policy','origin');

@@ -24,7 +24,8 @@ test('CRM handoff never issues ticket before password confirmation',()=>{
  assert.match(confirm,/equalToken\(password,config.dashboardPassword\)/);
  assert.match(confirm,/loginSecurity.failed/);
  assert.match(confirm,/createHostelTicket/);
- assert.match(confirm,/hostelSsoConfigured\(\)\|\|!isAllowedHostelIp\(ip\)/);
+ assert.match(confirm,/if\(!hostelSsoConfigured\(\)\)/);
+ assert.doesNotMatch(confirm,/isAllowedHostelIp|verifiedVisitorIp/);
  assert.doesNotMatch(first,/HOSTEL_SSO_ALLOWED_IPS/);
 });
 
