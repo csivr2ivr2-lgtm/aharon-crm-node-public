@@ -72,7 +72,15 @@ test('HTTP auth, assets, ticket issuance, origin rejection and MCP initialize',a
   assert.equal((await app.inject({url:'/api/ai/status',headers:{cookie}})).statusCode,200);
   const ticket=await app.inject({method:'POST',url:'/api/ws-ticket',headers:{cookie},payload:{}});assert.ok(ticket.json().ticket);
   assert.equal((await app.inject({method:'POST',url:'/api/sync',headers:{cookie,origin:'https://untrusted.example.test'},payload:{}})).statusCode,403);
-  assert.equal((await app.inject({url:'/assets/app.js'})).statusCode,200);
+  const asset=await app.inject({url:'/assets/app.js'});
+  assert.equal(asset.statusCode,200);
+  assert.match(String(asset.headers['cache-control']),/no-store/);
+  const version=asset.headers['x-crm-asset-version'];
+  assert.match(version,/^[a-f0-9]{12}$/);
+  assert.equal((await app.inject('/health')).json().asset_version,version);
+  const dashboard=await app.inject({url:'/',headers:{cookie}});
+  assert.equal(dashboard.statusCode,200);
+  assert.ok(dashboard.body.includes('/assets/app.js?v='+version));
   const mcp=await app.inject({method:'POST',url:'/mcp',headers:{authorization:'Bearer '+process.env.MCP_API_TOKEN,accept:'application/json, text/event-stream'},payload:{jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'test',version:'1'}}}});assert.equal(mcp.statusCode,200);assert.ok(mcp.body.includes('protocolVersion'));
  }finally{await app.close();}
 });

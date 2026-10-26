@@ -10,7 +10,7 @@ import {createWriteStream,createReadStream,constants} from "node:fs";
 import {Transform} from "node:stream";
 import {pipeline} from "node:stream/promises";
 import {resolve,basename} from "node:path";
-import {randomBytes} from "node:crypto";
+import {randomBytes,createHash} from "node:crypto";
 import {createAdminReauthChallenge,verifyAdminReauthChallenge} from "./admin-sso-reauth.js";
 import {getSettings,migrateLocalModelSettings} from "./platform/settings.js";
 import {resolveLocalModel} from "./ai/local-model.js";
@@ -51,6 +51,8 @@ import {BackgroundActionRuntime} from "./ai/background-actions.js";
 
 export async function buildApp({initializeDatabase=true,startBackground=true}={}){
 assertConfig();await loginSecurity.initialize();await hostingerMail.initialize();if(initializeDatabase){await migrate();await migrateExtras();await migratePlatform();await migrateLocalModelSettings();await migrateCrmIntelligence();await migrateFileIntelligence();await migrateIntelligence();await migrateInboxWorkbench();await migrateThreading();await migrateHistorySync();await migrateActions();await migrateAssistantChats();await migrateKnowledge();await migrateOwnerMemories();await migrateWhatsAppProfiles();await migrateWhatsAppHistory();await migrateWhatsAppMessageControls();}
+const browserSource=await readFile(new URL("./browser.js",import.meta.url),"utf8");
+const browserAssetVersion=createHash("sha256").update(browserSource).digest("hex").slice(0,12);
 const app=Fastify({trustProxy:config.trustProxy,logger:config.env==="test"?false:{serializers:{req:req=>({method:req.method,url:String(req.url||"").split("?")[0],remoteAddress:req.ip})},level:config.env==="production"?"info":"debug",redact:["req.headers.authorization","*.password","*.token","*.secret","*.api_key","*.access_token","*.refresh_token"]},bodyLimit:3*1024*1024});
 await app.register(cookie,{secret:config.sessionSecret,hook:"onRequest"});await app.register(formbody);await app.register(multipart,{limits:{fileSize:25*1024*1024}});
 const workspace=new WorkspaceService(),connectors=new ConnectorsClient(),hub=new RealtimeHub(app.server),scheduler=new SyncScheduler({hub,logger:app.log}),worker=new SmartTaskWorker({hub,logger:app.log});
@@ -60,8 +62,8 @@ function uiAuth(req,reply){if(logged(req))return true;reply.code(401).type("appl
 function apiAuth(req,reply){if(equalToken(bearerToken(req),config.coreApiToken))return true;return uiAuth(req,reply)}
 const cookieOpts={path:"/",httpOnly:true,sameSite:"strict",secure:config.env==="production",maxAge:60*60*24*14};
 
-app.get("/health",async()=>({ok:true,service:"aharon-crm-node",locked:await loginSecurity.isLocked()}));
-app.get("/assets/app.js",async(_req,reply)=>reply.type("text/javascript").send(await readFile(new URL("./browser.js",import.meta.url),"utf8")));
+app.get("/health",async()=>({ok:true,service:"aharon-crm-node",locked:await loginSecurity.isLocked(),asset_version:browserAssetVersion}));
+app.get("/assets/app.js",async(_req,reply)=>reply.header("Cache-Control","no-store, max-age=0, must-revalidate").header("X-CRM-Asset-Version",browserAssetVersion).type("text/javascript").send(browserSource));
 app.addHook("onRequest",async(req,reply)=>{
  reply.header("X-Content-Type-Options","nosniff").header("X-Frame-Options","DENY").header("Referrer-Policy","same-origin").header("Cache-Control","no-store");
  if(!["GET","HEAD","OPTIONS"].includes(req.method)&&req.headers.origin){
@@ -95,7 +97,7 @@ app.setErrorHandler((error,req,reply)=>{
  if(inboxRead&&logged(req)){payload.diagnostic_category=category;payload.diagnostic_code=code;payload.diagnostic_sql_state=sqlState;}
  reply.code(error.statusCode>=400&&error.statusCode<500?error.statusCode:400).send(payload);
 });
-app.get("/",async(req,reply)=>reply.type("text/html; charset=utf-8").send(logged(req)?appHtml():loginHtml()));
+app.get("/",async(req,reply)=>reply.type("text/html; charset=utf-8").send(logged(req)?appHtml({assetVersion:browserAssetVersion}):loginHtml()));
 app.post("/login",async(req,reply)=>{const p=String(req.body?.password||""),ip=normalizeIp(req.ip);if(!equalToken(p,config.dashboardPassword)){const state=await loginSecurity.failed(ip);app.log.warn({remoteAddress:ip,attempt:state.count,locked:state.locked},"Dashboard login failed");if(state.locked)return reply.code(423).type("text/html; charset=utf-8").send(lockedHtml());return reply.code(401).type("text/html; charset=utf-8").send(loginHtml({error:"סיסמה שגויה"}));}loginSecurity.success(ip);reply.setCookie("crm_session",String(Date.now()+14*86400000),{...cookieOpts,signed:true});return reply.redirect("/")});
 app.post("/logout",async(req,reply)=>{reply.clearCookie("crm_session",{path:"/"});return reply.redirect("/")});
 

@@ -34,7 +34,17 @@ async function refreshConversationDelivery(id,generation){
 function scheduleConversationDeliveryRefresh(id){
  clearTimeout(deliveryRefreshTimer);
  const generation=conversationGeneration;
- deliveryRefreshTimer=setTimeout(()=>refreshConversationDelivery(id,generation),4000);
+ let attempts=0;
+ const check=async()=>{
+  if(conversation!==id||conversationGeneration!==generation)return;
+  attempts++;
+  await refreshConversationDelivery(id,generation);
+  if(conversation!==id||conversationGeneration!==generation)return;
+  const latest=[...document.querySelectorAll(".delivery-status")].at(-1);
+  const awaiting=latest&&!["נמסר","נקרא","נוגן"].includes(latest.textContent?.trim());
+  if(awaiting&&attempts<4)deliveryRefreshTimer=setTimeout(check,attempts===1?7000:12000);
+ };
+ deliveryRefreshTimer=setTimeout(check,4000);
 }
 function phoneForDisplay(value){
  const original=String(value||'').trim();
@@ -389,7 +399,7 @@ document.addEventListener('click',async e=>{
    const sentTo=conversation;
    await post('/api/conversations/'+encodeURIComponent(sentTo)+'/send',{body,confirmed:true,draft_id:$('#reply').dataset.draftId||'',request_id:requestId});
    await openConversation(sentTo);
-   if(conversation===sentTo)scheduleConversationDeliveryRefresh(sentTo);
+   if(conversation===sentTo&&document.querySelector(".delivery-status"))scheduleConversationDeliveryRefresh(sentTo);
   }
  }catch(error){$('#error').textContent=error.message;}finally{b.disabled=false;}
 });
