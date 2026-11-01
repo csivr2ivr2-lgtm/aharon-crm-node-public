@@ -234,9 +234,9 @@ async function loadWa(){
   const error=s.last_error?'<p class="error">'+esc(userError(s.last_error))+'</p>':'';
   const held=['logged_out','recovery_required'].includes(s.status);
   const recovery=s.recovery||{};
-  const recoveryInfo=held?'<p class="error"><strong>חיבור WhatsApp דורש התאוששות.</strong> קוד ניתוק: '+esc(recovery.disconnect_code??'לא ידוע')+'. נתוני האימות נשמרים; אין למחוק סשן או לנסות להתחבר שוב ושוב. גיבויים: '+Number(recovery.backup_count||0)+'.</p>':'';
+  const recoveryInfo=held?'<p class="error"><strong>חיבור WhatsApp דורש התאוששות.</strong> קוד ניתוק: '+esc(recovery.disconnect_code??'לא ידוע')+'. אפשר לבדוק את מצב האימות, או למחוק את הסשן כדי לקשר את אותו מספר מחדש. מחיקה מסירה את פרטי האימות המקומיים. גיבויים: '+Number(recovery.backup_count||0)+'.</p>':'';
   const recoverButtons=held?button('wa-recovery-status','בדוק מצב וגיבויים',s.id)+(s.status==='logged_out'?button('wa-recovery-probe','ניסיון התאוששות חד־פעמי',s.id):''):button('wa-connect','חיבור',s.id)+button('wa-reconnect','חיבור מחדש',s.id);
-  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(held?(s.status==='logged_out'?'ההרשאה נדחתה ב־WhatsApp':'נדרש בירור סשן'):statusLabel(s.status))+'</p>'+recoveryInfo+code+qr+error+'<div class="actions">'+recoverButtons+button('wa-refresh','רענן מצב',s.id)+button('wa-identities','זיהוי מספרים',s.id)+button('wa-history-status','סטטוס היסטוריה',s.id)+(held?'':button('wa-history','השלמת היסטוריה',s.id)+button('wa-disconnect','ניתוק זמני',s.id)+button('wa-delete-session','מחיקת סשן',s.id))+'</div></div>';
+  return '<div class="panel"><b>'+esc(s.label||s.id)+'</b><p>'+esc(held?(s.status==='logged_out'?'ההרשאה נדחתה ב־WhatsApp':'נדרש בירור סשן'):statusLabel(s.status))+'</p>'+recoveryInfo+code+qr+error+'<div class="actions">'+recoverButtons+button('wa-refresh','רענן מצב',s.id)+button('wa-identities','זיהוי מספרים',s.id)+button('wa-history-status','סטטוס היסטוריה',s.id)+(held?'':button('wa-history','השלמת היסטוריה',s.id)+button('wa-disconnect','ניתוק זמני',s.id))+button('wa-delete-session','מחיקת סשן',s.id)+'</div></div>';
  }).join('')||'<p>אין עדיין חשבונות WhatsApp מחוברים.</p>';
 }
 
@@ -296,7 +296,7 @@ document.addEventListener('click',async e=>{
   if(action==='wa-connect'){await post('/api/whatsapp/connect',{session_id:id});await loadWa();}
   if(action==='wa-reconnect'){await post('/api/whatsapp/reconnect',{session_id:id});await loadWa();}
   if(action==='wa-disconnect'&&confirm('לנתק זמנית את הסשן הזה בלבד?')){await post('/api/whatsapp/disconnect',{session_id:id});await loadWa();}
-  if(action==='wa-delete-session'&&confirm('למחוק לצמיתות את פרטי הקישור של הסשן הזה בלבד?')){await api('/api/whatsapp/session',{method:'DELETE',body:JSON.stringify({session_id:id})});await loadWa();}
+  if(action==='wa-delete-session'&&confirm('למחוק את סשן WhatsApp הזה ואת פרטי האימות המקומיים שלו? לאחר מכן אפשר ליצור קישור חדש לאותו מספר. שיחות שמורות ב־CRM לא יימחקו.')){await api('/api/whatsapp/session',{method:'DELETE',body:JSON.stringify({session_id:id})});await loadWa();}
   if(action==='google-disconnect'&&confirm('לנתק את חשבון Google הזה מהמערכת?')){await api('/api/google/accounts/'+encodeURIComponent(b.dataset.id),{method:'DELETE'});await render('connectors');}
   if(action==='hostinger-disconnect'&&confirm('לנתק את חשבון הדואר של Hostinger?')){await post('/api/hostinger/disconnect');await render('connectors');}
   if(action==='wa-recovery-status'){
