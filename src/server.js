@@ -200,15 +200,6 @@ app.get("/api/google/drive-search",async(req,reply)=>{
 });
 app.get("/api/hostinger/folders",async(req,reply)=>{if(!uiAuth(req,reply))return;return hostingerMail.folders();});
 app.get("/api/whatsapp/status",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.initialize();return {ok:true,...whatsapp.status({includeSecrets:true})}});
-app.get("/api/whatsapp/recovery/status",async(req,reply)=>{
- if(!uiAuth(req,reply))return;
- return whatsapp.recoveryStatus(String(req.query?.session_id||'whatsapp-main'));
-});
-app.post("/api/whatsapp/recovery/probe",async(req,reply)=>{
- if(!uiAuth(req,reply))return;
- if(req.body?.confirmed!==true)throw Error('confirmation_required');
- return whatsapp.recoveryProbe(String(req.body?.session_id||'whatsapp-main'),onWhatsAppEvent);
-});
 app.post('/api/whatsapp/identities/refresh',async(req,reply)=>{
  if(!uiAuth(req,reply))return;
  const sessionId=String(req.body?.session_id||'whatsapp-main');

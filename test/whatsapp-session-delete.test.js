@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,readFile,readdir,writeFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {WhatsAppConnector} from '../src/connectors/whatsapp.js';
-import {holdSession,readRecoveryHold,backupAuthState} from '../src/connectors/whatsapp-recovery.js';
+import {removeLegacyRecoveryArtifacts} from '../src/connectors/whatsapp-recovery.js';
 
 test('explicit delete works for quarantined main without touching registry or other accounts',async t=>{
  const home=await mkdtemp(join(tmpdir(),'crm-wa-delete-main-'));
@@ -16,8 +16,8 @@ test('explicit delete works for quarantined main without touching registry or ot
  await writeFile(join(root,'creds.json'),JSON.stringify({registered:true}));
  await writeFile(join(root,'session-abc=+.json'),'{"key":"test"}');
  await writeFile(join(other,'creds.json'),'{"registered":true}');
- await holdSession(root,{reason:'logged_out',code:401});
- assert.equal((await backupAuthState(root)).ok,true);
+ await mkdir(root+'.recovery',{recursive:true});
+ await writeFile(join(root+'.recovery','quarantine.json'),'LEGACY');
  const c=new WhatsAppConnector({sessionId:'whatsapp-main',sessionDir:root});
  c.statusValue='logged_out';
  const result=await c.deleteSession();
@@ -27,7 +27,7 @@ test('explicit delete works for quarantined main without touching registry or ot
  for(const name of ['creds.json','session-abc=+.json']){
   await assert.rejects(readFile(join(root,name),'utf8'),{code:'ENOENT'});
  }
- assert.equal(await readRecoveryHold(root),null);
+ await removeLegacyRecoveryArtifacts(root);
  await assert.rejects(readdir(root+'.recovery'),{code:'ENOENT'});
 });
 
@@ -38,7 +38,8 @@ test('explicit delete of logged-out secondary session removes local auth and rec
  await mkdir(dir,{recursive:true});await mkdir(other,{recursive:true});
  await writeFile(join(dir,'creds.json'),'{"registered":true}');
  await writeFile(join(other,'creds.json'),'{"registered":true}');
- await holdSession(dir,{reason:'connection_replaced',code:440});
+ await mkdir(dir+'.recovery',{recursive:true});
+ await writeFile(join(dir+'.recovery','quarantine.json'),'LEGACY');
  const c=new WhatsAppConnector({sessionId:id,sessionDir:dir});c.statusValue='recovery_required';
  const status=await c.deleteSession();
  assert.equal(status.status,'disconnected');
