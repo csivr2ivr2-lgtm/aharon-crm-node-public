@@ -303,7 +303,9 @@ app.post("/api/hostinger/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))re
 app.delete("/api/google/accounts/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.disconnect(req.params.id);});
 app.post("/api/whatsapp/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.disconnect(String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};});
 app.post("/api/whatsapp/reconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.reconnect(String(req.body?.session_id||"whatsapp-main"),onWhatsAppEvent);return {ok:true,...whatsapp.status({includeSecrets:true})};});
-app.delete("/api/whatsapp/session",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.deleteSession(String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};});
+async function deleteWhatsAppSession(req,reply){if(!uiAuth(req,reply))return;await whatsapp.deleteSession(String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};}
+app.post("/api/whatsapp/session/delete",deleteWhatsAppSession);
+app.delete("/api/whatsapp/session",deleteWhatsAppSession);
 
 app.get("/v1/status",async(req,reply)=>{if(!apiAuth(req,reply))return;return {ok:true,workspace:await workspace.call("status"),connectors:await connectors.status()}});
 app.post("/v1/workspace/:op",async(req,reply)=>{if(!apiAuth(req,reply))return;return workspace.call(req.params.op,req.body||{});});

@@ -95,6 +95,21 @@ export async function backupAuthState(sessionDir,{maximum=5,maximumBytes=80*1024
   throw Error('whatsapp_auth_snapshot_failed');
  }
 }
+// Explicit deletion is local and must not depend on a live WhatsApp socket.
+// For the legacy main session, keep the registry and every child session intact.
+export async function clearSessionLocalAuth(sessionDir,{preserveRegistry=false}={}){
+ if(preserveRegistry){
+  let entries=[];
+  try{entries=await readdir(sessionDir,{withFileTypes:true});}
+  catch(error){if(error.code!=='ENOENT')throw error;}
+  for(const entry of entries){
+   if(entry.isFile()&&fileName(entry.name))await rm(join(sessionDir,entry.name),{force:true});
+  }
+ }else await rm(sessionDir,{recursive:true,force:true});
+ // Quarantine records and credential snapshots live in this separate sibling.
+ // Removing them is part of the explicitly confirmed permanent local deletion.
+ await rm(recoveryHome(sessionDir),{recursive:true,force:true});
+}
 export async function recoverySummary(sessionDir){
  const home=recoveryHome(sessionDir);
  let backups=0;

@@ -1,5 +1,5 @@
 import makeWASocket,{DisconnectReason,useMultiFileAuthState,getContentType,normalizeMessageContent} from "@whiskeysockets/baileys";
-import {readRecoveryHold,interpretDisconnect,holdSession,clearHoldOnConnected,backupAuthState,reserveSingleRecoveryProbe} from "./whatsapp-recovery.js";
+import {readRecoveryHold,interpretDisconnect,holdSession,clearHoldOnConnected,backupAuthState,reserveSingleRecoveryProbe,clearSessionLocalAuth} from "./whatsapp-recovery.js";
 import QRCode from "qrcode";
 import {mkdir,rm} from "node:fs/promises";
 import {config} from "../config.js";
@@ -398,9 +398,22 @@ export class WhatsAppConnector{
   try{await sock?.logout();}catch{this.lastError="logout_failed";throw Error("whatsapp_logout_failed");}finally{sock?.end?.(new Error("logout"));}
   // Removing stored credentials also works when there is no active socket.
   await this.credentialWrites;
-  await rm(this.sessionDir,{recursive:true,force:true});this.knownChats.clear();this.historyAnchors.clear();this.statusValue="logged_out";this.lastError=null;
+  await clearSessionLocalAuth(this.sessionDir,{preserveRegistry:this.sessionId==='whatsapp-main'});this.knownChats.clear();this.historyAnchors.clear();this.statusValue="disconnected";this.lastError=null;
  }
- async deleteSession(){await this.logout();return {ok:true,...this.status()};}
+ async deleteSession(){
+  // A logged-out or quarantined session cannot log out remotely, but the owner
+  // may explicitly discard its local auth and re-pair the same phone number.
+  if(this.connecting)throw Error('whatsapp_session_busy_retry');
+  try{this.stop();}catch{/* A broken socket must not block local deletion. */}
+  await this.credentialWrites;
+  try{await clearSessionLocalAuth(this.sessionDir,{preserveRegistry:this.sessionId==='whatsapp-main'});}
+  catch{this.lastError='whatsapp_session_delete_failed';throw Error('whatsapp_session_delete_failed');}
+  this.knownChats.clear();this.historyAnchors.clear();this.peerNames.clear();this.peerPhones.clear();
+  this.lastDisconnectCode=null;this.lastDisconnectReason=null;this.lastDisconnectAt=null;
+  this.recoveryBackupStatus='not_checked';this.recoveryBackupCount=0;this.reconnectAttempts=0;
+  this.statusValue='disconnected';this.lastError=null;
+  return {ok:true,...this.status()};
+ }
  async deleteForEveryone({to,message_id}={}){
   if(!this.sock||this.statusValue!=='connected')throw Error('whatsapp_not_connected');
   const jid=whatsappDestination(to),id=String(message_id||'');
