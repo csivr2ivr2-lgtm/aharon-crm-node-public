@@ -303,7 +303,14 @@ app.post("/api/hostinger/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))re
 app.delete("/api/google/accounts/:id",async(req,reply)=>{if(!uiAuth(req,reply))return;return googleConnector.disconnect(req.params.id);});
 app.post("/api/whatsapp/disconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.disconnect(String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};});
 app.post("/api/whatsapp/reconnect",async(req,reply)=>{if(!uiAuth(req,reply))return;await whatsapp.reconnect(String(req.body?.session_id||"whatsapp-main"),onWhatsAppEvent);return {ok:true,...whatsapp.status({includeSecrets:true})};});
-async function deleteWhatsAppSession(req,reply){if(!uiAuth(req,reply))return;await whatsapp.deleteSession(String(req.body?.session_id||"whatsapp-main"));return {ok:true,...whatsapp.status({includeSecrets:true})};}
+async function deleteWhatsAppSession(req,reply){
+ if(!uiAuth(req,reply))return;
+ // Deletion must explicitly name the target; a missing body must never delete main.
+ const sessionId=req.body?.session_id;
+ if(typeof sessionId!=='string'||!sessionId)throw Error('whatsapp_session_id_required');
+ await whatsapp.deleteSession(sessionId);
+ return {ok:true,...whatsapp.status({includeSecrets:true})};
+}
 app.post("/api/whatsapp/session/delete",deleteWhatsAppSession);
 app.delete("/api/whatsapp/session",deleteWhatsAppSession);
 
