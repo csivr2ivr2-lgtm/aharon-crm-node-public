@@ -44,6 +44,10 @@ test('multiple linked sessions persist, isolate sends and never expose QR in con
  assert.equal(restarted.status().sessions.length,2);
  assert.deepEqual(JSON.parse(await readFile(join(dir,'sessions.json'),'utf8')).map(r=>r.id),[second.session_id]);
  await assert.rejects(()=>restarted.send({account_id:first.session_id,to:'972501111111',body:'stale'}),/whatsapp_session_not_found/);
+ const replacement=await restarted.pairWithPhone('972501234567',()=>{});
+ assert.notEqual(replacement.session_id,first.session_id);
+ assert.ok(restarted.status().sessions.some(s=>s.id===replacement.session_id));
+ assert.equal(JSON.parse(await readFile(join(dir,'sessions.json'),'utf8')).length,2);
 });
 test('invalid session ids are rejected and maximum sessions are bounded',async t=>{
  const dir=await mkdtemp(join(tmpdir(),'crm-whatsapp-limits-'));t.after(()=>rm(dir,{recursive:true,force:true}));
